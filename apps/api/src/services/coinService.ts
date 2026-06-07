@@ -73,6 +73,35 @@ export async function creditCoins(
   });
 }
 
+export async function debitAmount(
+  userId: string,
+  amount: number,
+  reason: string,
+  metadata?: Record<string, unknown>,
+  freeInTestMode = false,
+  user?: User,
+): Promise<{ cost: number; balance: number }> {
+  if (amount <= 0) return { cost: 0, balance: await getUserCoins(userId) };
+  if (freeInTestMode && isTestModeUser(user)) {
+    return { cost: 0, balance: await getUserCoins(userId) };
+  }
+
+  return withUserCoinLock(userId, async () => {
+    const db = await getDb();
+    const tx = await db.applyCoinTransaction({
+      id: crypto.randomUUID(),
+      userId,
+      type: 'debit',
+      amount,
+      balanceAfter: 0,
+      reason,
+      metadata,
+      createdAt: new Date().toISOString(),
+    });
+    return { cost: amount, balance: tx.balanceAfter };
+  });
+}
+
 export async function refundCoins(userId: string, amount: number, reason: string): Promise<void> {
   if (amount <= 0) return;
   await creditCoins(userId, amount, reason, 'refund');

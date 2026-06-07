@@ -118,4 +118,13 @@ export interface GenerateRequest {
   stickerTexts?: string[];
   stickerIndex?: number;
   skipCoinCharge?: boolean;
+  exportSlot?: string;
+  formatOverride?: { width: number; height: number };
+  wizardContext?: {
+    creatorName?: string;
+    clanName?: string;
+    slogan?: string;
+    niche?: string;
+    visualStyle?: string;
+  };
 }

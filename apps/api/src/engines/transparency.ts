@@ -24,7 +24,8 @@ export async function enforceTransparency(buffer: Buffer): Promise<Buffer> {
   }).png().toBuffer();
 }
 
-export async function processAsset(buffer: Buffer): Promise<Buffer> {
+export async function processAsset(buffer: Buffer, keepOpaque = false): Promise<Buffer> {
   const withAlpha = await sharp(buffer).ensureAlpha().png().toBuffer();
+  if (keepOpaque) return withAlpha;
   return enforceTransparency(withAlpha);
 }

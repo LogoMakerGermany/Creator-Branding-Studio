@@ -30,7 +30,7 @@ export function DashboardPage() {
         </GlassCard>
         <GlassCard glow="cyan">
           <p className="text-sm text-white/50">Schnellstart</p>
-          <Link to="/onboarding"><NeonButton variant="cyan" className="mt-2">Neues Projekt</NeonButton></Link>
+          <Link to="/onboarding"><NeonButton variant="cyan" className="mt-2 w-full !py-4 !text-base">Neues Projekt</NeonButton></Link>
         </GlassCard>
         <GlassCard glow="purple">
           <p className="text-sm text-white/50">Rolle</p>
@@ -50,8 +50,8 @@ export function DashboardPage() {
         ))}
         {projects.length === 0 && (
           <GlassCard className="col-span-full text-center">
-            <p className="text-white/50">Noch keine Projekte. Starte mit dem Onboarding!</p>
-            <Link to="/onboarding"><NeonButton className="mt-4">Projekt erstellen</NeonButton></Link>
+            <p className="text-white/50">Noch kein Branding? Starte in wenigen Minuten.</p>
+            <Link to="/onboarding"><NeonButton className="mt-4 w-full !py-4 !text-base">Neues Projekt erstellen</NeonButton></Link>
           </GlassCard>
         )}
       </div>

@@ -18,7 +18,8 @@ export function DownloadsPage() {
       <p className="mt-2 text-white/50">Einzel-, Bulk- und ZIP-Downloads sowie OBS-Export.</p>
 
       <div className="mt-8 flex flex-wrap gap-4">
-        <a href={`/api/projects/${id}/downloads/zip`}><NeonButton variant="pink">Alles als ZIP</NeonButton></a>
+        <a href={`/api/projects/${id}/downloads/branding-pack`}><NeonButton variant="pink">Branding Pack ZIP</NeonButton></a>
+        <a href={`/api/projects/${id}/downloads/zip`}><NeonButton variant="purple">Alles als ZIP</NeonButton></a>
         <a href={`/api/projects/${id}/downloads/stickers-zip`}><NeonButton variant="cyan">Sticker ZIP</NeonButton></a>
         <a href={`/api/projects/${id}/downloads/obs`}><NeonButton variant="purple">OBS Export</NeonButton></a>
       </div>

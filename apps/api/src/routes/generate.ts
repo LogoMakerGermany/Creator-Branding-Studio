@@ -3,8 +3,8 @@ import { ASSET_TYPES } from '@cbs/shared';
 import type { AssetType } from '@cbs/shared';
 import { authMiddleware, type AuthRequest } from './auth.js';
 import { runGeneration } from '../services/dnaExtractor.js';
-import { startStreamPack, getStreamPackProgress, generateStickers } from '../services/streamPackService.js';
-import { createZipDownload, createStickerZip, createObsExport, getAssetFile } from '../services/downloadService.js';
+import { startStreamPack, getStreamPackProgress, generateStickers, getStreamSetPreview } from '../services/streamPackService.js';
+import { createZipDownload, createStickerZip, createObsExport, getAssetFile, createBrandingPackZip } from '../services/downloadService.js';
 import { requireProjectAccess } from '../middleware/projectAccess.js';
 import { existsSync } from 'fs';
 
@@ -25,6 +25,13 @@ generateRouter.post('/:id/generate/:assetType', async (req: AuthRequest, res) =>
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'Generierung fehlgeschlagen' });
   }
+});
+
+generateRouter.get('/:id/stream-set/preview', async (req: AuthRequest, res) => {
+  const project = await requireProjectAccess(req, res);
+  if (!project) return;
+  const platform = String(req.query.platform || 'tiktok');
+  res.json(getStreamSetPreview(platform));
 });
 
 generateRouter.post('/:id/stream-pack', async (req: AuthRequest, res) => {
@@ -76,6 +83,12 @@ generateRouter.post('/:id/animations', async (req: AuthRequest, res) => {
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : 'Animation fehlgeschlagen' });
   }
+});
+
+generateRouter.get('/:id/downloads/branding-pack', async (req: AuthRequest, res) => {
+  const project = await requireProjectAccess(req, res);
+  if (!project) return;
+  await createBrandingPackZip(project.id, res);
 });
 
 generateRouter.get('/:id/downloads/zip', async (req: AuthRequest, res) => {

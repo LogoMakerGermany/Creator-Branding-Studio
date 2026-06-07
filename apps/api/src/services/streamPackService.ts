@@ -1,51 +1,81 @@
 import PQueue from 'p-queue';
-import { STREAM_PACK_ASSETS } from '@cbs/shared';
-import type { GenerateRequest } from '@cbs/shared';
+import {
+  getStreamSetConfig,
+  calculateStreamSetCost,
+  type StreamSetAssetSpec,
+} from '@cbs/shared';
+import type { AssetType, GenerateRequest } from '@cbs/shared';
 import { getDb } from '../db/localDb.js';
-import { debitCoins } from './coinService.js';
+import { debitAmount } from './coinService.js';
 import { runGeneration, waitForJob } from './dnaExtractor.js';
 
 export interface StreamPackProgress {
   projectId: string;
   userId: string;
+  platform: string;
   total: number;
   completed: number;
   current?: string;
-  jobs: { assetType: string; jobId: string; status: string }[];
+  jobs: { assetType: string; slot: string; jobId: string; status: string }[];
   done: boolean;
   error?: string;
 }
 
 const packProgress = new Map<string, StreamPackProgress>();
 
+export function getStreamSetPreview(platform: string) {
+  const config = getStreamSetConfig(platform);
+  return {
+    platform: config.platform,
+    label: config.label,
+    totalCoins: calculateStreamSetCost(platform),
+    assets: config.assets.map(a => ({
+      slot: a.slot,
+      label: a.label,
+      assetType: a.assetType,
+      exportName: a.exportName,
+      dimensions: `${a.width} × ${a.height}px`,
+      width: a.width,
+      height: a.height,
+      transparent: a.transparent,
+      coinCost: a.coinCost,
+    })),
+  };
+}
+
 export async function startStreamPack(
   projectId: string,
   userId?: string,
   ip?: string,
-  platform?: string,
+  platform = 'tiktok',
 ): Promise<{ packId: string }> {
   const db = await getDb();
   const user = userId ? await db.getUserById(userId) : null;
-  await debitCoins(userId!, 'stream_set', 'Stream-Set Generator', 1, true, user || undefined);
+  const config = getStreamSetConfig(platform);
+  const totalCost = calculateStreamSetCost(platform);
+
+  await debitAmount(
+    userId!,
+    totalCost,
+    `Stream-Set: ${config.label}`,
+    { platform, assetCount: config.assets.length },
+    true,
+    user || undefined,
+  );
 
   const packId = crypto.randomUUID();
-  const assets = [...STREAM_PACK_ASSETS];
-  // Stream pack needs 5 stickers - add 4 more sticker jobs
-  const stickerSlots = 4;
-  for (let i = 1; i <= stickerSlots; i++) {
-    assets.push('sticker');
-  }
 
   packProgress.set(packId, {
     projectId,
     userId: userId!,
-    total: assets.length,
+    platform,
+    total: config.assets.length,
     completed: 0,
     jobs: [],
     done: false,
   });
 
-  runStreamPack(packId, projectId, assets, userId, ip, platform).catch(err => {
+  runStreamPack(packId, projectId, config.assets, userId, ip, platform).catch(err => {
     const p = packProgress.get(packId);
     if (p) { p.done = true; p.error = err.message; }
   });
@@ -56,25 +86,45 @@ export async function startStreamPack(
 async function runStreamPack(
   packId: string,
   projectId: string,
-  assets: string[],
+  assets: StreamSetAssetSpec[],
   userId?: string,
   ip?: string,
   platform?: string,
 ): Promise<void> {
+  const db = await getDb();
+  const dna = await db.getDNA(projectId);
+  const wizardContext = dna ? {
+    creatorName: dna.extractedFrom?.sourceRef,
+    niche: dna.brandingStyle,
+    visualStyle: dna.brandingStyle,
+  } : undefined;
+
   const queue = new PQueue({ concurrency: 2 });
   const progress = packProgress.get(packId)!;
   let stickerCount = 0;
 
-  const tasks = assets.map(assetType => queue.add(async () => {
-    progress.current = assetType;
-    const body: GenerateRequest = { platform, skipCoinCharge: true };
-    if (assetType === 'sticker') {
+  const tasks = assets.map(spec => queue.add(async () => {
+    progress.current = spec.label;
+    const body: GenerateRequest = {
+      platform,
+      exportSlot: spec.slot,
+      formatOverride: { width: spec.width, height: spec.height },
+      skipCoinCharge: true,
+      wizardContext,
+    };
+    if (spec.assetType === 'sticker') {
       body.stickerIndex = stickerCount;
       body.customText = ['GG', 'EZ WIN', 'LOL', "LET'S GO", 'TEAM'][stickerCount] || 'GG';
       stickerCount++;
     }
-    const { jobId } = await runGeneration(projectId, assetType as import('@cbs/shared').AssetType, body, userId, ip);
-    progress.jobs.push({ assetType, jobId, status: 'processing' });
+    const { jobId } = await runGeneration(
+      projectId,
+      spec.assetType as AssetType,
+      body,
+      userId,
+      ip,
+    );
+    progress.jobs.push({ assetType: spec.assetType, slot: spec.slot, jobId, status: 'processing' });
     const job = await waitForJob(jobId, 180000);
     const entry = progress.jobs.find(j => j.jobId === jobId);
     if (entry) entry.status = job.status;
@@ -101,7 +151,7 @@ export async function generateStickers(
 ): Promise<{ jobIds: string[] }> {
   const db = await getDb();
   const user = userId ? await db.getUserById(userId) : null;
-  await debitCoins(userId!, 'stickers_pack', 'Sticker Studio (5 Sticker)', 1, true, user || undefined);
+  await debitAmount(userId!, 10, 'Sticker Studio (5 Sticker)', { platform }, true, user || undefined);
 
   const texts = stickerTexts.length >= 5
     ? stickerTexts.slice(0, 5)
@@ -116,6 +166,7 @@ export async function generateStickers(
       stickerIndex: i,
       stickerTexts: texts,
       platform,
+      exportSlot: `sticker_${i + 1}`,
       skipCoinCharge: true,
     }, userId, ip);
     jobIds.push(jobId);

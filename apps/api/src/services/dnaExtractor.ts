@@ -16,6 +16,7 @@ import { debitCoins, refundCoins, shouldUseMockGeneration } from './coinService.
 import { checkCopyright } from '../guards/copyrightGuard.js';
 import { checkFraud, audit } from '../guards/fraudShield.js';
 import { sanitizeInput } from '../middleware/security.js';
+import { buildStreamSetExportName, getStreamSetAssetSpec, isTransparentAsset, buildBrandingExportName, getBrandingAssetSpec } from '@cbs/shared';
 import type { AssetType } from '@cbs/shared';
 
 export async function extractAndSaveDNA(
@@ -78,6 +79,7 @@ export async function runGeneration(
     platform: body.platform,
     customText,
     stickerIndex: body.stickerIndex,
+    wizardContext: body.wizardContext,
   });
 
   const fraud = await checkFraud(ip || 'unknown', userId, prompt);
@@ -102,7 +104,11 @@ export async function runGeneration(
     projectId,
     assetType,
     status: 'queued',
-    metadata: { coinCost },
+    metadata: {
+      coinCost,
+      exportSlot: body.exportSlot,
+      platform: body.platform,
+    },
     createdAt: now,
     updatedAt: now,
   });
@@ -136,6 +142,30 @@ async function processJob(
     let provider: string;
     let fileName: string;
     const ext = isVideoAsset(assetType) ? 'mp4' : 'png';
+    const streamSpec = body.platform && body.exportSlot
+      ? getStreamSetAssetSpec(body.platform, body.exportSlot)
+      : null;
+    const brandingSpec = body.platform && body.exportSlot
+      ? getBrandingAssetSpec(body.platform, body.exportSlot)
+      : null;
+    const spec = streamSpec || brandingSpec;
+    const keepOpaque = spec ? !spec.transparent : !isTransparentAsset(body.platform || '', assetType, body.exportSlot);
+
+    const resolveFileName = () => {
+      if (body.platform && body.exportSlot) {
+        const exportName = buildBrandingExportName(body.platform, body.exportSlot, body.stickerIndex)
+          || buildStreamSetExportName(body.platform, body.exportSlot, body.stickerIndex);
+        if (exportName) {
+          return isVideoAsset(assetType)
+            ? exportName.replace(/\.png$/, `.${ext}`)
+            : exportName;
+        }
+      }
+      if (assetType === 'sticker' && body.stickerIndex !== undefined) {
+        return `sticker_${String(body.stickerIndex + 1).padStart(2, '0')}.png`;
+      }
+      return `${assetType}_${Date.now()}.${ext}`;
+    };
 
     if (isVideoAsset(assetType) && !useMock) {
       const duration = body.duration || 5;
@@ -150,29 +180,22 @@ async function processJob(
       const result = await generateVideo(videoPrompt, duration);
       buffer = result.buffer;
       provider = result.provider;
-      fileName = `${assetType}_${Date.now()}.${ext}`;
+      fileName = resolveFileName();
     } else if (useMock || (!env.openaiApiKey && !env.replicateApiToken)) {
       if (!useMock && !env.openaiApiKey && !env.replicateApiToken) {
         throw new Error('Kein API-Schlüssel. Aktiviere TEST_MODE oder hinterlege OPENAI_API_KEY.');
       }
       buffer = await generateMockAsset(dna, assetType, body.platform, body.customText);
-      buffer = await applySmartFormat(buffer, assetType, body.platform);
-      buffer = await processAsset(buffer);
+      buffer = await applySmartFormat(buffer, assetType, body.platform, body.exportSlot, body.formatOverride);
+      buffer = await processAsset(buffer, keepOpaque);
       provider = 'test-mode';
-      fileName = assetType === 'sticker' && body.stickerIndex !== undefined
-        ? `sticker_${String(body.stickerIndex + 1).padStart(2, '0')}.png`
-        : `${assetType}_${Date.now()}.png`;
+      fileName = resolveFileName();
     } else {
       const result = await generateImage(prompt, assetType);
-      buffer = await applySmartFormat(result.buffer, assetType, body.platform);
-      buffer = await processAsset(buffer);
+      buffer = await applySmartFormat(result.buffer, assetType, body.platform, body.exportSlot, body.formatOverride);
+      buffer = await processAsset(buffer, keepOpaque);
       provider = result.provider;
-
-      if (assetType === 'sticker' && body.stickerIndex !== undefined) {
-        fileName = `sticker_${String(body.stickerIndex + 1).padStart(2, '0')}.png`;
-      } else {
-        fileName = `${assetType}_${Date.now()}.png`;
-      }
+      fileName = resolveFileName();
     }
 
     const filePath = join(projectDir, fileName);
@@ -183,7 +206,7 @@ async function processJob(
       provider,
       filePath,
       fileName,
-      metadata: { platform: body.platform, customText: body.customText, coinCost, testMode: useMock },
+      metadata: { platform: body.platform, customText: body.customText, coinCost, testMode: useMock, exportSlot: body.exportSlot },
     });
 
     await audit(db, userId, 'generate', `${projectId}/${assetType}`, fileName, ip);

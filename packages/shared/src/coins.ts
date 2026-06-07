@@ -1,13 +1,13 @@
-export type StreamingPlatform = 'twitch' | 'kick' | 'youtube' | 'tiktok';
+import {
+  calculateStreamSetCost,
+  STREAM_SET_PLATFORMS,
+  STREAM_SET_PLATFORM_LABELS,
+  type StreamSetPlatform,
+} from './streamSets.js';
 
-export const STREAM_PLATFORMS: StreamingPlatform[] = ['twitch', 'kick', 'youtube', 'tiktok'];
-
-export const STREAM_PLATFORM_LABELS: Record<StreamingPlatform, string> = {
-  twitch: 'Twitch',
-  kick: 'Kick',
-  youtube: 'YouTube',
-  tiktok: 'TikTok',
-};
+export type StreamingPlatform = StreamSetPlatform;
+export const STREAM_PLATFORMS: StreamSetPlatform[] = STREAM_SET_PLATFORMS;
+export const STREAM_PLATFORM_LABELS: Record<StreamSetPlatform, string> = STREAM_SET_PLATFORM_LABELS;
 
 export type CoinTransactionType = 'debit' | 'credit' | 'refund' | 'purchase';
 
@@ -52,17 +52,17 @@ export interface PaymentRecord {
 
 export const COIN_COSTS: Record<string, number> = {
   logo: 5,
-  banner: 8,
-  facecam: 6,
+  banner: 10,
+  facecam: 5,
   overlay: 10,
   panel: 4,
   thumbnail: 6,
-  sticker: 3,
-  stickers_pack: 15,
+  sticker: 2,
+  stickers_pack: 10,
   stream_set: 40,
   stream_pack: 40,
-  intro: 20,
-  outro: 20,
+  intro: 15,
+  outro: 10,
   stinger: 12,
   transition: 12,
   loading: 10,
@@ -76,6 +76,10 @@ export const COIN_COSTS: Record<string, number> = {
 export function getCoinCost(assetType: string, count = 1): number {
   const unit = COIN_COSTS[assetType] ?? COIN_COSTS.default;
   return unit * count;
+}
+
+export function getStreamSetCoinCost(platform: string): number {
+  return calculateStreamSetCost(platform);
 }
 
 export const DEFAULT_USER_COINS = 50;

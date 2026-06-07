@@ -15,13 +15,26 @@ export interface PromptContext {
   customText?: string;
   stickerIndex?: number;
   targetAudience?: string;
+  wizardContext?: {
+    creatorName?: string;
+    clanName?: string;
+    slogan?: string;
+    niche?: string;
+    visualStyle?: string;
+  };
 }
 
 export function buildMagicPrompt(ctx: PromptContext): string {
-  const { dna, assetType, platform, customText, stickerIndex = 0 } = ctx;
+  const { dna, assetType, platform, customText, stickerIndex = 0, wizardContext } = ctx;
   const colors = [...dna.primaryColors, ...dna.secondaryColors, ...dna.accentColors].join(', ');
   const styleLock = dna.styleLocked ? `STRICT STYLE LOCK: maintain exact style "${dna.brandingStyle}"` : '';
   const stickerVar = assetType === 'sticker' ? STICKER_VARIATIONS[stickerIndex % 5] : null;
+  const creatorLine = wizardContext?.creatorName
+    ? `Creator brand: ${wizardContext.creatorName}${wizardContext.clanName ? `, clan/team: ${wizardContext.clanName}` : ''}.`
+    : '';
+  const nicheLine = wizardContext?.niche ? `Niche: ${wizardContext.niche}.` : '';
+  const styleLine = wizardContext?.visualStyle ? `Visual style direction: ${wizardContext.visualStyle}.` : '';
+  const sloganLine = wizardContext?.slogan ? `Brand slogan energy: "${wizardContext.slogan}".` : '';
 
   const assetDescriptions: Record<string, string> = {
     logo: 'professional esports gaming logo, icon mark, transparent background',
@@ -57,7 +70,13 @@ export function buildMagicPrompt(ctx: PromptContext): string {
     `Lighting: ${dna.lightBehavior}. Texture: ${dna.textureBehavior}.`,
     platform ? `Optimized for ${platform} platform.` : '',
     customText ? `Include text: "${customText}".` : '',
-    'CRITICAL: transparent background, no white background, no black background, PNG alpha.',
+    creatorLine,
+    nicheLine,
+    styleLine,
+    sloganLine,
+    ['logo', 'sticker', 'facecam', 'panel', 'overlay', 'alert'].includes(assetType)
+      ? 'CRITICAL: transparent background, no white background, no black background, PNG alpha.'
+      : 'Premium full-frame composition allowed for this asset type.',
     'Premium gaming esports aesthetic, glasmorphism, neon accents.',
     styleLock,
   ];

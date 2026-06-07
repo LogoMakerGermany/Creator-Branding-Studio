@@ -43,6 +43,14 @@ export interface BrandDNA {
   savedStyleProfiles?: SavedStyleProfile[];
   activeStyleProfileId?: string;
   extractedFrom?: DnaExtractedFrom;
+  niche?: string;
+  visualStyle?: string;
+  clanName?: string;
+  targetAudience?: string;
+  effectStyle?: string;
+  threeDStyle?: string;
+  animationStyle?: string;
+  brandDnaSummary?: string;
   createdAt: string;
   updatedAt: string;
 }

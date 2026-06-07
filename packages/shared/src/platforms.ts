@@ -19,18 +19,18 @@ export interface PlatformFormat {
 
 export const PLATFORM_FORMATS: Record<Platform, Record<string, PlatformFormat>> = {
   twitch: {
-    banner: { width: 1200, height: 480, label: 'Profilbanner' },
+    banner: { width: 1920, height: 480, label: 'Profilbanner' },
     offline: { width: 1920, height: 1080, label: 'Offline Screen' },
-    panel: { width: 320, height: 160, label: 'Panel' },
+    panel: { width: 320, height: 100, label: 'Panel' },
     overlay: { width: 1920, height: 1080, label: 'Overlay' },
-    facecam: { width: 400, height: 400, label: 'Facecam Rahmen' },
+    facecam: { width: 640, height: 360, label: 'Facecam Rahmen 16:9' },
   },
   kick: {
-    banner: { width: 1200, height: 480, label: 'Profilbanner' },
+    banner: { width: 1920, height: 480, label: 'Profilbanner' },
     offline: { width: 1920, height: 1080, label: 'Offline Screen' },
-    panel: { width: 320, height: 160, label: 'Panel' },
+    panel: { width: 320, height: 100, label: 'Panel' },
     overlay: { width: 1920, height: 1080, label: 'Overlay' },
-    facecam: { width: 400, height: 400, label: 'Facecam Rahmen' },
+    facecam: { width: 640, height: 360, label: 'Facecam Rahmen 16:9' },
   },
   youtube: {
     banner: { width: 2560, height: 1440, label: 'Kanalbild' },
@@ -38,8 +38,11 @@ export const PLATFORM_FORMATS: Record<Platform, Record<string, PlatformFormat>> 
     overlay: { width: 1920, height: 1080, label: 'Overlay' },
   },
   tiktok: {
-    profile: { width: 200, height: 200, label: 'Profilbild' },
-    banner: { width: 1125, height: 633, label: 'Banner' },
+    profile: { width: 400, height: 400, label: 'Profilbild' },
+    video_cover: { width: 1080, height: 1920, label: 'Video Cover' },
+    live_cover: { width: 1080, height: 1920, label: 'Live Cover' },
+    overlay: { width: 1080, height: 1920, label: 'Overlay' },
+    sticker: { width: 512, height: 512, label: 'Sticker' },
   },
   instagram: {
     profile: { width: 320, height: 320, label: 'Profilbild' },
@@ -49,6 +52,8 @@ export const PLATFORM_FORMATS: Record<Platform, Record<string, PlatformFormat>> 
   discord: {
     banner: { width: 960, height: 540, label: 'Server Banner' },
     icon: { width: 512, height: 512, label: 'Server Icon' },
+    sticker: { width: 320, height: 320, label: 'Sticker' },
+    community_banner: { width: 1920, height: 1080, label: 'Community Banner' },
   },
   facebook: {
     cover: { width: 820, height: 312, label: 'Titelbild' },
