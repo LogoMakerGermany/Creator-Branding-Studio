@@ -12,7 +12,6 @@ import { getDb } from './db/localDb.js';
 import { env } from './config.js';
 import { validateEnvOnStartup } from './validateEnv.js';
 import { handleStripeWebhook } from './services/paymentService.js';
-import { ensureDemoPasswordHashes } from './auth/index.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -95,9 +94,6 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 async function start() {
   validateEnvOnStartup();
   await getDb();
-  if (env.authProvider === 'mock') {
-    await ensureDemoPasswordHashes();
-  }
   app.listen(env.port, () => {
     console.log(`Creator Branding Studio API → http://localhost:${env.port}`);
   });

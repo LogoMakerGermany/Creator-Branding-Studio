@@ -28,12 +28,7 @@ interface DbData {
 }
 
 const defaultData = (): DbData => ({
-  users: [
-    { id: 'admin-1', email: 'admin@cbs.local', name: 'Admin', role: 'admin', banned: false, coins: ADMIN_COINS, createdAt: new Date().toISOString() },
-    { id: 'mod-1', email: 'mod@cbs.local', name: 'Moderator', role: 'moderator', banned: false, coins: 500, createdAt: new Date().toISOString() },
-    { id: 'user-1', email: 'user@cbs.local', name: 'Benutzer', role: 'user', banned: false, coins: DEFAULT_USER_COINS, createdAt: new Date().toISOString() },
-    { id: 'tester-1', email: 'tester@cbs.local', name: 'Plattform-Tester', role: 'tester', banned: false, coins: TESTER_COINS, isTester: true, createdAt: new Date().toISOString() },
-  ],
+  users: [],
   projects: [],
   dna: {},
   jobs: [],
@@ -77,12 +72,13 @@ export class LocalDb implements DatabaseAdapter {
         u.coins = u.role === 'admin' ? ADMIN_COINS : u.role === 'tester' ? TESTER_COINS : DEFAULT_USER_COINS;
       }
     }
-    if (!this.data.users.find(u => u.role === 'tester')) {
-      this.data.users.push({
-        id: 'tester-1', email: 'tester@cbs.local', name: 'Plattform-Tester',
-        role: 'tester', banned: false, coins: TESTER_COINS, isTester: true, createdAt: new Date().toISOString(),
-      });
-    }
+    const legacyDemoEmails = new Set([
+      'admin@cbs.local',
+      'mod@cbs.local',
+      'user@cbs.local',
+      'tester@cbs.local',
+    ]);
+    this.data.users = this.data.users.filter(u => !legacyDemoEmails.has(u.email.toLowerCase()));
     this.persist();
   }
 

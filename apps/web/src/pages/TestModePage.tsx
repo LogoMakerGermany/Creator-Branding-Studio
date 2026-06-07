@@ -23,7 +23,6 @@ export function TestModePage() {
           {status?.active ? '✓ Testmodus aktiv' : '✗ Testmodus inaktiv'}
         </p>
         <p className="mt-2 text-sm text-white/50">{status?.message}</p>
-        <p className="mt-4 text-xs text-white/40">Login: tester@cbs.local · Rolle: Tester · 200 Coins</p>
       </GlassCard>
 
       {status?.active && id && (

@@ -15,34 +15,29 @@ npm run dev
 - **Frontend:** http://localhost:5173
 - **API:** http://localhost:3001
 
-## Demo-Zugänge
+## Anmeldung (Production)
 
-| E-Mail | Rolle |
-|--------|-------|
-| admin@cbs.local | Admin |
-| mod@cbs.local | Moderator |
-| user@cbs.local | Benutzer |
-
-Demo-Passwort: **`Demo2024!`** (gehasht gespeichert).  
-Optional für lokale Tests ohne Passwort-Check: `ALLOW_MOCK_AUTH=true` in `.env`.
-
-## Production Auth
+Es gibt **keine Demo- oder Test-Accounts**. Anmeldung ausschließlich über **Firebase Auth** (E-Mail + Passwort).
 
 ```env
-NODE_ENV=production
+AUTH_PROVIDER=firebase
 JWT_SECRET=<mindestens-32-zeichen-zufall>
-AUTH_PROVIDER=firebase   # oder mock mit bcrypt
-ALLOW_MOCK_AUTH=false
-ALLOW_MOCK_PAYMENTS=false
-STRIPE_SECRET_KEY=...
-STRIPE_WEBHOOK_SECRET=...
 FIREBASE_PROJECT_ID=...
 FIREBASE_CLIENT_EMAIL=...
 FIREBASE_PRIVATE_KEY=<Firebase Admin PEM, Zeilenumbrüche als \\n>
+ADMIN_EMAIL=admin@deine-domain.com
 ```
 
-**Secrets niemals committen.** Production: ausschließlich Railway Environment Variables.  
-Details: [`docs/SECRETS_AUDIT.md`](docs/SECRETS_AUDIT.md)
+Frontend (Build-Zeit in Railway/Vite):
+
+```env
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_APP_ID=...
+```
+
+Details: [`docs/AUTH_PRODUCTION_REPORT.md`](docs/AUTH_PRODUCTION_REPORT.md)
 
 ## Features
 

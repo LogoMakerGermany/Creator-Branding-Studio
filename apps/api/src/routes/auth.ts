@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import {
-  login, register, resetPassword, signToken, setAuthCookie, clearAuthCookie,
-  authMiddleware, requireRole, sanitizeUser, authenticateFirebaseToken, type AuthRequest,
+  authMiddleware,
+  requireRole,
+  sanitizeUser,
+  authenticateFirebaseToken,
+  clearAuthCookie,
+  isFirebaseAdminConfigured,
+  type AuthRequest,
 } from '../auth/index.js';
 import { getDb } from '../db/localDb.js';
 import { audit } from '../guards/fraudShield.js';
@@ -9,36 +14,27 @@ import { env } from '../config.js';
 
 export const authRouter = Router();
 
-authRouter.post('/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await login(email, password);
-    if (!user) return res.status(401).json({ error: 'Ungültige Anmeldedaten' });
-    const token = signToken(user);
-    setAuthCookie(res, token);
-    await audit(await getDb(), user.id, 'login', 'auth', email, req.ip);
-    res.json({ user: sanitizeUser(user) });
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : 'Fehler' });
-  }
-});
-
-authRouter.post('/register', async (req, res) => {
-  try {
-    const { email, name, password } = req.body;
-    const user = await register(email, name, password);
-    const token = signToken(user);
-    setAuthCookie(res, token);
-    res.json({ user: sanitizeUser(user) });
-  } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Fehler' });
-  }
+authRouter.get('/status', (_req, res) => {
+  const firebaseConfigured = isFirebaseAdminConfigured();
+  res.json({
+    authProvider: env.authProvider,
+    firebaseConfigured,
+    ready: env.authProvider === 'firebase' && firebaseConfigured,
+    message: firebaseConfigured
+      ? undefined
+      : 'Firebase Auth ist nicht konfiguriert. Bitte FIREBASE_* Variablen setzen.',
+  });
 });
 
 authRouter.post('/firebase', async (req, res) => {
   try {
     if (env.authProvider !== 'firebase') {
-      return res.status(400).json({ error: 'Firebase Auth ist nicht aktiv.' });
+      return res.status(503).json({ error: 'Nur Firebase Auth ist aktiv. Setze AUTH_PROVIDER=firebase.' });
+    }
+    if (!isFirebaseAdminConfigured()) {
+      return res.status(503).json({
+        error: 'Firebase Auth ist nicht konfiguriert. Kein Fallback verfügbar.',
+      });
     }
     const { idToken } = req.body;
     if (!idToken || typeof idToken !== 'string') {
@@ -55,11 +51,6 @@ authRouter.post('/firebase', async (req, res) => {
 authRouter.post('/logout', (_req, res) => {
   clearAuthCookie(res);
   res.json({ ok: true });
-});
-
-authRouter.post('/reset-password', async (req, res) => {
-  await resetPassword(req.body.email);
-  res.json({ message: 'Falls ein Konto existiert, wurde ein Reset-Link gesendet.' });
 });
 
 authRouter.get('/me', authMiddleware as never, (req: AuthRequest, res) => {

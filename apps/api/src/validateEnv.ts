@@ -42,6 +42,10 @@ export function validateEnvOnStartup(): void {
     errors.push('STRIPE_SECRET_KEY enthält einen Publishable Key (pk_) – Secret Key (sk_) erforderlich');
   }
 
+  if (env.authProvider !== 'firebase') {
+    errors.push('AUTH_PROVIDER muss firebase sein – Mock-Auth ist deaktiviert');
+  }
+
   if (env.authProvider === 'firebase') {
     if (!env.firebaseProjectId || !env.firebaseClientEmail || !env.firebasePrivateKey) {
       const msg = 'Firebase Auth erfordert FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL und FIREBASE_PRIVATE_KEY';
@@ -55,11 +59,9 @@ export function validateEnvOnStartup(): void {
   }
 
   if (env.isProduction) {
-    if (env.allowMockAuth) errors.push('ALLOW_MOCK_AUTH darf in Production nicht true sein');
     if (env.allowMockPayments) errors.push('ALLOW_MOCK_PAYMENTS darf in Production nicht true sein');
     if (env.testMode) warnings.push('TEST_MODE=true in Production – nur für Staging empfohlen');
   } else {
-    if (env.allowMockAuth) warnings.push('ALLOW_MOCK_AUTH aktiv – nur für lokale Entwicklung');
     if (env.allowMockPayments) warnings.push('ALLOW_MOCK_PAYMENTS aktiv – Gratis-Coins ohne Zahlungsanbieter');
   }
 

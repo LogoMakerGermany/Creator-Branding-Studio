@@ -2,22 +2,33 @@ import type { User } from '@cbs/shared';
 import { DEFAULT_USER_COINS } from '@cbs/shared';
 import { getDb } from '../db/localDb.js';
 import { env } from '../config.js';
-import { signToken, setAuthCookie, sanitizeUser, type AuthRequest } from './mockAuth.js';
+import {
+  signToken,
+  setAuthCookie,
+  sanitizeUser,
+  isFirebaseAdminConfigured,
+  type AuthRequest,
+} from './session.js';
 import type { Response } from 'express';
 
 let adminApp: import('firebase-admin/app').App | null = null;
 
+export function assertFirebaseConfigured(): void {
+  if (!isFirebaseAdminConfigured()) {
+    throw new Error(
+      'Firebase Auth ist nicht konfiguriert. Setze FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL und FIREBASE_PRIVATE_KEY.',
+    );
+  }
+}
+
 async function getFirebaseAdmin() {
+  assertFirebaseConfigured();
   if (adminApp) return adminApp;
 
   const { initializeApp, cert, getApps } = await import('firebase-admin/app');
   if (getApps().length > 0) {
     adminApp = getApps()[0]!;
     return adminApp;
-  }
-
-  if (!env.firebaseProjectId || !env.firebaseClientEmail || !env.firebasePrivateKey) {
-    throw new Error('Firebase Admin SDK nicht konfiguriert.');
   }
 
   adminApp = initializeApp({
@@ -28,6 +39,29 @@ async function getFirebaseAdmin() {
     }),
   });
   return adminApp;
+}
+
+function resolveRole(email?: string): User['role'] {
+  if (email && env.adminEmail && email.toLowerCase() === env.adminEmail.toLowerCase()) {
+    return 'admin';
+  }
+  return 'user';
+}
+
+async function syncUserToFirestore(user: User, firebaseUid: string): Promise<void> {
+  await getFirebaseAdmin();
+  const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
+  const firestore = getFirestore();
+  await firestore.collection('users').doc(firebaseUid).set({
+    appUserId: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    coins: user.coins ?? DEFAULT_USER_COINS,
+    banned: user.banned,
+    createdAt: user.createdAt,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
 }
 
 async function findOrCreateFirebaseUser(decoded: {
@@ -43,15 +77,19 @@ async function findOrCreateFirebaseUser(decoded: {
     user = await db.getUserByEmail(decoded.email);
     if (user) {
       await db.updateUser(user.id, { firebaseUid: decoded.uid });
+      user = { ...user, firebaseUid: decoded.uid };
     }
   }
 
   if (!user) {
+    if (!decoded.email) {
+      throw new Error('Firebase-Konto ohne E-Mail – bitte E-Mail in Firebase Auth aktivieren.');
+    }
     user = await db.createUser({
       id: crypto.randomUUID(),
-      email: decoded.email || `${decoded.uid}@firebase.local`,
-      name: decoded.name || decoded.email?.split('@')[0] || 'Benutzer',
-      role: 'user',
+      email: decoded.email,
+      name: decoded.name || decoded.email.split('@')[0] || 'Benutzer',
+      role: resolveRole(decoded.email),
       banned: false,
       coins: DEFAULT_USER_COINS,
       firebaseUid: decoded.uid,
@@ -63,19 +101,8 @@ async function findOrCreateFirebaseUser(decoded: {
     throw new Error('Benutzer gesperrt');
   }
 
+  await syncUserToFirestore(user, decoded.uid);
   return user;
-}
-
-export async function login(_email: string, _password: string): Promise<User | null> {
-  throw new Error('Nutze POST /api/auth/firebase mit Firebase ID Token.');
-}
-
-export async function register(_email: string, _name: string, _password: string): Promise<User> {
-  throw new Error('Nutze Firebase Auth zur Registrierung.');
-}
-
-export async function resetPassword(_email: string): Promise<void> {
-  throw new Error('Passwort-Reset über Firebase Auth.');
 }
 
 export async function authenticateFirebaseToken(

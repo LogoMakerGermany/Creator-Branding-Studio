@@ -44,7 +44,7 @@ Diese Werte waren **öffentlich im Repository** und müssen **rotiert** werden:
 | `apps/api/src/validateEnv.ts` | Startup-Warnungen + Production-Validierung |
 | `apps/api/src/index.ts` | Static Web-Serving in Production |
 | `apps/api/src/middleware/security.ts` | `RATE_LIMIT_ENABLED` |
-| `apps/api/src/auth/mockAuth.ts` | `requireJwtSecret()` |
+| `apps/api/src/auth/session.ts` | `requireJwtSecret()` |
 | `apps/web/vite.config.ts` | Proxy → Port 3001 |
 | `scripts/check-secrets.mjs` | CI Secret-Scanner |
 | `railway.json` | Railway Deploy-Konfiguration |
@@ -95,7 +95,6 @@ PAYPAL_CLIENT_SECRET=
 UPLOAD_PROVIDER=local
 RATE_LIMIT_ENABLED=true
 ADMIN_EMAIL=admin@deine-domain.com
-ALLOW_MOCK_AUTH=false
 ALLOW_MOCK_PAYMENTS=false
 ```
 
