@@ -1,0 +1,8 @@
+{
+  "hosting": {
+    "public": "apps/web/dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [{ "source": "/api/**", "function": "api" }, { "source": "**", "destination": "/index.html" }]
+  },
+  "_comment": "Firebase Hosting – noch nicht aktivieren. Cloud Functions für API separat deployen."
+}

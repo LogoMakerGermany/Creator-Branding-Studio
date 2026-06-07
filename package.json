@@ -1,0 +1,21 @@
+{
+  "name": "creator-branding-studio",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,magenta \"npm run dev -w @cbs/web\" \"npm run dev -w @cbs/api\"",
+    "build": "npm run build -w @cbs/shared && npm run build -w @cbs/api && npm run build -w @cbs/web",
+    "start": "npm run start -w @cbs/api",
+    "check:secrets": "node scripts/check-secrets.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "firebase": "^12.14.0"
+  }
+}
