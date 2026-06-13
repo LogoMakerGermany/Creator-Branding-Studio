@@ -16,6 +16,6 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/apps/api ./apps/api
 COPY --from=builder /app/apps/web/dist ./apps/web/dist
-EXPOSE 3001
-ENV PORT=3001
+# Railway injects PORT at runtime – do not hardcode
+EXPOSE 8080
 CMD ["node", "apps/api/dist/index.js"]

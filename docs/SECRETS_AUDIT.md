@@ -122,7 +122,7 @@ VITE_FIREBASE_APP_ID=...
 
 Das Dockerfile baut Web + API. In Production serviert die API auch `apps/web/dist`.
 
-Healthcheck: `GET /api/health`
+Healthcheck: `GET /health` (Railway) oder `GET /api/health`
 
 ---
 

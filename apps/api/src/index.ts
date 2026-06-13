@@ -13,9 +13,38 @@ import { env } from './config.js';
 import { validateEnvOnStartup } from './validateEnv.js';
 import { handleStripeWebhook } from './services/paymentService.js';
 
+console.log('[startup] PORT =', process.env.PORT);
+console.log('[startup] NODE_ENV =', process.env.NODE_ENV);
+console.log('[startup] CORS_ORIGIN =', process.env.CORS_ORIGIN);
+console.log('[startup] env.port =', env.port);
+
 const app = express();
 app.set('trust proxy', 1);
 console.log('[startup] trust proxy =', app.get('trust proxy'));
+
+// Health checks FIRST – no middleware, no DB dependency
+app.get('/health', (_req, res) => {
+  console.log('RAILWAY HEALTHCHECK HIT');
+  console.log('HEALTHCHECK HIT');
+  res.status(200).send('OK');
+});
+
+app.get('/api/health', (_req, res) => {
+  console.log('API HEALTHCHECK HIT');
+  res.status(200).json({
+    status: 'ok',
+    environment: env.nodeEnv,
+    authProvider: env.authProvider,
+    dbProvider: env.dbProvider,
+    capabilities: {
+      aiImages: Boolean(env.openaiApiKey || env.replicateApiToken),
+      aiVideo: Boolean(env.runwayApiKey || env.replicateApiToken),
+      stripe: Boolean(env.stripeSecretKey),
+      firebaseAdmin: Boolean(env.firebaseProjectId && env.firebaseClientEmail && env.firebasePrivateKey),
+    },
+  });
+});
+
 app.post(
   '/api/payments/stripe/webhook',
   express.raw({ type: 'application/json' }),
@@ -34,21 +63,6 @@ app.post(
 app.use(express.json({ limit: '1mb' }));
 applySecurity(app);
 
-app.get('/api/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    environment: env.nodeEnv,
-    authProvider: env.authProvider,
-    dbProvider: env.dbProvider,
-    capabilities: {
-      aiImages: Boolean(env.openaiApiKey || env.replicateApiToken),
-      aiVideo: Boolean(env.runwayApiKey || env.replicateApiToken),
-      stripe: Boolean(env.stripeSecretKey),
-      firebaseAdmin: Boolean(env.firebaseProjectId && env.firebaseClientEmail && env.firebasePrivateKey),
-    },
-  });
-});
-
 const csrf = csrfProtection() as unknown as RequestHandler;
 
 app.get('/api/auth/csrf-token', csrf, (req: Request, res: Response) => {
@@ -64,18 +78,18 @@ app.use('/api/test', csrf, testRouter);
 app.use('/api/admin', csrf, adminRouter);
 
 if (env.isProduction) {
-  console.log('webDistDir =', env.webDistDir);
-  console.log('webDistExists =', existsSync(env.webDistDir));
-  console.log('cwd =', process.cwd());
+  console.log('[startup] webDistDir =', env.webDistDir);
+  console.log('[startup] webDistExists =', existsSync(env.webDistDir));
+  console.log('[startup] cwd =', process.cwd());
 
   if (existsSync(env.webDistDir)) {
     app.use(express.static(env.webDistDir));
     app.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api')) return next();
+      if (req.path.startsWith('/api') || req.path === '/health') return next();
       res.sendFile(join(env.webDistDir, 'index.html'));
     });
   } else {
-    console.warn('[static] web dist missing – frontend will not be served from API');
+    console.warn('[startup] web dist missing – frontend will not be served from API');
   }
 }
 
@@ -92,11 +106,35 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 });
 
 async function start() {
-  validateEnvOnStartup();
-  await getDb();
-  app.listen(env.port, () => {
-    console.log(`Creator Branding Studio API → http://localhost:${env.port}`);
+  try {
+    validateEnvOnStartup();
+  } catch (err) {
+    console.error('[startup] Environment validation failed:', err);
+    process.exit(1);
+  }
+
+  const host = '0.0.0.0';
+  await new Promise<void>((resolve, reject) => {
+    const server = app.listen(env.port, host, () => {
+      console.log(`Creator Branding Studio API → http://${host}:${env.port}`);
+      console.log('[startup] Server listening – healthchecks active, DB init in background');
+      resolve();
+    });
+    server.on('error', (err) => {
+      console.error('[startup] Failed to bind port:', err);
+      reject(err);
+    });
   });
+
+  // Do not block healthchecks on DB – Railway probes /health immediately after bind
+  void getDb()
+    .then(() => console.log('[startup] Database ready'))
+    .catch((err) => {
+      console.error('[startup] Database init failed (health endpoint still available):', err);
+    });
 }
 
-start();
+start().catch((err) => {
+  console.error('[startup] Fatal error:', err);
+  process.exit(1);
+});

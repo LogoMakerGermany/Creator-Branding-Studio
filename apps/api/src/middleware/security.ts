@@ -42,10 +42,13 @@ export function applySecurity(app: Express): void {
       validate: { xForwardedForHeader: false as const },
     };
 
+    const isHealthCheck = (path: string) => path === '/health' || path === '/api/health';
+
     app.use(rateLimit({
       windowMs: 15 * 60 * 1000,
       max: 300,
       message: { error: 'Zu viele Anfragen. Bitte später erneut versuchen.' },
+      skip: (req) => isHealthCheck(req.path),
       ...rateLimitOptions,
     }));
 
