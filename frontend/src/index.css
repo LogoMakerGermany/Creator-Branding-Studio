@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+
+  --color-brand-50: #f5f3ff;
+  --color-brand-100: #ede9fe;
+  --color-brand-200: #ddd6fe;
+  --color-brand-300: #c4b5fd;
+  --color-brand-400: #a78bfa;
+  --color-brand-500: #8b5cf6;
+  --color-brand-600: #7c3aed;
+  --color-brand-700: #6d28d9;
+  --color-brand-800: #5b21b6;
+  --color-brand-900: #4c1d95;
+
+  --color-neon-cyan: #22d3ee;
+  --color-neon-magenta: #e879f9;
+  --color-neon-purple: #a855f7;
+
+  --color-surface-50: #fafafa;
+  --color-surface-100: #f4f4f5;
+  --color-surface-200: #e4e4e7;
+  --color-surface-800: #27272a;
+  --color-surface-900: #18181b;
+  --color-surface-950: #050508;
+}
+
+body {
+  @apply bg-surface-950 text-zinc-100 font-sans antialiased;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(124, 58, 237, 0.18), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 50%, rgba(34, 211, 238, 0.06), transparent),
+    radial-gradient(ellipse 50% 30% at 0% 80%, rgba(232, 121, 249, 0.06), transparent);
+}
+
+/* Infographic neon card */
+.ucbs-neon-card {
+  @apply relative overflow-hidden rounded-xl border bg-surface-950/80 backdrop-blur-sm transition-all duration-300;
+  border-color: rgba(139, 92, 246, 0.35);
+  box-shadow:
+    0 0 0 1px rgba(34, 211, 238, 0.08),
+    0 0 24px -4px rgba(124, 58, 237, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.ucbs-neon-card:hover {
+  border-color: rgba(34, 211, 238, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(34, 211, 238, 0.2),
+    0 0 32px -4px rgba(124, 58, 237, 0.4),
+    0 0 48px -12px rgba(34, 211, 238, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transform: translateY(-2px);
+}
+
+.ucbs-neon-card-cyan {
+  border-color: rgba(34, 211, 238, 0.35);
+}
+
+.ucbs-neon-card-magenta {
+  border-color: rgba(232, 121, 249, 0.35);
+}
+
+.ucbs-title-glow {
+  text-shadow: 0 0 40px rgba(139, 92, 246, 0.5), 0 0 80px rgba(34, 211, 238, 0.2);
+}
+
+.ucbs-dna-glow {
+  filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.6)) drop-shadow(0 0 40px rgba(34, 211, 238, 0.3));
+}
+
+@keyframes dna-pulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+
+.ucbs-dna-animate {
+  animation: dna-pulse 3s ease-in-out infinite;
+}
+
+@keyframes hub-line-flow {
+  0% { stroke-dashoffset: 20; }
+  100% { stroke-dashoffset: 0; }
+}
+
+.ucbs-hub-line {
+  stroke-dasharray: 8 4;
+  animation: hub-line-flow 1.5s linear infinite;
+}

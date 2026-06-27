@@ -1,0 +1,109 @@
+rules_version = '2';
+
+service cloud.firestore {
+
+  match /databases/{database}/documents {
+
+    match /users/{userId} {
+
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.role == 'creator'
+        && request.resource.data.coinBalance == 0
+        && request.resource.data.keys().hasAll(['email', 'role', 'coinBalance']);
+
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'coinBalance']);
+
+    }
+
+    match /creator_dna/{dnaId} {
+
+      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+
+    }
+
+    match /projects/{projectId} {
+
+      allow read, write: if request.auth != null && resource.data.ownerId == request.auth.uid;
+
+      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+
+    }
+
+    match /coin_transactions/{txId} {
+
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+
+      allow write: if false;
+
+    }
+
+    match /processedStripeSessions/{sessionId} {
+
+      allow read, write: if false;
+
+    }
+
+    match /processedPayPalOrders/{orderId} {
+
+      allow read, write: if false;
+
+    }
+
+    match /files/{fileId} {
+
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+
+      allow write: if false;
+
+    }
+
+    match /generationJobs/{jobId} {
+
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+
+      allow write: if false;
+
+    }
+
+    match /mediaJobs/{jobId} {
+
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+
+      allow write: if false;
+
+    }
+
+    match /layouts/{layoutId} {
+
+      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+
+    }
+
+    match /marketplace_items/{itemId} {
+
+      allow read: if true;
+
+      allow create: if request.auth != null && request.resource.data.sellerId == request.auth.uid;
+
+      allow update, delete: if request.auth != null && resource.data.sellerId == request.auth.uid;
+
+    }
+
+    match /{document=**} {
+
+      allow read, write: if false;
+
+    }
+
+  }
+
+}

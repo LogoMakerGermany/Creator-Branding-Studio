@@ -1,0 +1,15 @@
+# Uploaded by `railway up` — keep image small
+node_modules
+.git
+.cursor
+backend/.data
+backend/dist
+frontend/dist
+shared/dist
+*.tsbuildinfo
+docs
+.github
+agent-transcripts
+firebase-debug.log
+.firebaserc
+.firebase

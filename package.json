@@ -1,0 +1,36 @@
+{
+  "name": "ultimate-creator-branding-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "All-in-One KI-Plattform für Creator, Streamer, Teams und Agenturen",
+  "workspaces": [
+    "frontend",
+    "backend",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev:backend": "npm run dev --workspace=backend",
+    "build": "npm run build --workspace=shared && npm run build --workspace=backend && npm run build --workspace=frontend",
+    "build:prod": "npm run build --workspace=shared && npm run build --workspace=frontend && npm run build --workspace=backend",
+    "start": "node backend/dist/index.js",
+    "start:static": "node backend/dist/index.js",
+    "deploy:firebase": "npm run build:prod && npx firebase-tools deploy --only hosting,firestore:rules,firestore:indexes,storage",
+    "deploy:check": "node scripts/predeploy-check.mjs",
+    "railway:login": "railway login",
+    "railway:link": "railway link",
+    "railway:vars": "node scripts/push-railway-vars.mjs",
+    "railway:up": "railway up --detach -y",
+    "railway:deploy": "powershell -ExecutionPolicy Bypass -File scripts/railway-deploy.ps1",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@railway/cli": "^4.6.3",
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
