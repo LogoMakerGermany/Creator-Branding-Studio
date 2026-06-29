@@ -6,17 +6,16 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
-import type { User } from 'firebase/auth';
 import {
   isFirebaseConfigured,
-  loginWithGoogle,
-  loginWithOAuth,
+  loginWithProvider,
   loginWithEmail,
   registerWithEmail,
   logoutFirebase,
   subscribeToAuth,
-  OAUTH_PROVIDERS,
+  type AuthProviderId,
 } from '@/lib/firebase';
+import { resolveAuthProvider } from '@/lib/auth-providers';
 import { api, setAuthToken, type UserProfile, type CreatorDNA } from '@/services/api';
 
 interface AuthContextValue {
@@ -24,8 +23,7 @@ interface AuthContextValue {
   activeDna: CreatorDNA | null;
   loading: boolean;
   isDevMode: boolean;
-  loginGoogle: () => Promise<void>;
-  loginOAuth: (provider: keyof typeof OAUTH_PROVIDERS) => Promise<void>;
+  loginProvider: (provider: AuthProviderId) => Promise<void>;
   loginEmail: (email: string, password: string) => Promise<void>;
   registerEmail: (email: string, password: string) => Promise<void>;
   loginDev: () => Promise<void>;
@@ -67,7 +65,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (firebaseUser) {
             const token = await firebaseUser.getIdToken();
             setAuthToken(token);
-            await api.auth.sync(firebaseUser.displayName || undefined, 'firebase');
+            await api.auth.sync(
+              firebaseUser.displayName || undefined,
+              resolveAuthProvider(firebaseUser)
+            );
             await refreshUser();
           } else {
             setUser(null);
@@ -99,20 +100,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshUser]);
 
-  async function handleFirebaseLogin(loginFn: () => Promise<User>) {
+  async function handleFirebaseLogin(loginFn: () => Promise<import('firebase/auth').User>) {
     const firebaseUser = await loginFn();
     const token = await firebaseUser.getIdToken();
     setAuthToken(token);
-    await api.auth.sync(firebaseUser.displayName || undefined, 'firebase');
+    await api.auth.sync(firebaseUser.displayName || undefined, resolveAuthProvider(firebaseUser));
     await refreshUser();
   }
 
-  const loginGoogle = async () => {
-    await handleFirebaseLogin(loginWithGoogle);
-  };
-
-  const loginOAuth = async (provider: keyof typeof OAUTH_PROVIDERS) => {
-    await handleFirebaseLogin(() => loginWithOAuth(OAUTH_PROVIDERS[provider]));
+  const loginProvider = async (provider: AuthProviderId) => {
+    await handleFirebaseLogin(() => loginWithProvider(provider));
   };
 
   const loginEmail = async (email: string, password: string) => {
@@ -145,8 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         activeDna,
         loading,
         isDevMode,
-        loginGoogle,
-        loginOAuth,
+        loginProvider,
         loginEmail,
         registerEmail,
         loginDev,

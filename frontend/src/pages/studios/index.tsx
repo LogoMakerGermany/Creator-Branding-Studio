@@ -1,28 +1,22 @@
+import { LogoStudioPage } from './LogoStudioPage';
 import { StudioPage } from './StudioPage';
+import { OverlayStudioPage } from './OverlayStudioPage';
+import { StickerStudioPage } from './StickerStudioPage';
+import { BANNER_PLATFORM_SPECS, type BannerPlatform } from '@ucbs/shared';
 
-export function LogoStudioPage() {
-  return (
-    <StudioPage
-      title="Logo Studio"
-      description="Gaming, Streamer, Musiker, Clan und Team Logos – basierend auf deiner Creator DNA"
-      module="logo"
-      coinCost={15}
-      styles={['2D', '3D', 'Anime', 'Esports', 'Neon', 'Horror', 'Fantasy']}
-      exports={['PNG', 'SVG', 'PDF']}
-    />
-  );
-}
+const BANNER_PLATFORMS = Object.keys(BANNER_PLATFORM_SPECS) as BannerPlatform[];
+
+export { LogoStudioPage, OverlayStudioPage, StickerStudioPage };
 
 export function BannerStudioPage() {
   return (
     <StudioPage
       title="Banner Studio"
-      description="Profilbanner und Header-Grafiken für Twitch, YouTube und Social Media"
+      description="Profilbanner mit automatischen Plattform-Größen"
       module="banner"
       coinCost={10}
-      styles={['Twitch', 'YouTube', 'Discord', 'TikTok']}
-      styleLabel="Plattform"
-      exports={['PNG', 'JPG']}
+      bannerPlatforms={BANNER_PLATFORMS}
+      exports={['PNG', 'HD']}
     />
   );
 }
@@ -31,9 +25,10 @@ export function FacecamStudioPage() {
   return (
     <StudioPage
       title="Facecam Studio"
-      description="Facecam-Rahmen, Overlays und Stream-Dekorationen"
+      description="Facecam-Rahmen und Stream-Overlays — Live-tauglich, transparenter Hintergrund"
       module="facecam"
       coinCost={10}
+      facecamShapes={['rectangle', 'circle', 'hexagon']}
       styles={['Minimal', 'Gaming', 'Neon', 'Animated']}
       exports={['PNG']}
     />

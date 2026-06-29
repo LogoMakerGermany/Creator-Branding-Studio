@@ -101,8 +101,9 @@ dnaRoutes.post(
 );
 
 const analyzeSchema = z.object({
-  colors: z.array(z.string()).min(1),
+  colors: z.array(z.string()).optional(),
   styleHint: z.string().optional(),
+  imageDataUrl: z.string().optional(),
 });
 
 dnaRoutes.post(
@@ -110,9 +111,13 @@ dnaRoutes.post(
   requirePermission(Permission.CREATE_DNA),
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const body = analyzeSchema.parse(req.body);
+    if (!body.imageDataUrl && (!body.colors || body.colors.length === 0)) {
+      throw new AppError(400, 'INVALID_INPUT', 'Farben oder imageDataUrl erforderlich');
+    }
     const analysis = await analyzeAssets(
-      body.colors,
-      body.styleHint as StyleDirection | undefined
+      body.colors ?? [],
+      body.styleHint as StyleDirection | undefined,
+      body.imageDataUrl
     );
     sendSuccess(res, { analysis });
   })

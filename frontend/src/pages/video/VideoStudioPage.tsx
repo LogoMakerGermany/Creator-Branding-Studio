@@ -9,6 +9,7 @@ import { useAuth } from '@/context/AuthContext';
 import { api, ApiError, type VideoProject } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
 import { DnaRequiredBanner, StudioErrorBanner } from '@/components/studio';
+import { WorkflowSteps } from '@/v2/components/WorkflowSteps';
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -66,7 +67,10 @@ export function VideoStudioPage() {
     }
   }
 
-  async function runAction(action: 'highlights' | 'subtitles' | 'short', highlightIndex?: number) {
+  async function runAction(
+    action: 'highlights' | 'subtitles' | 'short' | 'render',
+    highlightIndex?: number
+  ) {
     if (!selected) return;
     setLoading(true);
     setError(null);
@@ -77,6 +81,9 @@ export function VideoStudioPage() {
         project = res.project;
       } else if (action === 'subtitles') {
         const res = await api.video.generateSubtitles(selected.id);
+        project = res.project;
+      } else if (action === 'render') {
+        const res = await api.video.render(selected.id);
         project = res.project;
       } else {
         const res = await api.video.createShort(selected.id, highlightIndex ?? 0);
@@ -92,6 +99,19 @@ export function VideoStudioPage() {
     }
   }
 
+  const hasSource = Boolean(selected?.sourceUrl);
+  const hasHighlights = (selected?.highlights.length ?? 0) > 0;
+  const hasSubtitles = (selected?.subtitles.length ?? 0) > 0;
+  const hasRender = Boolean(selected?.renderUrl);
+  const hasShorts = (selected?.shorts.length ?? 0) > 0;
+
+  const workflowSteps = [
+    { id: 'upload', label: 'Upload', done: hasSource, active: !hasSource },
+    { id: 'analyze', label: 'KI Analyse', done: hasHighlights, active: hasSource && !hasHighlights },
+    { id: 'clips', label: 'Clips & Untertitel', done: hasSubtitles || hasShorts, active: hasHighlights && !hasSubtitles && !hasShorts },
+    { id: 'export', label: 'Export', done: hasRender || hasShorts, active: (hasSubtitles || hasShorts) && !hasRender && !hasShorts },
+  ];
+
   return (
     <div>
       <PageHeader
@@ -99,7 +119,13 @@ export function VideoStudioPage() {
         description="Videos schneiden, Highlights erkennen, Untertitel und Shorts generieren"
         badge={<Badge variant="brand">UCBS</Badge>}
         actions={<Badge variant="default">Short: {formatCoins(20)} Coins</Badge>}
+        backTo="/dashboard"
+        backLabel="Dashboard"
       />
+
+      <div className="mb-6">
+        <WorkflowSteps steps={workflowSteps} />
+      </div>
 
       {!activeDna && (
         <DnaRequiredBanner message="Creator DNA erforderlich für Short-Generierung" />
@@ -183,7 +209,18 @@ export function VideoStudioPage() {
                 </Button>
                 <Button variant="outline" size="sm" className="gap-2" onClick={() => runAction('subtitles')} loading={loading} disabled={!selected.sourceUrl}>
                   <Subtitles className="h-4 w-4" />
-                  Untertitel
+                  Untertitel (Whisper)
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => runAction('render')}
+                  loading={loading}
+                  disabled={!selected.sourceUrl || selected.subtitles.length === 0}
+                >
+                  <Film className="h-4 w-4" />
+                  Render
                 </Button>
                 <Button
                   size="sm"
@@ -201,6 +238,28 @@ export function VideoStudioPage() {
                 <div className="mt-4 overflow-hidden rounded-lg border border-cyan-500/20">
                   <video src={selected.sourceUrl} controls className="aspect-video w-full bg-black" />
                 </div>
+              )}
+
+              {selected.renderUrl && (
+                <div className="mt-4 overflow-hidden rounded-lg border border-emerald-500/20">
+                  <p className="mb-2 text-sm font-medium text-emerald-300">Gerendertes Video (mit Untertiteln)</p>
+                  <video src={selected.renderUrl} controls className="aspect-video w-full bg-black" />
+                </div>
+              )}
+
+              {selected.srtUrl && (
+                <a
+                  href={selected.srtUrl}
+                  download={`${selected.title}.srt`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-block"
+                >
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <Download className="h-3 w-3" />
+                    SRT herunterladen
+                  </Button>
+                </a>
               )}
 
               {!selected.sourceUrl && (

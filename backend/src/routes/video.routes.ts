@@ -13,6 +13,7 @@ import {
   createVideoProject,
   detectHighlights,
   generateSubtitles,
+  renderVideoProject,
   createShortFromHighlight,
   listMediaJobs,
   attachVideoSource,
@@ -61,7 +62,12 @@ videoRoutes.post(
 videoRoutes.post(
   '/:id/highlights',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
-    const project = await detectHighlights(String(req.params.id), req.user!.uid);
+    const activeDna = await getActiveDna(req.user!.uid);
+    const project = await detectHighlights(
+      String(req.params.id),
+      req.user!.uid,
+      activeDna?.styleDirection
+    );
     sendSuccess(res, { project });
   })
 );
@@ -70,6 +76,14 @@ videoRoutes.post(
   '/:id/subtitles',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const project = await generateSubtitles(String(req.params.id), req.user!.uid);
+    sendSuccess(res, { project });
+  })
+);
+
+videoRoutes.post(
+  '/:id/render',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const project = await renderVideoProject(String(req.params.id), req.user!.uid);
     sendSuccess(res, { project });
   })
 );

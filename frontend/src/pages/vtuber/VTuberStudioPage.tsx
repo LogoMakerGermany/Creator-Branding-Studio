@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
-import {
-  PageHeader, Badge, Button, NeonCard, Input, StatCard,
-} from '@/components/ui';
+import { Badge, Button, Input, StatCard } from '@/components/ui';
 import {
   Smile, User, Heart, Sparkles, CheckCircle2, Download, Package,
 } from 'lucide-react';
@@ -10,7 +8,6 @@ import { api, ApiError, type MediaJob, type VTuberType } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
 import { MediaJobPreview, getMediaDownloadUrl } from '@/components/media/MediaJobPreview';
 import {
-  DnaRequiredBanner,
   StudioErrorBanner,
   TypeOptionButton,
   NeonPreviewBox,
@@ -18,6 +15,10 @@ import {
   GalleryThumb,
   VtuberPipeline,
 } from '@/components/studio';
+import { StudioShell } from '@/v2/components/StudioShell';
+import { StudioWorkbench } from '@/v2/components/StudioWorkbench';
+import { DnaRequiredBanner } from '@/v2/components/StudioAlerts';
+import { GlassCard } from '@/v2/components/GlassCard';
 
 const TYPES: { type: VTuberType; label: string; icon: typeof User }[] = [
   { type: 'vtuber-character', label: 'Charakter', icon: User },
@@ -79,18 +80,18 @@ export function VTuberStudioPage() {
   const downloadUrl = getMediaDownloadUrl(currentJob);
 
   return (
-    <div>
-      <PageHeader
-        title="VTuber Studio"
-        description="Logo → Mascot → VTuber Model — Charaktere, Avatare und Emotes"
-        badge={<Badge variant="brand">UCBS</Badge>}
-        actions={<Badge variant="default">{formatCoins(5)} / {formatCoins(50)} Paket</Badge>}
-      />
-
+    <StudioShell
+      title="Avatar & Mascot Studio"
+      description="KI-generierte VTuber-Charaktere, Avatare und Emotes — PNG-Export"
+      badge={<Badge variant="brand">UCBS</Badge>}
+      actions={<Badge variant="default">{formatCoins(5)} / {formatCoins(50)} Paket</Badge>}
+    >
       <VtuberPipeline />
 
-      {!activeDna && <DnaRequiredBanner />}
-      {error && <StudioErrorBanner message={error} />}
+      <div className="space-y-4">
+        {!activeDna && <DnaRequiredBanner />}
+        {error && <StudioErrorBanner message={error} />}
+      </div>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard label="Guthaben" value={formatCoins(user?.coinBalance ?? 0)} />
@@ -98,68 +99,78 @@ export function VTuberStudioPage() {
         <StatCard label="Provider" value={currentJob?.provider ?? '—'} />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <NeonCard accent="cyan" title="Asset-Typ">
-          <div className="grid grid-cols-3 gap-2">
-            {TYPES.map(({ type, label, icon: Icon }) => (
-              <TypeOptionButton
-                key={type}
-                active={selectedType === type}
-                onClick={() => setSelectedType(type)}
-                className="flex flex-col items-center gap-1"
-              >
-                <Icon className="h-5 w-5" />
-                {label}
-              </TypeOptionButton>
-            ))}
-          </div>
-          <Input className="mt-4" placeholder="Name (optional)" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <Input className="mt-2" placeholder="Prompt (optional)" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-          <Button
-            className="mt-4 w-full gap-2"
-            onClick={handleGenerate}
-            loading={loading}
-            disabled={!activeDna || (user?.coinBalance ?? 0) < 5}
-          >
-            <Sparkles className="h-4 w-4" />
-            Generieren (5 Coins)
-          </Button>
-          <Button
-            variant="outline"
-            className="mt-2 w-full gap-2"
-            onClick={handleGeneratePack}
-            loading={loading}
-            disabled={!activeDna || (user?.coinBalance ?? 0) < 50}
-          >
-            <Package className="h-4 w-4" />
-            VTuber Paket (50 Coins)
-          </Button>
-        </NeonCard>
-
-        <NeonCard accent="magenta" title="Vorschau">
-          <NeonPreviewBox aspect="square" className="mt-2">
-            <MediaJobPreview job={currentJob} emptyLabel="Noch kein Charakter generiert" className="h-full w-full" />
-          </NeonPreviewBox>
-          {currentJob?.status === 'completed' && (
-            <p className="mt-2 flex items-center gap-1 text-xs text-emerald-400">
-              <CheckCircle2 className="h-3 w-3" />
-              {currentJob.title} · {currentJob.provider}
-            </p>
-          )}
-          {downloadUrl && (
-            <a href={downloadUrl} download target="_blank" rel="noreferrer">
-              <Button variant="outline" className="mt-3 w-full gap-2" size="sm">
-                <Download className="h-4 w-4" />
-                Herunterladen
-              </Button>
-            </a>
-          )}
-        </NeonCard>
-      </div>
+      <StudioWorkbench
+        settings={
+          <>
+            <div className="grid grid-cols-3 gap-2">
+              {TYPES.map(({ type, label, icon: Icon }) => (
+                <TypeOptionButton
+                  key={type}
+                  active={selectedType === type}
+                  onClick={() => setSelectedType(type)}
+                  className="flex flex-col items-center gap-1"
+                >
+                  <Icon className="h-5 w-5" />
+                  {label}
+                </TypeOptionButton>
+              ))}
+            </div>
+            <Input className="mt-4" placeholder="Name (optional)" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input className="mt-2" placeholder="Prompt (optional)" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+          </>
+        }
+        preview={
+          <>
+            <NeonPreviewBox aspect="square">
+              <MediaJobPreview job={currentJob} emptyLabel="Noch kein Charakter generiert" className="h-full w-full" />
+            </NeonPreviewBox>
+            {currentJob?.status === 'completed' && (
+              <p className="mt-2 flex items-center gap-1 text-xs text-[var(--ucbs-accent-green)]">
+                <CheckCircle2 className="h-3 w-3" />
+                {currentJob.title} · {currentJob.provider}
+              </p>
+            )}
+          </>
+        }
+        actions={
+          <>
+            <Button
+              className="gap-2"
+              onClick={handleGenerate}
+              loading={loading}
+              disabled={!activeDna || (user?.coinBalance ?? 0) < 5}
+            >
+              <Sparkles className="h-4 w-4" />
+              Generieren (5 Coins)
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={handleGeneratePack}
+              loading={loading}
+              disabled={!activeDna || (user?.coinBalance ?? 0) < 50}
+            >
+              <Package className="h-4 w-4" />
+              VTuber Paket (50 Coins)
+            </Button>
+            {downloadUrl && (
+              <a href={downloadUrl} download target="_blank" rel="noreferrer">
+                <Button variant="outline" className="gap-2" size="sm">
+                  <Download className="h-4 w-4" />
+                  Herunterladen
+                </Button>
+              </a>
+            )}
+          </>
+        }
+      />
 
       {characters.length > 0 && (
-        <NeonCard accent="purple" className="mt-6" title="Galerie">
-          <MediaGalleryGrid className="mt-2 sm:grid-cols-3">
+        <GlassCard accent="purple" className="mt-6 !p-5">
+          <h3 className="font-display text-sm font-semibold uppercase tracking-wider text-[var(--ucbs-accent-purple)]">
+            Galerie
+          </h3>
+          <MediaGalleryGrid className="mt-4 sm:grid-cols-3">
             {characters.slice(0, 12).map((job) => (
               <GalleryThumb
                 key={job.id}
@@ -169,8 +180,8 @@ export function VTuberStudioPage() {
               />
             ))}
           </MediaGalleryGrid>
-        </NeonCard>
+        </GlassCard>
       )}
-    </div>
+    </StudioShell>
   );
 }

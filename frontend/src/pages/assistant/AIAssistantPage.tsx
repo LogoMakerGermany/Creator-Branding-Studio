@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { PageHeader, Badge, Button, Input } from '@/components/ui';
 import { Bot, Send, Trash2, Sparkles } from 'lucide-react';
 import { api, ApiError, type ChatMessage } from '@/services/api';
@@ -7,8 +8,10 @@ import { cn } from '@/lib/utils';
 
 export function AIAssistantPage() {
   const { activeDna } = useAuth();
+  const location = useLocation();
+  const initialPrompt = (location.state as { initialPrompt?: string } | null)?.initialPrompt;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(initialPrompt ?? '');
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 

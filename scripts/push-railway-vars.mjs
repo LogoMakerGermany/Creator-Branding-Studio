@@ -73,16 +73,13 @@ console.log(`Pushing ${vars.length} variables to Railway…\n`);
 let failed = 0;
 for (const { key, value } of vars) {
   process.stdout.write(`  ${key} … `);
-  const usesStdin = value.includes('\n');
-  const args = usesStdin
-    ? ['variable', 'set', key, '--stdin', '--skip-deploys']
-    : ['variable', 'set', `${key}=${value}`, '--skip-deploys'];
+  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+  const args = ['variables', '--set', `${key}=${escaped}`, '--skip-deploys'];
 
   const result = spawnSync(railwayBin(), args, {
     cwd: root,
     env: railwayEnv,
-    input: usesStdin ? value : undefined,
-    stdio: usesStdin ? ['pipe', 'pipe', 'inherit'] : 'pipe',
+    stdio: 'pipe',
     shell: process.platform === 'win32',
   });
 

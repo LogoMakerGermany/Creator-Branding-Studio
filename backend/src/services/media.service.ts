@@ -3,7 +3,20 @@ import type { CreatorDNA } from '@ucbs/shared';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
 import { uploadAssetFromDataUrl, uploadAssetFromUrl } from '../lib/firebase-storage.js';
 import { buildPromptFromDNA, generateImage } from './ai.service.js';
-import { generateMusic, generateSpeech, generateVideo, analyzeVideoContent } from '../lib/media-providers.js';
+import { generateMusic, generateSpeech, generateVideo } from '../lib/media-providers.js';
+import {
+  analyzeVideoFromSource,
+  detectHighlightsFromSubtitles,
+  transcribeVideoSource,
+} from '../lib/video-analysis.js';
+import {
+  burnSubtitlesIntoVideo,
+  buildSrtContent,
+  clipVideoSegment,
+  convertMp4ToGif,
+  convertMp4ToWebm,
+  inferMusicMetadata,
+} from '../lib/video-processing.js';
 
 const COLLECTION = 'mediaJobs';
 const VIDEO_COLLECTION = 'videoProjects';
@@ -67,6 +80,8 @@ export interface VideoProject {
   subtitles: SubtitleEntry[];
   highlights: HighlightSegment[];
   shorts: MediaJob[];
+  renderUrl?: string;
+  srtUrl?: string;
   status: 'draft' | 'processing' | 'ready';
   createdAt: string;
   updatedAt: string;
@@ -146,12 +161,27 @@ export async function attachVideoSource(
   return project;
 }
 
-export async function detectHighlights(projectId: string, userId: string): Promise<VideoProject> {
+export async function detectHighlights(
+  projectId: string,
+  userId: string,
+  styleDirection?: string
+): Promise<VideoProject> {
   const project = await getVideoProject(projectId, userId);
   if (!project) throw new Error('Projekt nicht gefunden');
+  if (!project.sourceUrl) throw new Error('Video-Quelle fehlt — zuerst hochladen');
 
-  const analysis = await analyzeVideoContent(project.title, project.duration);
-  project.highlights = analysis.highlights;
+  let subtitles = project.subtitles;
+  if (!subtitles.length) {
+    subtitles = await transcribeVideoSource(project.sourceUrl);
+    project.subtitles = subtitles;
+  }
+
+  project.highlights = await detectHighlightsFromSubtitles(
+    project.title,
+    project.duration,
+    subtitles,
+    styleDirection
+  );
   project.status = 'processing';
   project.updatedAt = new Date().toISOString();
   await dsSet(VIDEO_COLLECTION, project.id, project as unknown as Record<string, unknown>);
@@ -161,9 +191,60 @@ export async function detectHighlights(projectId: string, userId: string): Promi
 export async function generateSubtitles(projectId: string, userId: string): Promise<VideoProject> {
   const project = await getVideoProject(projectId, userId);
   if (!project) throw new Error('Projekt nicht gefunden');
+  if (!project.sourceUrl) throw new Error('Video-Quelle fehlt — zuerst hochladen');
 
-  const analysis = await analyzeVideoContent(project.title, project.duration);
+  project.subtitles = await transcribeVideoSource(project.sourceUrl);
+  const srt = buildSrtContent(project.subtitles);
+  project.srtUrl = await uploadAssetFromDataUrl(userId, `data:text/plain;base64,${Buffer.from(srt).toString('base64')}`, {
+    folder: 'video-exports',
+    fileName: `${projectId}.srt`,
+  });
+  project.updatedAt = new Date().toISOString();
+  await dsSet(VIDEO_COLLECTION, project.id, project as unknown as Record<string, unknown>);
+  return project;
+}
+
+export async function renderVideoProject(projectId: string, userId: string): Promise<VideoProject> {
+  const project = await getVideoProject(projectId, userId);
+  if (!project) throw new Error('Projekt nicht gefunden');
+  if (!project.sourceUrl) throw new Error('Video-Quelle fehlt');
+  if (!project.subtitles.length) throw new Error('Untertitel fehlen — zuerst generieren');
+
+  const rendered = await burnSubtitlesIntoVideo(project.sourceUrl, project.subtitles);
+  project.renderUrl = await uploadAssetFromDataUrl(
+    userId,
+    `data:video/mp4;base64,${rendered.toString('base64')}`,
+    { folder: 'video-exports', fileName: `${projectId}-render.mp4` }
+  );
+  project.status = 'ready';
+  project.updatedAt = new Date().toISOString();
+  await dsSet(VIDEO_COLLECTION, project.id, project as unknown as Record<string, unknown>);
+  return project;
+}
+
+export async function analyzeVideoProject(
+  projectId: string,
+  userId: string,
+  styleDirection?: string
+): Promise<VideoProject> {
+  const project = await getVideoProject(projectId, userId);
+  if (!project) throw new Error('Projekt nicht gefunden');
+  if (!project.sourceUrl) throw new Error('Video-Quelle fehlt');
+
+  const analysis = await analyzeVideoFromSource(
+    project.sourceUrl,
+    project.title,
+    project.duration,
+    styleDirection
+  );
   project.subtitles = analysis.subtitles;
+  project.highlights = analysis.highlights;
+  const srt = buildSrtContent(project.subtitles);
+  project.srtUrl = await uploadAssetFromDataUrl(userId, `data:text/plain;base64,${Buffer.from(srt).toString('base64')}`, {
+    folder: 'video-exports',
+    fileName: `${projectId}.srt`,
+  });
+  project.status = 'processing';
   project.updatedAt = new Date().toISOString();
   await dsSet(VIDEO_COLLECTION, project.id, project as unknown as Record<string, unknown>);
   return project;
@@ -173,20 +254,48 @@ export async function createShortFromHighlight(
   projectId: string,
   userId: string,
   highlightIndex: number,
-  dna: CreatorDNA
+  _dna: CreatorDNA
 ): Promise<MediaJob> {
   const project = await getVideoProject(projectId, userId);
   if (!project) throw new Error('Projekt nicht gefunden');
+  if (!project.sourceUrl) throw new Error('Video-Quelle fehlt — Shorts benötigen ein hochgeladenes Video');
   const highlight = project.highlights[highlightIndex];
   if (!highlight) throw new Error('Highlight nicht gefunden');
 
-  const job = await runMediaJob(userId, 'short', dna, {
-    customPrompt: `Vertical TikTok/Shorts clip, ${highlight.label}, ${dna.styleDirection} style, dynamic editing`,
+  const job: MediaJob = {
+    id: randomUUID(),
+    userId,
+    type: 'short',
+    status: 'processing',
+    prompt: `Clip: ${highlight.label}`,
     title: `Short: ${highlight.label}`,
     duration: highlight.end - highlight.start,
-    metadata: { projectId, highlightIndex, start: highlight.start, end: highlight.end },
-  });
+    dnaId: _dna.id,
+    metadata: { projectId, highlightIndex, start: highlight.start, end: highlight.end, clipped: true },
+    createdAt: new Date().toISOString(),
+  };
+  await saveMediaJob(job);
 
+  try {
+    const clipBuffer = await clipVideoSegment(project.sourceUrl, highlight.start, highlight.end, {
+      vertical: true,
+    });
+    job.videoUrl = await uploadAssetFromDataUrl(
+      userId,
+      `data:video/mp4;base64,${clipBuffer.toString('base64')}`,
+      { folder: 'videos', fileName: `${job.id}.mp4` }
+    );
+    job.provider = 'ffmpeg-clip';
+    job.thumbnailUrl = job.videoUrl;
+    job.status = 'completed';
+    job.completedAt = new Date().toISOString();
+  } catch (err) {
+    job.status = 'failed';
+    job.error = err instanceof Error ? err.message : 'Clip fehlgeschlagen';
+    job.completedAt = new Date().toISOString();
+  }
+
+  await saveMediaJob(job);
   project.shorts.push(job);
   project.updatedAt = new Date().toISOString();
   await dsSet(VIDEO_COLLECTION, project.id, project as unknown as Record<string, unknown>);
@@ -246,13 +355,24 @@ export async function runMediaJob(
       job.provider = music.provider;
       job.duration = music.duration;
       job.title = options?.title || `${dna.styleDirection} Stream Music`;
+      const musicMeta = inferMusicMetadata(job.prompt);
+      job.metadata = {
+        ...job.metadata,
+        genre: musicMeta.genre,
+        bpm: musicMeta.bpm,
+        providerNote: music.provider.includes('replicate') ? 'MusicGen' : 'Suno',
+      };
       job.status = 'completed';
     } else if (type === 'ai-voice') {
       const script = options?.customPrompt || generateVoiceScript(dna);
       const speech = await generateSpeech(script);
       job.audioUrl = await persistAudio(userId, speech.audioUrl);
       job.provider = speech.provider;
-      job.metadata = { ...job.metadata, transcript: script, voice: 'Creator Pro' };
+      job.metadata = {
+        ...job.metadata,
+        transcript: script,
+        voice: process.env.ELEVENLABS_VOICE_ID || 'Creator Pro',
+      };
       job.status = 'completed';
     } else if (
       type === 'ai-video' ||
@@ -270,6 +390,30 @@ export async function runMediaJob(
       job.provider = video.provider;
       job.duration = options?.duration || (type === 'intro' || type === 'outro' ? 6 : 10);
       job.metadata = { ...job.metadata, format: aspectRatio };
+
+      const mp4Buffer = await fetchVideoBufferForExport(job.videoUrl);
+      const exports: Record<string, string> = { mp4: job.videoUrl };
+      try {
+        const gifBuffer = await convertMp4ToGif(mp4Buffer);
+        exports.gif = await uploadAssetFromDataUrl(
+          userId,
+          `data:image/gif;base64,${gifBuffer.toString('base64')}`,
+          { folder: 'videos', fileName: `${job.id}.gif` }
+        );
+      } catch (err) {
+        console.warn('[Media] GIF export failed:', err);
+      }
+      try {
+        const webmBuffer = await convertMp4ToWebm(mp4Buffer);
+        exports.webm = await uploadAssetFromDataUrl(
+          userId,
+          `data:video/webm;base64,${webmBuffer.toString('base64')}`,
+          { folder: 'videos', fileName: `${job.id}.webm` }
+        );
+      } catch (err) {
+        console.warn('[Media] WEBM export failed:', err);
+      }
+      job.metadata = { ...job.metadata, exports };
 
       try {
         const { imageUrl, provider } = await generateImage({
@@ -297,7 +441,7 @@ export async function runMediaJob(
       job.thumbnailUrl = job.imageUrl;
       job.provider = provider;
       job.status = 'completed';
-      job.metadata = { ...job.metadata, exportFormats: ['PNG', 'GIF', 'Live2D-ready'] };
+      job.metadata = { ...job.metadata, exportFormats: ['PNG'] };
     } else {
       const { imageUrl, provider } = await generateImage({
         module: 'ai-image',
@@ -346,16 +490,11 @@ function generateVoiceScript(dna: CreatorDNA, custom?: string): string {
   return `Willkommen bei ${dna.name}! Bereit für ${dna.styleDirection} Content? Abonniere für mehr!`;
 }
 
-export function generateDevPlaceholderSvg(dna: CreatorDNA, label: string): string {
-  const primary = dna.primaryColors[0] || '#7C3AED';
-  const secondary = dna.secondaryColors[0] || '#1E1B4B';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="576" viewBox="0 0 1024 576">
-    <defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:${secondary}"/><stop offset="100%" style="stop-color:${primary}"/>
-    </linearGradient></defs>
-    <rect width="1024" height="576" fill="url(#g)"/>
-    <text x="512" y="260" text-anchor="middle" fill="white" font-size="36" font-family="Arial">${label.toUpperCase()}</text>
-    <text x="512" y="310" text-anchor="middle" fill="white" opacity="0.7" font-size="20">${dna.styleDirection}</text>
-  </svg>`;
-  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+async function fetchVideoBufferForExport(videoUrl: string): Promise<Buffer> {
+  if (videoUrl.startsWith('data:')) {
+    return Buffer.from(videoUrl.split(',')[1] ?? '', 'base64');
+  }
+  const res = await fetch(videoUrl);
+  if (!res.ok) throw new Error('Video für Export konnte nicht geladen werden');
+  return Buffer.from(await res.arrayBuffer());
 }

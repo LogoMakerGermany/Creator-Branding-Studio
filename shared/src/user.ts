@@ -1,6 +1,14 @@
 import type { UserRole } from './roles';
 
-export type AuthProvider = 'google' | 'discord' | 'twitch' | 'tiktok' | 'email';
+export type AuthProvider =
+  | 'google'
+  | 'discord'
+  | 'twitch'
+  | 'tiktok'
+  | 'github'
+  | 'apple'
+  | 'microsoft'
+  | 'email';
 
 export interface UserProfile {
   id: string;

@@ -1,7 +1,21 @@
-import { CoinSpendCategory, COIN_COSTS } from '@ucbs/shared';
+import { CoinSpendCategory, COIN_COSTS, COIN_PACKAGE_DEFINITIONS } from '@ucbs/shared';
 import { devStore, isDevMode } from '../lib/dev-store.js';
 import { getUserById, updateCoinBalance } from './user.service.js';
 import { randomUUID } from 'node:crypto';
+
+function stripePriceIdForPackage(packageId: string): string | undefined {
+  const map: Record<string, string | undefined> = {
+    starter: process.env.STRIPE_PRICE_STARTER,
+    pro: process.env.STRIPE_PRICE_PRO,
+    ultimate: process.env.STRIPE_PRICE_ULTIMATE,
+  };
+  return map[packageId];
+}
+
+export const COIN_PACKAGES = COIN_PACKAGE_DEFINITIONS.map((pkg) => ({
+  ...pkg,
+  stripePriceId: stripePriceIdForPackage(pkg.id),
+}));
 
 export async function getCoinBalance(userId: string): Promise<number> {
   const user = await getUserById(userId);
@@ -85,11 +99,19 @@ export async function deductAmount(
   return { success: true, newBalance, cost: amount };
 }
 
+export interface AddCoinsOptions {
+  stripeSessionId?: string;
+  paypalOrderId?: string;
+  packageId?: string;
+  provider?: 'stripe' | 'paypal';
+}
+
 export async function addCoins(
   userId: string,
   amount: number,
   description: string,
-  type: 'purchase' | 'bonus' | 'refund' = 'purchase'
+  type: 'purchase' | 'bonus' | 'refund' = 'purchase',
+  options?: AddCoinsOptions
 ): Promise<number> {
   const user = await getUserById(userId);
   if (!user) throw new Error('User not found');
@@ -98,7 +120,7 @@ export async function addCoins(
   const newBalance = balance + amount;
   await updateCoinBalance(userId, newBalance);
 
-  const tx = {
+  const tx: Record<string, unknown> = {
     id: randomUUID(),
     userId,
     type,
@@ -108,12 +130,25 @@ export async function addCoins(
     createdAt: new Date().toISOString(),
   };
 
+  if (options?.stripeSessionId) {
+    tx.stripePaymentIntentId = options.stripeSessionId;
+  }
+  if (options?.paypalOrderId) {
+    tx.paypalOrderId = options.paypalOrderId;
+  }
+  if (options?.packageId || options?.provider) {
+    tx.metadata = {
+      packageId: options.packageId,
+      provider: options.provider,
+    };
+  }
+
   if (isDevMode()) {
     devStore.addTransaction(tx);
   } else {
     const { getFirestore } = await import('../config/firebase.js');
     const db = getFirestore();
-    await db.collection('coin_transactions').doc(tx.id).set(tx);
+    await db.collection('coin_transactions').doc(String(tx.id)).set(tx);
   }
 
   return newBalance;
@@ -135,9 +170,3 @@ export async function getTransactions(userId: string, limit = 50) {
 
   return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
-
-export const COIN_PACKAGES = [
-  { id: 'starter', name: 'Starter', coins: 100, priceCents: 499, bonusCoins: 0, currency: 'eur', isPopular: false },
-  { id: 'pro', name: 'Pro', coins: 500, priceCents: 1999, bonusCoins: 50, currency: 'eur', isPopular: true },
-  { id: 'ultimate', name: 'Ultimate', coins: 1500, priceCents: 4999, bonusCoins: 200, currency: 'eur', isPopular: false },
-];

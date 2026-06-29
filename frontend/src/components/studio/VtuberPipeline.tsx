@@ -1,9 +1,9 @@
 import { ArrowRight, Image, Smile, Box } from 'lucide-react';
 
 const steps = [
-  { icon: Image, label: 'Logo', desc: 'Dein Branding' },
-  { icon: Smile, label: 'Mascot', desc: 'Charakter-Design' },
-  { icon: Box, label: 'VTuber Model', desc: '2D / 3D + Emotes' },
+  { icon: Image, label: 'DNA', desc: 'Creator Branding' },
+  { icon: Smile, label: 'Charakter', desc: 'KI-Design PNG' },
+  { icon: Box, label: 'Emotes', desc: 'Avatar & Expressions' },
 ];
 
 export function VtuberPipeline() {

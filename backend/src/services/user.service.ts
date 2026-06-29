@@ -102,6 +102,11 @@ export async function getOrCreateUser(
     if (user.coinBalance !== doc.data()?.coinBalance) {
       await ref.update({ coinBalance: user.coinBalance, updatedAt: new Date().toISOString() });
     }
+    if (authProvider && !user.authProviders.includes(authProvider)) {
+      const authProviders = [...user.authProviders, authProvider];
+      await ref.update({ authProviders, updatedAt: new Date().toISOString() });
+      user.authProviders = authProviders;
+    }
     return user;
   }
 

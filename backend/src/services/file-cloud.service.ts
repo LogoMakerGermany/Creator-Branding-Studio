@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { dsDelete, dsGet, dsList, dsSet } from '../lib/data-store.js';
+import { parseAndValidateDataUrl, parseAndValidateVideoDataUrl } from '../lib/upload-validation.js';
 import { uploadAssetFromDataUrl, uploadAssetFromUrl } from '../lib/firebase-storage.js';
 
 const FILES_COLLECTION = 'files';
 
-export type FileCategory = 'logo' | 'banner' | 'video' | 'project' | 'overlay' | 'other';
+export type FileCategory = 'logo' | 'banner' | 'video' | 'project' | 'overlay' | 'sticker' | 'other';
 
 export interface UserFile {
   id: string;
@@ -54,19 +55,27 @@ export async function saveUserFile(
     source?: 'upload' | 'generation';
   }
 ): Promise<UserFile> {
-  const size = Math.max(1, Math.round((input.dataUrl.length * 3) / 4));
+  const trimmed = input.dataUrl.trim();
+  let validated: { mimeType: string; size: number };
+
+  if (input.category === 'video') {
+    validated = parseAndValidateVideoDataUrl(trimmed);
+  } else {
+    validated = parseAndValidateDataUrl(trimmed);
+  }
+
   const id = randomUUID();
-  const downloadUrl = await uploadAssetFromDataUrl(userId, input.dataUrl, {
+  const downloadUrl = await uploadAssetFromDataUrl(userId, trimmed, {
     folder: input.category,
-    fileName: `${id}.${input.mimeType.split('/')[1] || 'bin'}`,
+    fileName: `${id}.${validated.mimeType.split('/')[1]?.replace('svg+xml', 'svg') || 'bin'}`,
   });
 
   const file: UserFile = {
     id,
     userId,
     name: input.name,
-    mimeType: input.mimeType,
-    size,
+    mimeType: validated.mimeType,
+    size: validated.size,
     category: input.category,
     downloadUrl,
     source: input.source ?? 'upload',
@@ -96,9 +105,11 @@ export async function saveGeneratedAsset(
       ? 'logo'
       : module === 'banner'
         ? 'banner'
-        : ['overlay', 'facecam', 'stream-start', 'stream-end', 'panel', 'alert'].includes(module)
-          ? 'overlay'
-          : 'other';
+        : module === 'sticker'
+          ? 'sticker'
+          : ['overlay', 'facecam', 'stream-start', 'stream-end', 'panel', 'alert'].includes(module)
+            ? 'overlay'
+            : 'other';
 
   const id = randomUUID();
   const mimeType = imageUrl.startsWith('data:image/svg') ? 'image/svg+xml' : 'image/png';

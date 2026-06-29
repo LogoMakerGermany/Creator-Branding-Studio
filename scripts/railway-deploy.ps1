@@ -9,7 +9,9 @@
 #>
 param(
   [switch]$VarsOnly,
-  [switch]$SkipCheck
+  [switch]$SkipCheck,
+  [switch]$FirebaseVarsOnly,
+  [switch]$NoVarsPush
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,9 +33,17 @@ if (-not $SkipCheck) {
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-Write-Host "Syncing variables to Railway…" -ForegroundColor Cyan
-node scripts/push-railway-vars.mjs
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if (-not $NoVarsPush) {
+  Write-Host "Syncing variables to Railway…" -ForegroundColor Cyan
+  if ($FirebaseVarsOnly) {
+    node scripts/push-railway-firebase-vars.mjs
+  } else {
+    node scripts/push-railway-vars.mjs
+  }
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host 'Variable sync failed (SSL?). Keys may already be on Railway — continue in Dashboard.' -ForegroundColor Yellow
+  }
+}
 
 if ($VarsOnly) {
   Write-Host 'Variables synced. Run: npm run railway:up' -ForegroundColor Green

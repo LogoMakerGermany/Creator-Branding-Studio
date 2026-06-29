@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Sparkles, AlertCircle, CheckCircle2, Dna, Package } from 'lucide-react';
+import { Sparkles, AlertCircle, CheckCircle2, Dna, Package, Download, XCircle } from 'lucide-react';
 import { PageHeader, Badge, Button, Card, CardTitle } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { api, ApiError, type GenerationJob } from '@/services/api';
@@ -22,6 +22,8 @@ export function BrandingGeneratorPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
+  const [packStatus, setPackStatus] = useState<'completed' | 'partial' | null>(null);
+  const [failedCount, setFailedCount] = useState(0);
 
   async function handleGenerate() {
     if (!activeDna) {
@@ -31,9 +33,15 @@ export function BrandingGeneratorPage() {
 
     setLoading(true);
     setError(null);
+    setPackStatus(null);
+    setFailedCount(0);
     try {
       const res = await api.studio.generateBrandingPack();
       if (res.jobs) setJobs(res.jobs);
+      if (res.status === 'partial' || res.status === 'completed') {
+        setPackStatus(res.status);
+      }
+      if (res.failedCount) setFailedCount(res.failedCount);
       await refreshUser();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Generierung fehlgeschlagen');
@@ -41,6 +49,8 @@ export function BrandingGeneratorPage() {
       setLoading(false);
     }
   }
+
+  const completedCount = jobs.filter((j) => j.status === 'completed').length;
 
   return (
     <div>
@@ -63,10 +73,17 @@ export function BrandingGeneratorPage() {
         <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-300">{error}</div>
       )}
 
-      {jobs.length > 0 && (
+      {packStatus === 'completed' && (
         <div className="mb-6 flex items-center gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-emerald-300">
           <CheckCircle2 className="h-5 w-5" />
-          Branding-Paket generiert: alle 8 Assets · gespeichert in Datei Cloud
+          Branding-Paket vollständig generiert — alle 8 Assets in der Datei Cloud
+        </div>
+      )}
+
+      {packStatus === 'partial' && (
+        <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">
+          <AlertCircle className="h-5 w-5" />
+          Teilweise generiert: {completedCount}/8 erfolgreich, {failedCount} fehlgeschlagen
         </div>
       )}
 
@@ -77,11 +94,30 @@ export function BrandingGeneratorPage() {
             Branding-Paket
           </CardTitle>
           <ul className="mt-4 grid grid-cols-2 gap-2">
-            {PACK_ASSETS.map((asset) => (
-              <li key={asset.key} className="rounded-lg border border-zinc-800 px-3 py-2 text-sm text-zinc-300">
-                {asset.label}
-              </li>
-            ))}
+            {PACK_ASSETS.map((asset) => {
+              const job = jobs.find((j) => j.module === asset.key);
+              const done = job?.status === 'completed';
+              const failed = job?.status === 'failed';
+              return (
+                <li
+                  key={asset.key}
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                    failed
+                      ? 'border-red-500/30 text-red-300'
+                      : done
+                        ? 'border-emerald-500/30 text-emerald-200'
+                        : 'border-zinc-800 text-zinc-300'
+                  }`}
+                >
+                  {failed ? (
+                    <XCircle className="h-3.5 w-3.5 shrink-0" />
+                  ) : done ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                  ) : null}
+                  {asset.label}
+                </li>
+              );
+            })}
           </ul>
           <Button
             className="mt-6 w-full gap-2"
@@ -103,8 +139,20 @@ export function BrandingGeneratorPage() {
             <div className="mt-4 grid grid-cols-4 gap-2">
               {jobs.map((job) => (
                 <div key={job.id} className="text-center">
-                  {job.imageUrl ? (
-                    <img src={job.imageUrl} alt={job.module} className="aspect-square w-full rounded-lg border border-zinc-800 object-cover" />
+                  {job.status === 'failed' ? (
+                    <div
+                      className="flex aspect-square flex-col items-center justify-center rounded-lg border border-red-500/30 bg-red-500/10 p-1 text-[10px] text-red-300"
+                      title={job.error}
+                    >
+                      <XCircle className="mb-1 h-4 w-4" />
+                      {PACK_ASSETS.find((a) => a.key === job.module)?.label ?? job.module}
+                    </div>
+                  ) : job.imageUrl ? (
+                    <img
+                      src={job.imageUrl}
+                      alt={job.module}
+                      className="aspect-square w-full rounded-lg border border-zinc-800 object-cover"
+                    />
                   ) : (
                     <div className="flex aspect-square items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 text-xs text-zinc-500">
                       {job.module}
@@ -113,6 +161,17 @@ export function BrandingGeneratorPage() {
                   <p className="mt-1 text-xs capitalize text-zinc-500">
                     {PACK_ASSETS.find((a) => a.key === job.module)?.label ?? job.module}
                   </p>
+                  {job.exports?.png && (
+                    <a
+                      href={job.exports.png}
+                      download={`${job.module}.png`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 inline-flex items-center gap-1 text-[10px] text-brand-400 hover:underline"
+                    >
+                      <Download className="h-3 w-3" /> PNG
+                    </a>
+                  )}
                 </div>
               ))}
             </div>

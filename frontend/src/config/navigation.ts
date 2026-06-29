@@ -50,6 +50,10 @@ import {
 
   Radio,
 
+  Layers,
+
+  Sticker,
+
   type LucideIcon,
 
 } from 'lucide-react';
@@ -109,6 +113,10 @@ export const iconMap: Record<string, LucideIcon> = {
   Smartphone,
 
   Radio,
+
+  Layers,
+
+  Sticker,
 
 };
 

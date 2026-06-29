@@ -5,7 +5,7 @@ import {
   PageHeader,
   Badge,
   Button,
-  Card,
+  NeonCard,
   CardTitle,
   Input,
 } from '@/components/ui';
@@ -25,6 +25,9 @@ export function CreatorDNAPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [name, setName] = useState('');
+  const [clanName, setClanName] = useState('');
+  const [games, setGames] = useState('');
+  const [mascot, setMascot] = useState('');
   const [style, setStyle] = useState<string>('gaming');
   const [colors, setColors] = useState<string[]>([]);
   const [platforms, setPlatforms] = useState<string[]>(['twitch', 'youtube']);
@@ -42,9 +45,10 @@ export function CreatorDNAPage() {
     setError(null);
     try {
       const extracted = await extractColorsFromImage(file);
+      const dataUrl = await fileToDataUrl(file);
       setColors(extracted);
-      setPreviewUrl(await fileToDataUrl(file));
-      const { analysis: result } = await api.dna.analyze(extracted, style);
+      setPreviewUrl(dataUrl);
+      const { analysis: result } = await api.dna.analyze(extracted, style, dataUrl);
       setAnalysis(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analyse fehlgeschlagen');
@@ -63,7 +67,9 @@ export function CreatorDNAPage() {
     setError(null);
     try {
       await api.dna.create({
-        name: name.trim(),
+        name: [name.trim(), clanName && `Clan: ${clanName}`, games && `Games: ${games}`, mascot && `Mascot: ${mascot}`]
+          .filter(Boolean)
+          .join(' · '),
         styleDirection: style,
         primaryColors: colors.slice(0, 2),
         secondaryColors: colors.slice(2, 4),
@@ -93,8 +99,10 @@ export function CreatorDNAPage() {
           title="Creator DNA Engine"
           description="Deine aktive Markenidentität"
           badge={<Badge variant="success">Aktiv</Badge>}
+          backTo="/settings"
+          backLabel="Einstellungen"
         />
-        <Card>
+        <NeonCard accent="cyan">
           <div className="flex flex-col gap-6 lg:flex-row">
             <div className="flex-1">
               <CardTitle>{activeDna.name}</CardTitle>
@@ -127,7 +135,7 @@ export function CreatorDNAPage() {
               <Button onClick={() => navigate('/logo-studio')}>Logo Studio öffnen</Button>
             </div>
           </div>
-        </Card>
+        </NeonCard>
       </div>
     );
   }
@@ -138,6 +146,8 @@ export function CreatorDNAPage() {
         title="Creator DNA Engine"
         description="Analysiere deine Assets und erstelle deine einzigartige Creator DNA"
         badge={<Badge variant="brand">UCBS</Badge>}
+        backTo="/settings"
+        backLabel="Einstellungen"
       />
 
       {error && (
@@ -147,11 +157,12 @@ export function CreatorDNAPage() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5 text-brand-400" />
+        <NeonCard accent="cyan" title={
+          <span className="flex items-center gap-2">
+            <Upload className="h-5 w-5 text-[var(--ucbs-accent-cyan)]" />
             Asset hochladen
-          </CardTitle>
+          </span>
+        }>
           <p className="mt-2 text-sm text-zinc-400">
             Logo, Profilbild oder Banner – wir extrahieren Farben und Stil.
           </p>
@@ -178,13 +189,14 @@ export function CreatorDNAPage() {
               className="mt-4 max-h-48 rounded-lg border border-zinc-700 object-contain"
             />
           )}
-        </Card>
+        </NeonCard>
 
-        <Card>
-          <CardTitle className="flex items-center gap-2">
-            <Palette className="h-5 w-5 text-brand-400" />
+        <NeonCard accent="purple" title={
+          <span className="flex items-center gap-2">
+            <Palette className="h-5 w-5 text-[var(--ucbs-accent-purple)]" />
             Farbpalette
-          </CardTitle>
+          </span>
+        }>
           {colors.length > 0 ? (
             <div className="mt-4 grid grid-cols-3 gap-2">
               {colors.map((c, i) => (
@@ -208,19 +220,38 @@ export function CreatorDNAPage() {
               Erkannter Stil: {analysis.detectedStyle} ({Math.round(analysis.confidence * 100)}%)
             </p>
           )}
-        </Card>
+        </NeonCard>
 
-        <Card className="lg:col-span-2">
-          <CardTitle className="flex items-center gap-2">
-            <Dna className="h-5 w-5 text-brand-400" />
+        <NeonCard accent="green" className="lg:col-span-2" title={
+          <span className="flex items-center gap-2">
+            <Dna className="h-5 w-5 text-[var(--ucbs-accent-green)]" />
             DNA konfigurieren
-          </CardTitle>
+          </span>
+        }>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <Input
               label="DNA Name"
               placeholder="z.B. Mein Stream Brand"
               value={name}
               onChange={(e) => setName(e.target.value)}
+            />
+            <Input
+              label="Clan / Team"
+              placeholder="z.B. Team Phoenix"
+              value={clanName}
+              onChange={(e) => setClanName(e.target.value)}
+            />
+            <Input
+              label="Hauptspiele"
+              placeholder="z.B. Valorant, Fortnite"
+              value={games}
+              onChange={(e) => setGames(e.target.value)}
+            />
+            <Input
+              label="Maskottchen / Mascot"
+              placeholder="z.B. Cyber-Wolf"
+              value={mascot}
+              onChange={(e) => setMascot(e.target.value)}
             />
             <div>
               <label className="mb-1.5 block text-sm font-medium text-zinc-300">Stilrichtung</label>
@@ -265,7 +296,7 @@ export function CreatorDNAPage() {
             <Sparkles className="h-4 w-4" />
             Creator DNA erstellen
           </Button>
-        </Card>
+        </NeonCard>
       </div>
     </div>
   );

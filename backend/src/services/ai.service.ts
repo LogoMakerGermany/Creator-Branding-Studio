@@ -1,10 +1,27 @@
-import type { CreatorDNA } from '@ucbs/shared';
+import type { CreatorDNA, StudioExportUrls } from '@ucbs/shared';
 import { CoinSpendCategory } from '@ucbs/shared';
 import { randomUUID } from 'node:crypto';
 import { getActiveDna } from './dna.service.js';
 import { deductCoins } from './coins.service.js';
-import { isProduction } from '../config/env.js';
 import { requireImageProvider } from '../lib/media-providers.js';
+import { buildSvgExportFromImage } from '../lib/studio-export.js';
+import {
+  buildBannerPrompt,
+  buildBrandingPackPrompt,
+  buildFacecamPrompt,
+  buildLogoPrompt,
+  buildOverlayPrompt,
+  buildStickerPrompt,
+  bannerOpenAiSize,
+} from './studio-prompt.service.js';
+import type {
+  BannerGenerationOptions,
+  FacecamGenerationOptions,
+  LogoGenerationOptions,
+  OverlayGenerationOptions,
+  StickerGenerationOptions,
+  StudioModuleKey,
+} from '@ucbs/shared';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
 
 import { ServiceError } from '../lib/errors.js';
@@ -20,6 +37,7 @@ export interface GenerationJob {
   prompt: string;
   imageUrl?: string;
   provider?: string;
+  exports?: StudioExportUrls;
   dnaId?: string;
   error?: string;
   createdAt: string;
@@ -34,6 +52,7 @@ export interface GenerateImageOptions {
     | 'ai-image'
     | 'profile-pic'
     | 'overlay'
+    | 'sticker'
     | 'stream-start'
     | 'stream-end'
     | 'panel'
@@ -41,6 +60,7 @@ export interface GenerateImageOptions {
   dna: CreatorDNA;
   customPrompt?: string;
   size?: '1024x1024' | '1792x1024' | '1024x1792';
+  hd?: boolean;
 }
 
 export function buildPromptFromDNA(dna: CreatorDNA, module: string, customPrompt?: string): string {
@@ -55,6 +75,7 @@ export function buildPromptFromDNA(dna: CreatorDNA, module: string, customPrompt
     banner: `${dna.styleDirection} stream banner, wide format header graphic, dynamic composition`,
     facecam: `${dna.styleDirection} stream overlay frame for facecam, transparent-friendly border design`,
     overlay: `${dna.styleDirection} stream overlay graphic, HUD elements, transparent-friendly`,
+    sticker: `${dna.styleDirection} creator sticker/emote, bold multicolor, transparent background`,
     'stream-start': `${dna.styleDirection} stream starting soon screen, full screen graphic`,
     'stream-end': `${dna.styleDirection} stream ending screen, thank you graphic, offline screen`,
     panel: `${dna.styleDirection} stream info panel, schedule or about panel design`,
@@ -67,20 +88,23 @@ export function buildPromptFromDNA(dna: CreatorDNA, module: string, customPrompt
 }
 
 function moduleImageSize(module: string): GenerateImageOptions['size'] {
-  if (['banner', 'stream-start', 'stream-end', 'panel'].includes(module)) {
+  if (['banner', 'stream-start', 'stream-end', 'panel', 'overlay'].includes(module)) {
     return '1792x1024';
   }
   return '1024x1024';
 }
 
-export async function generateImage(options: GenerateImageOptions): Promise<{ imageUrl: string; provider: string }> {
-  const prompt = buildPromptFromDNA(options.dna, options.module, options.customPrompt);
+export async function generateImage(
+  options: GenerateImageOptions
+): Promise<{ imageUrl: string; provider: string; exports: StudioExportUrls }> {
+  const prompt = options.customPrompt ?? buildPromptFromDNA(options.dna, options.module);
   const size = options.size ?? (options.module === 'banner' ? '1792x1024' : '1024x1024');
+  const quality = options.hd ? 'hd' : 'standard';
 
   if (process.env.OPENAI_API_KEY) {
     try {
-      const url = await generateWithOpenAI(prompt, size);
-      return { imageUrl: url, provider: 'openai' };
+      const url = await generateWithOpenAI(prompt, size, quality);
+      return { imageUrl: url, provider: 'openai', exports: buildExports(url, options.module) };
     } catch (err) {
       console.warn('[AI] OpenAI failed, trying Replicate:', err);
     }
@@ -89,20 +113,29 @@ export async function generateImage(options: GenerateImageOptions): Promise<{ im
   if (process.env.REPLICATE_API_TOKEN) {
     try {
       const url = await generateWithReplicate(prompt);
-      return { imageUrl: url, provider: 'replicate' };
+      return { imageUrl: url, provider: 'replicate', exports: buildExports(url, options.module) };
     } catch (err) {
       console.warn('[AI] Replicate failed:', err);
     }
   }
 
-  if (isProduction()) {
-    requireImageProvider();
-  }
-
-  return { imageUrl: generateDevPlaceholder(options.dna, options.module), provider: 'dev-placeholder' };
+  requireImageProvider();
+  throw new ServiceError(503, 'AI_GENERATION_FAILED', 'Bild-Generierung fehlgeschlagen — kein Provider verfügbar');
 }
 
-async function generateWithOpenAI(prompt: string, size: string): Promise<string> {
+function buildExports(imageUrl: string, module: string): StudioExportUrls {
+  return {
+    png: imageUrl,
+    hd: imageUrl,
+    svg: buildSvgExportFromImage(imageUrl, module),
+  };
+}
+
+async function generateWithOpenAI(
+  prompt: string,
+  size: string,
+  quality: 'standard' | 'hd' = 'standard'
+): Promise<string> {
   const res = await fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: {
@@ -114,7 +147,7 @@ async function generateWithOpenAI(prompt: string, size: string): Promise<string>
       prompt,
       n: 1,
       size,
-      quality: 'standard',
+      quality,
     }),
   });
 
@@ -171,27 +204,49 @@ async function generateWithReplicate(prompt: string): Promise<string> {
   throw new Error('No output from Replicate');
 }
 
-function generateDevPlaceholder(dna: CreatorDNA, module: string): string {
-  const primary = dna.primaryColors[0] || '#7C3AED';
-  const secondary = dna.secondaryColors[0] || dna.primaryColors[1] || '#1E1B4B';
-  const accent = dna.accentColors[0] || dna.primaryColors[2] || '#A78BFA';
+export function buildPromptForStudioModule(
+  dna: CreatorDNA,
+  module: StudioModuleKey,
+  options?: LogoGenerationOptions | BannerGenerationOptions | FacecamGenerationOptions | OverlayGenerationOptions | StickerGenerationOptions
+): { prompt: string; size?: GenerateImageOptions['size']; hd?: boolean } {
+  if (module === 'logo') {
+    return {
+      prompt: buildLogoPrompt(dna, (options ?? {}) as LogoGenerationOptions),
+      size: '1024x1024',
+      hd: true,
+    };
+  }
+  if (module === 'banner') {
+    const bannerOpts = options as BannerGenerationOptions;
+    return {
+      prompt: buildBannerPrompt(dna, bannerOpts),
+      size: bannerOpenAiSize(bannerOpts.platform),
+      hd: true,
+    };
+  }
+  if (module === 'facecam') {
+    return {
+      prompt: buildFacecamPrompt(dna, (options ?? {}) as FacecamGenerationOptions),
+      size: '1024x1024',
+      hd: false,
+    };
+  }
+  if (module === 'overlay') {
+    return {
+      prompt: buildOverlayPrompt(dna, (options ?? {}) as OverlayGenerationOptions),
+      size: '1792x1024',
+      hd: true,
+    };
+  }
+  return {
+    prompt: buildStickerPrompt(dna, (options ?? {}) as StickerGenerationOptions),
+    size: '1024x1024',
+    hd: true,
+  };
+}
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-    <defs>
-      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" style="stop-color:${secondary}"/>
-        <stop offset="100%" style="stop-color:${primary}"/>
-      </linearGradient>
-    </defs>
-    <rect width="1024" height="1024" fill="url(#bg)"/>
-    <circle cx="512" cy="400" r="180" fill="${accent}" opacity="0.8"/>
-    <polygon points="512,200 612,450 412,450" fill="${primary}" opacity="0.9"/>
-    <text x="512" y="700" text-anchor="middle" fill="white" font-family="Arial,sans-serif" font-size="48" font-weight="bold">${module.toUpperCase()}</text>
-    <text x="512" y="760" text-anchor="middle" fill="${accent}" font-family="Arial,sans-serif" font-size="28">${dna.styleDirection}</text>
-    <text x="512" y="820" text-anchor="middle" fill="white" opacity="0.6" font-family="Arial,sans-serif" font-size="20">${dna.name}</text>
-  </svg>`;
-
-  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+export function buildBrandingModulePrompt(dna: CreatorDNA, module: string): string {
+  return buildBrandingPackPrompt(dna, module);
 }
 
 export async function saveJob(job: GenerationJob): Promise<void> {
@@ -212,14 +267,15 @@ export async function runGenerationJob(
   userId: string,
   module: string,
   dna: CreatorDNA,
-  customPrompt?: string
+  customPrompt?: string,
+  genOptions?: { size?: GenerateImageOptions['size']; hd?: boolean }
 ): Promise<GenerationJob> {
   const job: GenerationJob = {
     id: randomUUID(),
     userId,
     module,
     status: 'processing',
-    prompt: buildPromptFromDNA(dna, module, customPrompt),
+    prompt: customPrompt ?? buildPromptFromDNA(dna, module),
     dnaId: dna.id,
     createdAt: new Date().toISOString(),
   };
@@ -227,17 +283,19 @@ export async function runGenerationJob(
   await saveJob(job);
 
   try {
-    const size = moduleImageSize(module);
-    const { imageUrl, provider } = await generateImage({
+    const size = genOptions?.size ?? moduleImageSize(module);
+    const { imageUrl, provider, exports } = await generateImage({
       module: module as GenerateImageOptions['module'],
       dna,
       customPrompt,
       size,
+      hd: genOptions?.hd,
     });
 
     job.status = 'completed';
     job.imageUrl = imageUrl;
     job.provider = provider;
+    job.exports = exports;
     job.completedAt = new Date().toISOString();
     await saveGeneratedAsset(userId, module, imageUrl);
   } catch (err) {
@@ -252,10 +310,10 @@ export async function runGenerationJob(
 
 export async function generateStudioAsset(
   userId: string,
-  module: 'logo' | 'banner' | 'facecam',
+  module: StudioModuleKey,
   coinCategory: CoinSpendCategory,
   moduleLabel: string,
-  customPrompt?: string
+  studioOptions?: LogoGenerationOptions | BannerGenerationOptions | FacecamGenerationOptions | OverlayGenerationOptions | StickerGenerationOptions
 ) {
   const activeDna = await getActiveDna(userId);
   if (!activeDna) {
@@ -267,7 +325,8 @@ export async function generateStudioAsset(
     throw new ServiceError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
   }
 
-  const job = await runGenerationJob(userId, module, activeDna, customPrompt);
+  const { prompt, size, hd } = buildPromptForStudioModule(activeDna, module, studioOptions);
+  const job = await runGenerationJob(userId, module, activeDna, prompt, { size, hd });
 
   return {
     job,

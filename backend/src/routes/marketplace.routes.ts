@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { asyncHandler, sendSuccess, AppError } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
+import { ServiceError } from '../lib/errors.js';
 import {
   listMarketplaceItems,
   getMarketplaceItem,
@@ -13,10 +14,19 @@ import {
   getPurchasedDownloadUrl,
   createListing,
   listUserListings,
+  deactivateListing,
 } from '../services/marketplace.service.js';
 
 export const marketplaceRoutes = Router();
 marketplaceRoutes.use(authenticate, requirePermission(Permission.BUY_MARKETPLACE));
+
+function mapMarketplaceError(err: unknown): never {
+  if (err instanceof ServiceError) {
+    throw new AppError(err.statusCode, err.code, err.message);
+  }
+  const msg = err instanceof Error ? err.message : 'Marketplace-Fehler';
+  throw new AppError(400, 'MARKETPLACE_ERROR', msg);
+}
 
 marketplaceRoutes.get(
   '/',
@@ -51,8 +61,8 @@ const listingSchema = z.object({
   description: z.string().min(2).max(500),
   category: z.enum(['logo', 'banner', 'template', 'intro', 'overlay', 'emote', 'sound', 'panel', 'vtuber']),
   priceCoins: z.number().int().min(5).max(500),
-  previewUrl: z.string().min(10).optional(),
-  downloadUrl: z.string().min(10).optional(),
+  previewDataUrl: z.string().min(20),
+  assetDataUrl: z.string().min(20),
   tags: z.array(z.string()).optional(),
 });
 
@@ -61,8 +71,25 @@ marketplaceRoutes.post(
   requirePermission(Permission.SELL_MARKETPLACE),
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const body = listingSchema.parse(req.body);
-    const item = await createListing(req.user!.uid, body);
-    sendSuccess(res, { item }, 201);
+    try {
+      const item = await createListing(req.user!.uid, body);
+      sendSuccess(res, { item }, 201);
+    } catch (err) {
+      mapMarketplaceError(err);
+    }
+  })
+);
+
+marketplaceRoutes.delete(
+  '/listings/:id',
+  requirePermission(Permission.SELL_MARKETPLACE),
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    try {
+      const item = await deactivateListing(req.user!.uid, String(req.params.id));
+      sendSuccess(res, { item });
+    } catch (err) {
+      mapMarketplaceError(err);
+    }
   })
 );
 
@@ -73,9 +100,7 @@ marketplaceRoutes.post(
       const result = await purchaseItem(req.user!.uid, String(req.params.id));
       sendSuccess(res, result, 201);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Kauf fehlgeschlagen';
-      if (msg.includes('Coins')) throw new AppError(402, 'INSUFFICIENT_COINS', msg);
-      throw new AppError(400, 'PURCHASE_FAILED', msg);
+      mapMarketplaceError(err);
     }
   })
 );

@@ -1,11 +1,20 @@
 import { useEffect, useState } from 'react';
 import { PageHeader, Badge, Button, NeonCard, StatCard } from '@/components/ui';
-import { Share2, Send, Trash2, TrendingUp, Clock } from 'lucide-react';
+import { Share2, Send, Trash2, TrendingUp, Clock, Image } from 'lucide-react';
 import { api, ApiError, type SocialPost, type SocialPlatform } from '@/services/api';
 import { StudioErrorBanner, TypeOptionButton } from '@/components/studio';
 import { cn } from '@/lib/utils';
 
 const PLATFORMS: SocialPlatform[] = ['instagram', 'youtube', 'tiktok', 'twitter', 'discord', 'twitch'];
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden'));
+    reader.readAsDataURL(file);
+  });
+}
 
 export function SocialMediaPage() {
   const [posts, setPosts] = useState<SocialPost[]>([]);
@@ -13,6 +22,8 @@ export function SocialMediaPage() {
   const [platform, setPlatform] = useState<SocialPlatform>('instagram');
   const [content, setContent] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,19 +37,30 @@ export function SocialMediaPage() {
     setStats(res.stats);
   }
 
+  async function handleMediaSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setMediaFile(file);
+    setMediaPreview(await readFileAsDataUrl(file));
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!content.trim()) return;
     setLoading(true);
     setError(null);
     try {
+      const mediaDataUrl = mediaFile ? await readFileAsDataUrl(mediaFile) : undefined;
       await api.social.create({
         platform,
         content: content.trim(),
         scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
+        mediaDataUrl,
       });
       setContent('');
       setScheduledAt('');
+      setMediaFile(null);
+      setMediaPreview(null);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Fehler');
@@ -61,7 +83,7 @@ export function SocialMediaPage() {
     <div>
       <PageHeader
         title="Social Media Center"
-        description="Posts planen, veröffentlichen und Engagement tracken"
+        description="Posts planen und verwalten — Veröffentlichung markiert den Status lokal (kein Auto-Post an Plattformen)"
         badge={<Badge variant="brand">UCBS</Badge>}
       />
 
@@ -96,8 +118,23 @@ export function SocialMediaPage() {
               value={content}
               onChange={(e) => setContent(e.target.value)}
             />
+            <label className="block">
+              <span className="mb-1 flex items-center gap-1 text-xs text-zinc-500">
+                <Image className="h-3 w-3" />
+                Medien (optional)
+              </span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={handleMediaSelect}
+                className="block w-full text-sm text-zinc-400 file:mr-3 file:rounded file:border-0 file:bg-brand-500/20 file:px-3 file:py-1.5 file:text-brand-200"
+              />
+              {mediaPreview && (
+                <img src={mediaPreview} alt="Vorschau" className="mt-2 h-24 rounded border border-zinc-700 object-cover" />
+              )}
+            </label>
             <div>
-              <label className="mb-1 block text-xs text-zinc-500">Optional: Zeitplan</label>
+              <label className="mb-1 block text-xs text-zinc-500">Optional: Zeitplan (erscheint auch im Content-Kalender)</label>
               <input
                 type="datetime-local"
                 value={scheduledAt}
@@ -125,6 +162,9 @@ export function SocialMediaPage() {
                     {post.status}
                   </Badge>
                 </div>
+                {post.mediaUrl && (
+                  <img src={post.mediaUrl} alt="" className="mt-2 h-28 w-full rounded object-cover" />
+                )}
                 <p className="mt-2 text-sm text-zinc-300">{post.content}</p>
                 {post.scheduledAt && post.status === 'scheduled' && (
                   <p className="mt-1 flex items-center gap-1 text-xs text-cyan-400">
@@ -132,15 +172,15 @@ export function SocialMediaPage() {
                     {new Date(post.scheduledAt).toLocaleString('de-DE')}
                   </p>
                 )}
-                {post.status === 'published' && (
+                {post.status === 'published' && post.publishedAt && (
                   <p className="mt-1 text-xs text-zinc-500">
-                    {post.engagement.likes} Likes · {post.engagement.views} Views
+                    Veröffentlicht am {new Date(post.publishedAt).toLocaleString('de-DE')}
                   </p>
                 )}
                 <div className="mt-2 flex gap-2">
                   {(post.status === 'draft' || post.status === 'scheduled') && (
                     <Button size="sm" variant="outline" onClick={() => handlePublish(post.id)}>
-                      Veröffentlichen
+                      Als veröffentlicht markieren
                     </Button>
                   )}
                   <Button size="sm" variant="outline" onClick={() => handleDelete(post.id)}>

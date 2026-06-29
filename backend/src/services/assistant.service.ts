@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { isDevMode, isProduction } from '../config/env.js';
 import { dsSet, dsDelete, dsList } from '../lib/data-store.js';
+import { ServiceError } from '../lib/errors.js';
 import { getActiveDna } from './dna.service.js';
 
 export interface ChatMessage {
@@ -29,12 +31,15 @@ export async function getOrCreateSession(userId: string): Promise<AssistantSessi
   const session: AssistantSession = {
     id: randomUUID(),
     userId,
-    messages: [{
-      id: randomUUID(),
-      role: 'assistant',
-      content: 'Hallo! Ich bin dein KI Creator Assistent. Frag mich zu Branding, Content-Strategie oder Design-Verbesserungen.',
-      createdAt: now,
-    }],
+    messages: [
+      {
+        id: randomUUID(),
+        role: 'assistant',
+        content:
+          'Hallo! Ich bin dein KI Creator Assistent. Frag mich zu Branding, Content-Strategie oder Design-Verbesserungen.',
+        createdAt: now,
+      },
+    ],
     createdAt: now,
     updatedAt: now,
   };
@@ -54,7 +59,7 @@ export async function chat(userId: string, message: string): Promise<AssistantSe
   });
 
   const activeDna = await getActiveDna(userId);
-  const reply = await generateAssistantReply(message, activeDna);
+  const reply = await generateAssistantReply(session.messages, activeDna);
 
   session.messages.push({
     id: randomUUID(),
@@ -69,7 +74,7 @@ export async function chat(userId: string, message: string): Promise<AssistantSe
 }
 
 async function generateAssistantReply(
-  message: string,
+  messages: ChatMessage[],
   dna: Awaited<ReturnType<typeof getActiveDna>>
 ): Promise<string> {
   const dnaContext = dna
@@ -78,6 +83,11 @@ async function generateAssistantReply(
 
   if (process.env.OPENAI_API_KEY) {
     try {
+      const history = messages.slice(-12).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -91,7 +101,7 @@ async function generateAssistantReply(
               role: 'system',
               content: `Du bist der KI Creator Assistent von UCBS (Ultimate Creator Branding Studio). Hilf Creatorn bei Branding, Content-Strategie, Stream-Design und Social Media. Antworte auf Deutsch, präzise und actionable. ${dnaContext}`,
             },
-            { role: 'user', content: message },
+            ...history,
           ],
           max_tokens: 600,
         }),
@@ -99,17 +109,34 @@ async function generateAssistantReply(
 
       if (res.ok) {
         const data = (await res.json()) as { choices: { message: { content: string } }[] };
-        return data.choices[0]?.message?.content || getFallbackReply(message, dna);
+        const content = data.choices[0]?.message?.content?.trim();
+        if (content) return content;
       }
     } catch {
-      /* fallback below */
+      /* handled below */
     }
   }
 
-  return getFallbackReply(message, dna);
+  if (isProduction()) {
+    throw new ServiceError(
+      503,
+      'AI_UNAVAILABLE',
+      'KI-Assistent benötigt OPENAI_API_KEY. Bitte in der Backend-Konfiguration setzen.'
+    );
+  }
+
+  if (isDevMode()) {
+    return getDevFallbackReply(messages[messages.length - 1]?.content ?? '', dna);
+  }
+
+  throw new ServiceError(
+    503,
+    'AI_UNAVAILABLE',
+    'KI-Assistent ist derzeit nicht verfügbar. OPENAI_API_KEY fehlt.'
+  );
 }
 
-function getFallbackReply(message: string, dna: Awaited<ReturnType<typeof getActiveDna>>): string {
+function getDevFallbackReply(message: string, dna: Awaited<ReturnType<typeof getActiveDna>>): string {
   const lower = message.toLowerCase();
 
   if (lower.includes('banner') || lower.includes('overlay')) {
@@ -120,15 +147,7 @@ function getFallbackReply(message: string, dna: Awaited<ReturnType<typeof getAct
     return `Ein starkes Creator-Logo sollte in 512x512 erkennbar sein und auch als Favicon funktionieren. ${dna ? `Dein ${dna.styleDirection}-Stil passt zu klaren Silhouetten und maximal 3 Farben.` : 'Definiere zuerst deine Creator DNA.'}`;
   }
 
-  if (lower.includes('strateg') || lower.includes('content') || lower.includes('post')) {
-    return 'Content-Strategie Tipp: 1) 3 Content-Säulen definieren (z.B. Gaming, Behind-the-Scenes, Tutorials), 2) 1 Hauptplattform + 2 Repurpose-Kanäle, 3) Wöchentlicher Rhythmus mit Batch-Produktion. Nutze den Content Kalender (Phase 4) wenn verfügbar.';
-  }
-
-  if (lower.includes('twitch') || lower.includes('stream')) {
-    return `Stream-Branding Checkliste: Facecam-Rahmen, Stream-Panels, Offline-Banner, Alerts und Starting-Soon Screen. ${dna ? `Deine DNA "${dna.name}" liefert die Farbgrundlage für alle Elemente.` : 'Starte mit der Creator DNA Engine.'}`;
-  }
-
-  return `Danke für deine Frage! ${dna ? `Basierend auf deiner DNA "${dna.name}" (${dna.styleDirection}): ` : ''}Ich empfehle, dein Branding über alle Plattformen konsistent zu halten. Nutze Logo Studio, Banner Studio und den Branding Generator für ein einheitliches Erscheinungsbild. Für detailliertere KI-Antworten setze OPENAI_API_KEY in der Backend-.env.`;
+  return `[Dev-Modus] Danke für deine Frage! ${dna ? `Basierend auf deiner DNA "${dna.name}": ` : ''}Setze OPENAI_API_KEY für echte KI-Antworten.`;
 }
 
 export async function clearSession(userId: string): Promise<void> {

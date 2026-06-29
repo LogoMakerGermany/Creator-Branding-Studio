@@ -1,3 +1,22 @@
+import type {
+  BannerGenerationOptions,
+  FacecamGenerationOptions,
+  LogoGenerationOptions,
+  OverlayGenerationOptions,
+  StickerGenerationOptions,
+  StudioModuleKey,
+  StudioProjectSummary,
+} from '@ucbs/shared';
+
+type StudioGenerateOptions =
+  | LogoGenerationOptions
+  | BannerGenerationOptions
+  | FacecamGenerationOptions
+  | OverlayGenerationOptions
+  | StickerGenerationOptions;
+
+export type { StudioProjectSummary };
+
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 export class ApiError extends Error {
@@ -69,10 +88,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
-    analyze: (colors: string[], styleHint?: string) =>
+    analyze: (colors: string[], styleHint?: string, imageDataUrl?: string) =>
       request<{ analysis: DNAAnalysis }>('/api/v1/dna/analyze', {
         method: 'POST',
-        body: JSON.stringify({ colors, styleHint }),
+        body: JSON.stringify({ colors, styleHint, imageDataUrl }),
       }),
     activate: (id: string) =>
       request<{ dna: CreatorDNA }>(`/api/v1/dna/${id}/activate`, { method: 'POST' }),
@@ -136,10 +155,9 @@ export const api = {
     getJob: (jobId: string) => request<{ job: GenerationJob }>(`/api/v1/ai/image/${jobId}`),
   },
   studio: {
-    generate: (
-      module: 'logo' | 'banner' | 'facecam',
-      options?: { style?: string; platform?: string }
-    ) =>
+    list: (module: StudioModuleKey) =>
+      request<{ module: string; projects: StudioProjectSummary[] }>(`/api/v1/${module}/`),
+    generate: (module: StudioModuleKey, options?: StudioGenerateOptions) =>
       request<GenerateResult>(`/api/v1/${module}/generate`, {
         method: 'POST',
         body: JSON.stringify(options ?? {}),
@@ -234,6 +252,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ dataUrl, duration }),
       }),
+    render: (id: string) =>
+      request<{ project: VideoProject }>(`/api/v1/video/${id}/render`, { method: 'POST' }),
   },
   introOutro: {
     list: () => request<{ jobs: MediaJob[] }>('/api/v1/intro-outro'),
@@ -301,6 +321,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    deactivateListing: (id: string) =>
+      request<{ item: MarketplaceItem }>(`/api/v1/marketplace/listings/${id}`, {
+        method: 'DELETE',
+      }),
     purchase: (id: string) =>
       request<{ purchase: MarketplacePurchase; item: MarketplaceItem; newBalance: number }>(
         `/api/v1/marketplace/${id}/purchase`,
@@ -311,7 +335,12 @@ export const api = {
   },
   social: {
     list: () => request<{ posts: SocialPost[]; stats: SocialStats }>('/api/v1/social'),
-    create: (body: { platform: SocialPlatform; content: string; scheduledAt?: string }) =>
+    create: (body: {
+      platform: SocialPlatform;
+      content: string;
+      scheduledAt?: string;
+      mediaDataUrl?: string;
+    }) =>
       request<{ post: SocialPost }>('/api/v1/social', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: Partial<SocialPost>) =>
       request<{ post: SocialPost }>(`/api/v1/social/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -458,6 +487,9 @@ export interface CoinTransaction {
   balanceAfter: number;
   description: string;
   createdAt: string;
+  stripePaymentIntentId?: string;
+  paypalOrderId?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CreateDnaBody {
@@ -473,7 +505,10 @@ export interface GenerateResult {
   jobId: string;
   status: string;
   imageUrl?: string;
+  exports?: { png: string; hd?: string; svg?: string };
   provider?: string;
+  error?: string;
+  failedCount?: number;
   coinsSpent?: number;
   newBalance?: number;
   message?: string;
@@ -487,6 +522,7 @@ export interface GenerationJob {
   status: 'queued' | 'processing' | 'completed' | 'failed';
   prompt: string;
   imageUrl?: string;
+  exports?: { png: string; hd?: string; svg?: string };
   provider?: string;
   dnaId?: string;
   error?: string;
@@ -642,6 +678,8 @@ export interface VideoProject {
   subtitles: SubtitleEntry[];
   highlights: HighlightSegment[];
   shorts: MediaJob[];
+  renderUrl?: string;
+  srtUrl?: string;
   status: 'draft' | 'processing' | 'ready';
   createdAt: string;
   updatedAt: string;
@@ -653,7 +691,8 @@ export interface UserFile {
   name: string;
   mimeType: string;
   size: number;
-  category: 'logo' | 'banner' | 'video' | 'project' | 'overlay' | 'other';
+  category: 'logo' | 'banner' | 'video' | 'project' | 'overlay' | 'sticker' | 'other';
+  downloadUrl?: string;
   source?: 'upload' | 'generation';
   createdAt: string;
 }
@@ -680,8 +719,8 @@ export interface CreateListingBody {
   description: string;
   category: string;
   priceCoins: number;
-  previewUrl?: string;
-  downloadUrl?: string;
+  previewDataUrl: string;
+  assetDataUrl: string;
   tags?: string[];
 }
 

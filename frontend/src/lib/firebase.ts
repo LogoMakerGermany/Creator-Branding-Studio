@@ -2,6 +2,7 @@ import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
+  GithubAuthProvider,
   OAuthProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
@@ -10,10 +11,13 @@ import {
   onAuthStateChanged,
   type Auth,
   type User,
+  type AuthProvider,
 } from 'firebase/auth';
 import { getFirebaseClientConfig, isFirebaseConfigured } from './runtime-config';
+import type { AuthProviderId } from './auth-providers';
 
 export { isFirebaseConfigured };
+export type { AuthProviderId };
 
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
@@ -28,7 +32,7 @@ export function getFirebaseAuth(): Auth | null {
   if (!firebaseConfig) return null;
 
   if (!app) {
-    app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+    app = getApps().length ? getApps()[0]! : initializeApp(firebaseConfig);
   }
   if (!auth) {
     auth = getAuth(app);
@@ -36,18 +40,53 @@ export function getFirebaseAuth(): Auth | null {
   return auth;
 }
 
-export async function loginWithGoogle(): Promise<User> {
+function providerFor(id: AuthProviderId): AuthProvider {
+  switch (id) {
+    case 'google':
+      return new GoogleAuthProvider();
+    case 'github':
+      return new GithubAuthProvider();
+    case 'apple': {
+      const p = new OAuthProvider('apple.com');
+      p.addScope('email');
+      p.addScope('name');
+      return p;
+    }
+    case 'microsoft': {
+      const p = new OAuthProvider('microsoft.com');
+      p.addScope('email');
+      p.addScope('openid');
+      p.addScope('profile');
+      return p;
+    }
+    case 'discord':
+      return new OAuthProvider('oidc.discord');
+    case 'twitch':
+      return new OAuthProvider('oidc.twitch');
+    case 'tiktok':
+      return new OAuthProvider('oidc.tiktok');
+    default:
+      throw new Error(`Unsupported OAuth provider: ${id}`);
+  }
+}
+
+export async function loginWithProvider(providerId: AuthProviderId): Promise<User> {
   const a = getFirebaseAuth();
   if (!a) throw new Error('Firebase nicht konfiguriert');
-  const result = await signInWithPopup(a, new GoogleAuthProvider());
+  const result = await signInWithPopup(a, providerFor(providerId));
   return result.user;
 }
 
+/** @deprecated use loginWithProvider('google') */
+export async function loginWithGoogle(): Promise<User> {
+  return loginWithProvider('google');
+}
+
+/** @deprecated use loginWithProvider(id) */
 export async function loginWithOAuth(providerId: string): Promise<User> {
   const a = getFirebaseAuth();
   if (!a) throw new Error('Firebase nicht konfiguriert');
-  const provider = new OAuthProvider(providerId);
-  const result = await signInWithPopup(a, provider);
+  const result = await signInWithPopup(a, new OAuthProvider(providerId));
   return result.user;
 }
 

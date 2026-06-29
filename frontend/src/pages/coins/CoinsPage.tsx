@@ -37,8 +37,7 @@ export function CoinsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('stripe');
-
-
+  const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
 
   const success = searchParams.get('success') === 'true';
 
@@ -79,33 +78,28 @@ export function CoinsPage() {
 
 
     async function handlePaymentSuccess() {
-
       try {
-
+        let result: { credited: boolean; duplicate?: boolean; coinsAdded?: number } | null = null;
         if (provider === 'paypal' && paypalToken) {
-
-          await api.paypal.verifyOrder(paypalToken);
-
+          result = await api.paypal.verifyOrder(paypalToken);
         } else if (sessionId) {
-
-          await api.stripe.verifySession(sessionId);
-
+          result = await api.stripe.verifySession(sessionId);
         } else if (paypalToken) {
-
-          await api.paypal.verifyOrder(paypalToken);
-
+          result = await api.paypal.verifyOrder(paypalToken);
         }
 
+        if (result?.credited && result.coinsAdded) {
+          setPaymentNotice(`${formatCoins(result.coinsAdded)} Coins gutgeschrieben.`);
+        } else if (result?.duplicate) {
+          setPaymentNotice('Zahlung bereits verarbeitet — Guthaben ist aktuell.');
+        } else {
+          setPaymentNotice('Zahlung erfolgreich — Guthaben wird aktualisiert.');
+        }
       } catch {
-
-        /* Webhook may have already credited coins */
-
+        setPaymentNotice('Zahlung erhalten — Coins werden per Webhook gutgeschrieben.');
       }
-
       await refreshUser();
-
       await loadTransactions();
-
     }
 
 
@@ -142,6 +136,8 @@ export function CoinsPage() {
 
 
 
+  const devPurchaseAllowed = isDevMode && (platform?.features.devCoinPurchase ?? false);
+
   async function handlePurchase(packageId: string, forceDev = false) {
 
     setLoadingPkg(packageId);
@@ -150,12 +146,9 @@ export function CoinsPage() {
 
     try {
 
-      if (forceDev || (isDevMode && !anyPaymentConfigured)) {
-
-        if (!platform?.features.devCoinPurchase && platform?.environment === 'production') {
-
+      if (forceDev || (devPurchaseAllowed && !anyPaymentConfigured)) {
+        if (!devPurchaseAllowed) {
           throw new ApiError('Dev-Kauf in Produktion deaktiviert', 'FORBIDDEN', 403);
-
         }
 
         const res = await api.stripe.devPurchase(packageId);
@@ -201,10 +194,8 @@ export function CoinsPage() {
       if (
 
         err instanceof ApiError &&
-
         (err.code === 'STRIPE_NOT_CONFIGURED' || err.code === 'PAYPAL_NOT_CONFIGURED') &&
-
-        isDevMode
+        devPurchaseAllowed
 
       ) {
 
@@ -312,7 +303,7 @@ export function CoinsPage() {
 
             <CheckCircle2 className="h-5 w-5 text-emerald-400" />
 
-            <span>Zahlung erfolgreich! Coins wurden gutgeschrieben.</span>
+            <span>{paymentNotice ?? 'Zahlung erfolgreich! Coins wurden gutgeschrieben.'}</span>
 
           </div>
 
@@ -520,7 +511,12 @@ export function CoinsPage() {
 
                   <p className="text-zinc-300">{tx.description}</p>
 
-                  <p className="text-xs text-zinc-500">{formatDate(tx.createdAt)}</p>
+                  <p className="text-xs text-zinc-500">
+                    {formatDate(tx.createdAt)}
+                    {tx.metadata && typeof tx.metadata === 'object' && 'provider' in tx.metadata && (
+                      <> · {String((tx.metadata as { provider?: string }).provider)}</>
+                    )}
+                  </p>
 
                 </div>
 

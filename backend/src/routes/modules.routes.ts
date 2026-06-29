@@ -17,7 +17,7 @@ import {
   deleteUserFile,
   type FileCategory,
 } from '../services/file-cloud.service.js';
-import { parseAndValidateDataUrl, MAX_FILES_PER_USER } from '../lib/upload-validation.js';
+import { parseAndValidateDataUrl, parseAndValidateVideoDataUrl, MAX_FILES_PER_USER } from '../lib/upload-validation.js';
 
 function createFileCloudRoutes() {
   const router = Router();
@@ -42,7 +42,7 @@ function createFileCloudRoutes() {
   const uploadSchema = z.object({
     name: z.string().min(1).max(200),
     mimeType: z.string().min(1).max(100).optional(),
-    category: z.enum(['logo', 'banner', 'video', 'project', 'overlay', 'other']),
+    category: z.enum(['logo', 'banner', 'video', 'project', 'overlay', 'sticker', 'other']),
     dataUrl: z.string().min(20),
   });
 
@@ -56,7 +56,10 @@ function createFileCloudRoutes() {
         throw new AppError(413, 'QUOTA_EXCEEDED', `Maximal ${MAX_FILES_PER_USER} Dateien pro Nutzer`);
       }
 
-      const validated = parseAndValidateDataUrl(body.dataUrl);
+      const validated =
+        body.category === 'video'
+          ? parseAndValidateVideoDataUrl(body.dataUrl.trim())
+          : parseAndValidateDataUrl(body.dataUrl.trim());
       const safeName = body.name.replace(/[^\w.\-()+\s]/g, '_').slice(0, 200);
 
       const file = await saveUserFile(userId, {

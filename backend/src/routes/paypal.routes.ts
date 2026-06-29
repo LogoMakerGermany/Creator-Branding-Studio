@@ -10,6 +10,7 @@ import {
   capturePayPalOrder,
   getPayPalOrder,
   isPayPalConfigured,
+  verifyPayPalWebhookEvent,
 } from '../services/paypal.service.js';
 import { creditCoinsFromPackagePurchase } from '../services/payment-credit.service.js';
 import { isDevAuthEnabled, isProduction } from '../config/env.js';
@@ -141,12 +142,21 @@ paypalRoutes.post(
       return;
     }
 
+    const verified = await verifyPayPalWebhookEvent(req.headers, req.body);
+    if (!verified) {
+      res.status(400).json({ error: 'Invalid PayPal webhook signature' });
+      return;
+    }
+
     const event = req.body as {
       event_type?: string;
       resource?: { id?: string; supplementary_data?: { related_ids?: { order_id?: string } } };
     };
 
-    if (event.event_type === 'CHECKOUT.ORDER.APPROVED' || event.event_type === 'PAYMENT.CAPTURE.COMPLETED') {
+    if (
+      event.event_type === 'CHECKOUT.ORDER.APPROVED' ||
+      event.event_type === 'PAYMENT.CAPTURE.COMPLETED'
+    ) {
       const orderId =
         event.resource?.supplementary_data?.related_ids?.order_id ?? event.resource?.id;
 

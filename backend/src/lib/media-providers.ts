@@ -191,7 +191,7 @@ export async function generateVideoThumbnail(
 }
 
 export function requireImageProvider(): void {
-  if (isProduction() && !process.env.OPENAI_API_KEY && !process.env.REPLICATE_API_TOKEN) {
+  if (!process.env.OPENAI_API_KEY && !process.env.REPLICATE_API_TOKEN) {
     throw new ServiceError(
       503,
       'AI_NOT_CONFIGURED',
@@ -351,84 +351,4 @@ async function generateVideoWithRunway(
   }
 
   throw new Error('Runway video timeout');
-}
-
-export interface VideoAnalysisResult {
-  highlights: Array<{ start: number; end: number; label: string; score: number }>;
-  subtitles: Array<{ start: number; end: number; text: string }>;
-}
-
-export async function analyzeVideoContent(
-  title: string,
-  duration: number,
-  styleDirection?: string
-): Promise<VideoAnalysisResult> {
-  if (process.env.OPENAI_API_KEY) {
-    try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Du analysierst Stream-/Video-Content für Creator. Antworte nur mit JSON: {"highlights":[{"start":number,"end":number,"label":string,"score":number}],"subtitles":[{"start":number,"end":number,"text":string}]}. Zeiten in Sekunden, innerhalb der Videodauer.',
-            },
-            {
-              role: 'user',
-              content: `Video: "${title}", Dauer: ${duration}s, Stil: ${styleDirection || 'gaming'}. Erzeuge 3 Highlights und passende Untertitel-Segmente.`,
-            },
-          ],
-          max_tokens: 800,
-        }),
-      });
-
-      if (res.ok) {
-        const data = (await res.json()) as { choices: { message: { content: string } }[] };
-        const parsed = JSON.parse(data.choices[0]?.message?.content || '{}') as VideoAnalysisResult;
-        if (parsed.highlights?.length && parsed.subtitles?.length) {
-          return parsed;
-        }
-      }
-    } catch (err) {
-      console.warn('[Media] OpenAI video analysis failed:', err);
-    }
-  }
-
-  return buildFallbackVideoAnalysis(title, duration);
-}
-
-function buildFallbackVideoAnalysis(title: string, duration: number): VideoAnalysisResult {
-  const segmentLength = Math.min(30, duration / 3);
-  const chunk = duration / 4;
-
-  return {
-    highlights: [
-      { start: 0, end: segmentLength, label: `${title}: Hook`, score: 0.91 },
-      {
-        start: duration * 0.35,
-        end: duration * 0.35 + segmentLength,
-        label: 'Highlight Clip',
-        score: 0.86,
-      },
-      {
-        start: duration * 0.65,
-        end: Math.min(duration, duration * 0.65 + segmentLength),
-        label: 'Best Moment',
-        score: 0.94,
-      },
-    ],
-    subtitles: [
-      { start: 0, end: chunk, text: `Willkommen zu ${title}!` },
-      { start: chunk, end: chunk * 2, text: 'Heute wird es spannend – bleibt dran!' },
-      { start: chunk * 2, end: chunk * 3, text: 'Lasst ein Like da und abonniert den Kanal!' },
-      { start: chunk * 3, end: duration, text: 'Danke fürs Zuschauen – bis zum nächsten Mal!' },
-    ],
-  };
 }

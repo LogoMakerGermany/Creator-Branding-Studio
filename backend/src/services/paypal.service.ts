@@ -1,4 +1,4 @@
-import { getPrimaryFrontendUrl } from '../config/env.js';
+import { getPrimaryFrontendUrl, isProduction } from '../config/env.js';
 import { COIN_PACKAGES } from './coins.service.js';
 import { getPackageById } from './payment-credit.service.js';
 
@@ -11,7 +11,11 @@ export function getPayPalMode(): 'live' | 'sandbox' | 'disabled' {
   const mode = process.env.PAYPAL_MODE?.toLowerCase();
   if (mode === 'live') return 'live';
   if (mode === 'sandbox') return 'sandbox';
-  return process.env.PAYPAL_CLIENT_ID!.startsWith('A') ? 'live' : 'sandbox';
+  return isProduction() ? 'sandbox' : 'sandbox';
+}
+
+export function isPayPalLiveMode(): boolean {
+  return getPayPalMode() === 'live';
 }
 
 function getPayPalApiBase(): string {
@@ -199,6 +203,61 @@ export async function capturePayPalOrder(orderId: string): Promise<PayPalOrderDe
   }
 
   return getPayPalOrder(orderId);
+}
+
+export async function verifyPayPalWebhookEvent(
+  headers: Record<string, string | string[] | undefined>,
+  event: unknown
+): Promise<boolean> {
+  const webhookId = process.env.PAYPAL_WEBHOOK_ID?.trim();
+  if (!webhookId) {
+    if (isProduction()) {
+      console.error('[PayPal] PAYPAL_WEBHOOK_ID fehlt — Webhook abgelehnt');
+      return false;
+    }
+    return true;
+  }
+
+  const header = (key: string) => {
+    const value = headers[key.toLowerCase()] ?? headers[key];
+    return Array.isArray(value) ? value[0] : value;
+  };
+
+  const transmissionId = header('paypal-transmission-id');
+  const transmissionTime = header('paypal-transmission-time');
+  const certUrl = header('paypal-cert-url');
+  const authAlgo = header('paypal-auth-algo');
+  const transmissionSig = header('paypal-transmission-sig');
+
+  if (!transmissionId || !transmissionTime || !certUrl || !authAlgo || !transmissionSig) {
+    return false;
+  }
+
+  const token = await getAccessToken();
+  const res = await fetch(`${getPayPalApiBase()}/v1/notifications/verify-webhook-signature`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      auth_algo: authAlgo,
+      cert_url: certUrl,
+      transmission_id: transmissionId,
+      transmission_sig: transmissionSig,
+      transmission_time: transmissionTime,
+      webhook_id: webhookId,
+      webhook_event: event,
+    }),
+  });
+
+  if (!res.ok) {
+    console.error('[PayPal] Webhook verify failed:', await res.text());
+    return false;
+  }
+
+  const data = (await res.json()) as { verification_status?: string };
+  return data.verification_status === 'SUCCESS';
 }
 
 export { COIN_PACKAGES };

@@ -13,7 +13,7 @@ export function DnaRequiredBanner({ message = 'Creator DNA erforderlich' }: { me
 
 export function StudioErrorBanner({ message }: { message: string }) {
   return (
-    <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-red-300">{message}</div>
+    <div className="mb-6 rounded-[18px] border border-red-500/30 bg-red-500/10 p-4 text-red-300">{message}</div>
   );
 }
 
@@ -56,8 +56,8 @@ export function NeonPreviewBox({
   return (
     <div
       className={cn(
-        'flex items-center justify-center overflow-hidden rounded-lg border border-cyan-500/20 bg-surface-950/80',
-        aspect === 'video' ? 'aspect-video' : 'aspect-square',
+        'flex items-center justify-center overflow-hidden rounded-[18px] border border-[var(--ucbs-accent-cyan)]/20 bg-[var(--ucbs-bg)]/80',
+        aspect === 'video' ? 'aspect-video' : 'aspect-square max-h-[520px]',
         className
       )}
     >

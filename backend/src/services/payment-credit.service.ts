@@ -52,7 +52,13 @@ export async function creditCoinsFromPackagePurchase(params: {
     userId,
     totalCoins,
     `${packageId} Paket (${totalCoins} Coins)`,
-    'purchase'
+    'purchase',
+    {
+      provider,
+      packageId,
+      stripeSessionId: provider === 'stripe' ? paymentId : undefined,
+      paypalOrderId: provider === 'paypal' ? paymentId : undefined,
+    }
   );
 
   const meta = { userId, packageId, coins: totalCoins };

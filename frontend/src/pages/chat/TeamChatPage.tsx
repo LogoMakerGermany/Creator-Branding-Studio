@@ -3,6 +3,7 @@ import { PageHeader, Badge, Button, Input } from '@/components/ui';
 import { MessageSquare, Send } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api, ApiError, type TeamChatMessage } from '@/services/api';
+import { StudioErrorBanner } from '@/components/studio';
 import { cn } from '@/lib/utils';
 
 export function TeamChatPage() {
@@ -49,9 +50,7 @@ export function TeamChatPage() {
         badge={<Badge variant="brand">UCBS</Badge>}
       />
 
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-red-300">{error}</div>
-      )}
+      {error && <StudioErrorBanner message={error} />}
 
       <div className="ucbs-neon-card flex h-[calc(100vh-220px)] flex-col">
         <div className="flex items-center gap-2 border-b border-brand-500/20 pb-3">

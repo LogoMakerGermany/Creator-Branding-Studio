@@ -6,6 +6,7 @@ import {
   isStripeConfigured,
   getAiProviderStatus,
 } from './env.js';
+import { isPayPalConfigured, getPayPalMode } from '../services/paypal.service.js';
 import { requiresPublicClientConfig, isPublicClientConfigReady } from '../services/client-config.service.js';
 
 /**
@@ -44,6 +45,15 @@ export function validateProductionConfig(): void {
 
   if (!process.env.STRIPE_WEBHOOK_SECRET?.trim()) {
     errors.push('STRIPE_WEBHOOK_SECRET is required in production');
+  }
+
+  if (isPayPalConfigured()) {
+    if (getPayPalMode() !== 'live') {
+      errors.push('PAYPAL_MODE must be "live" when PayPal is configured in production');
+    }
+    if (!process.env.PAYPAL_WEBHOOK_ID?.trim()) {
+      errors.push('PAYPAL_WEBHOOK_ID is required when PayPal is configured in production');
+    }
   }
 
   const ai = getAiProviderStatus();

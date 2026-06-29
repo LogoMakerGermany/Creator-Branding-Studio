@@ -2,6 +2,7 @@ import type { CreatorDNA, StyleDirection, DNAAnalysis } from '@ucbs/shared';
 import { devStore, isDevMode } from '../lib/dev-store.js';
 import { getFirestore } from '../config/firebase.js';
 import { randomUUID } from 'node:crypto';
+import { analyzeCreatorAssets } from './dna-analysis.service.js';
 
 function generateId(): string {
   return randomUUID();
@@ -153,41 +154,10 @@ export async function activateDna(id: string, userId: string): Promise<CreatorDN
 
 export async function analyzeAssets(
   colors: string[],
-  styleHint?: StyleDirection
+  styleHint?: StyleDirection,
+  imageDataUrl?: string
 ): Promise<DNAAnalysis> {
-  const palette = colors.slice(0, 6).map((hex, i) => ({
-    hex,
-    name: `Color ${i + 1}`,
-    usage: i === 0 ? 'primary' : i < 3 ? 'secondary' : 'accent',
-  }));
-
-  const detectedStyle = styleHint ?? detectStyleFromColors(colors);
-
-  return {
-    colorPalette: palette,
-    detectedStyle,
-    confidence: colors.length > 0 ? 0.85 : 0.5,
-    suggestions: [
-      'Verwende die Primärfarbe für Logo und Akzente',
-      'Sekundärfarben eignen sich für Banner-Hintergründe',
-      'Halte Kontrast für Stream-Overlays hoch',
-    ],
-    analyzedAt: new Date().toISOString(),
-  };
-}
-
-function detectStyleFromColors(colors: string[]): StyleDirection {
-  if (colors.length === 0) return 'gaming';
-  const hex = colors[0].replace('#', '');
-  const r = parseInt(hex.slice(0, 2), 16);
-  const g = parseInt(hex.slice(2, 4), 16);
-  const b = parseInt(hex.slice(4, 6), 16);
-
-  if (r > 200 && g < 100 && b > 200) return 'neon';
-  if (r < 80 && g < 80 && b < 80) return 'horror';
-  if (b > r && b > g) return 'gaming';
-  if (r > 180 && g > 100 && b < 80) return 'esports';
-  return 'streaming';
+  return analyzeCreatorAssets({ colors, imageDataUrl, styleHint });
 }
 
 function buildBrandingRules(input: CreateDnaInput): CreatorDNA['brandingRules'] {

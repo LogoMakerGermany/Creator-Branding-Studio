@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { asyncHandler, sendSuccess, AppError } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
+import { ServiceError } from '../lib/errors.js';
 import {
   listCalendarEvents,
   createCalendarEvent,
@@ -15,6 +16,13 @@ import {
 
 export const calendarRoutes = Router();
 calendarRoutes.use(authenticate, requirePermission(Permission.MANAGE_CALENDAR));
+
+function mapCalendarError(err: unknown): never {
+  if (err instanceof ServiceError) {
+    throw new AppError(err.statusCode, err.code, err.message);
+  }
+  throw new AppError(400, 'CALENDAR_ERROR', err instanceof Error ? err.message : 'Kalender-Fehler');
+}
 
 calendarRoutes.get(
   '/',
@@ -40,19 +48,35 @@ calendarRoutes.post(
   '/',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const body = createSchema.parse(req.body);
-    const event = await createCalendarEvent(req.user!.uid, body);
-    sendSuccess(res, { event }, 201);
+    try {
+      const event = await createCalendarEvent(req.user!.uid, body);
+      sendSuccess(res, { event }, 201);
+    } catch (err) {
+      mapCalendarError(err);
+    }
   })
 );
+
+const updateSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).optional(),
+  type: z.enum(['post', 'video', 'stream', 'campaign', 'deadline']).optional(),
+  platform: z.string().optional(),
+  startAt: z.string().optional(),
+  endAt: z.string().optional(),
+  status: z.enum(['planned', 'in_progress', 'done', 'cancelled']).optional(),
+  color: z.string().optional(),
+});
 
 calendarRoutes.patch(
   '/:id',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     try {
-      const event = await updateCalendarEvent(String(req.params.id), req.user!.uid, req.body);
+      const body = updateSchema.parse(req.body);
+      const event = await updateCalendarEvent(String(req.params.id), req.user!.uid, body);
       sendSuccess(res, { event });
-    } catch {
-      throw new AppError(404, 'NOT_FOUND', 'Termin nicht gefunden');
+    } catch (err) {
+      mapCalendarError(err);
     }
   })
 );
@@ -63,8 +87,8 @@ calendarRoutes.delete(
     try {
       await deleteCalendarEvent(String(req.params.id), req.user!.uid);
       sendSuccess(res, { deleted: true });
-    } catch {
-      throw new AppError(404, 'NOT_FOUND', 'Termin nicht gefunden');
+    } catch (err) {
+      mapCalendarError(err);
     }
   })
 );

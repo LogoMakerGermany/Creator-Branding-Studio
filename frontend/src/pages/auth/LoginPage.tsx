@@ -1,25 +1,23 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Button, Input, Card, CardTitle, CardDescription } from '@/components/ui';
+import { Button, Input, CardTitle, CardDescription } from '@/components/ui';
+import { GlassCard } from '@/v2/components/GlassCard';
 import { useAuth } from '@/context/AuthContext';
 import { isFirebaseConfigured } from '@/lib/firebase';
+import type { AuthProviderId } from '@/lib/auth-providers';
 
-const OAUTH_PROVIDERS = [
-  { id: 'google' as const, label: 'Google', color: 'hover:bg-white/10' },
-  { id: 'discord' as const, label: 'Discord', color: 'hover:bg-indigo-500/20' },
-  { id: 'twitch' as const, label: 'Twitch', color: 'hover:bg-purple-500/20' },
-  { id: 'tiktok' as const, label: 'TikTok', color: 'hover:bg-pink-500/20' },
+const OAUTH_PROVIDERS: { id: AuthProviderId; label: string; color: string }[] = [
+  { id: 'google', label: 'Google', color: 'hover:bg-white/10' },
+  { id: 'github', label: 'GitHub', color: 'hover:bg-zinc-500/20' },
+  { id: 'apple', label: 'Apple', color: 'hover:bg-zinc-600/20' },
+  { id: 'microsoft', label: 'Microsoft', color: 'hover:bg-blue-500/20' },
+  { id: 'discord', label: 'Discord', color: 'hover:bg-indigo-500/20' },
+  { id: 'twitch', label: 'Twitch', color: 'hover:bg-purple-500/20' },
+  { id: 'tiktok', label: 'TikTok', color: 'hover:bg-pink-500/20' },
 ];
 
 export function LoginPage() {
-  const {
-    loginGoogle,
-    loginOAuth,
-    loginEmail,
-    registerEmail,
-    loginDev,
-    isDevMode,
-  } = useAuth();
+  const { loginProvider, loginEmail, registerEmail, loginDev, isDevMode } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/dashboard';
@@ -30,15 +28,11 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleOAuth(provider: typeof OAUTH_PROVIDERS[number]['id']) {
+  async function handleOAuth(provider: AuthProviderId) {
     setLoading(true);
     setError(null);
     try {
-      if (provider === 'google') {
-        await loginGoogle();
-      } else {
-        await loginOAuth(provider);
-      }
+      await loginProvider(provider);
       navigate(from, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen');
@@ -81,8 +75,8 @@ export function LoginPage() {
   const firebaseReady = isFirebaseConfigured();
 
   return (
-    <Card className="border-zinc-800">
-      <CardTitle>{isRegister ? 'Konto erstellen' : 'Willkommen zurück'}</CardTitle>
+    <GlassCard accent="cyan" hover={false} className="!p-8">
+      <CardTitle className="text-white">{isRegister ? 'Konto erstellen' : 'Willkommen zurück'}</CardTitle>
       <CardDescription>
         {isDevMode
           ? 'Dev-Modus aktiv – Firebase nicht konfiguriert'
@@ -101,20 +95,21 @@ export function LoginPage() {
             Dev-Login (50 Coins Bonus)
           </Button>
           <p className="mt-3 text-center text-xs text-zinc-500">
-            Für Produktion: Firebase Keys in frontend/.env setzen
+            Für Produktion: Firebase Keys setzen (npm run sync:firebase-env)
           </p>
         </div>
       ) : (
         <>
-          <div className="mt-6 space-y-3">
+          <div className="mt-6 grid gap-2 sm:grid-cols-2">
             {OAUTH_PROVIDERS.map((p) => (
               <button
                 key={p.id}
+                type="button"
                 disabled={loading}
                 onClick={() => handleOAuth(p.id)}
-                className={`flex w-full items-center justify-center gap-3 rounded-lg border border-zinc-700 bg-surface-900 py-2.5 text-sm font-medium text-zinc-200 transition-colors disabled:opacity-50 ${p.color}`}
+                className={`flex items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-surface-900 py-2.5 text-sm font-medium text-zinc-200 transition-colors disabled:opacity-50 ${p.color}`}
               >
-                Mit {p.label} anmelden
+                {p.label}
               </button>
             ))}
           </div>
@@ -123,7 +118,7 @@ export function LoginPage() {
             <>
               <div className="my-6 flex items-center gap-3">
                 <div className="h-px flex-1 bg-zinc-800" />
-                <span className="text-xs text-zinc-500">oder</span>
+                <span className="text-xs text-zinc-500">oder E-Mail</span>
                 <div className="h-px flex-1 bg-zinc-800" />
               </div>
 
@@ -164,6 +159,6 @@ export function LoginPage() {
           )}
         </>
       )}
-    </Card>
+    </GlassCard>
   );
 }

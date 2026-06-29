@@ -1,5 +1,12 @@
 import { Router } from 'express';
-import { authRoutes, logoRoutes, bannerRoutes, facecamRoutes, brandingRoutes } from './auth.routes.js';
+import { authRoutes, brandingRoutes } from './auth.routes.js';
+import {
+  logoRoutes,
+  bannerRoutes,
+  facecamRoutes,
+  overlayRoutes,
+  stickerRoutes,
+} from './studio.routes.js';
 import { dnaRoutes } from './dna.routes.js';
 import { aiRoutes } from './ai.routes.js';
 import { aiVideoRoutes, aiMusicRoutes, aiVoiceRoutes } from './ai-media.routes.js';
@@ -39,6 +46,8 @@ apiRouter.use('/dna', dnaRoutes);
 apiRouter.use('/logo', logoRoutes);
 apiRouter.use('/banner', bannerRoutes);
 apiRouter.use('/facecam', facecamRoutes);
+apiRouter.use('/overlay', overlayRoutes);
+apiRouter.use('/sticker', stickerRoutes);
 apiRouter.use('/branding', brandingRoutes);
 apiRouter.use('/change-request', changeRequestRoutes);
 apiRouter.use('/layout', layoutRoutes);

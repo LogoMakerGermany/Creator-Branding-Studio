@@ -49,3 +49,9 @@ export function getMediaDownloadUrl(job: MediaJob | null): string | null {
   if (!job) return null;
   return job.videoUrl || job.audioUrl || job.thumbnailUrl || job.imageUrl || null;
 }
+
+export function getMediaExports(job: MediaJob | null): { mp4?: string; gif?: string; webm?: string } {
+  if (!job?.metadata?.exports || typeof job.metadata.exports !== 'object') return {};
+  const exp = job.metadata.exports as Record<string, string>;
+  return { mp4: exp.mp4, gif: exp.gif, webm: exp.webm };
+}

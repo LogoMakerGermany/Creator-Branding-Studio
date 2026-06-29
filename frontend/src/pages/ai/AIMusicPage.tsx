@@ -43,7 +43,7 @@ export function AIMusicPage() {
       <PageHeader
         title="KI Musik Generator"
         description="Intromusik, Hintergrundtracks und Jingles im Stil deiner Creator DNA"
-        badge={<Badge variant="brand">Suno</Badge>}
+        badge={<Badge variant="brand">MusicGen / Suno</Badge>}
         actions={<Badge variant="default">{formatCoins(10)} Coins</Badge>}
       />
 
@@ -66,7 +66,7 @@ export function AIMusicPage() {
             onChange={(e) => setPrompt(e.target.value)}
           />
           <p className="mt-2 text-xs text-zinc-500">
-            Suno API Key in .env für echte Audio-Ausgabe.
+            Benötigt REPLICATE_API_TOKEN (MusicGen) oder SUNO_API_KEY in der Backend-.env.
           </p>
           <Button
             className="mt-4 w-full gap-2"
