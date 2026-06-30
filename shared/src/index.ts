@@ -16,4 +16,5 @@ export * from './studio';
 export * from './logo-prompt';
 export * from './magik';
 export * from './magik-ai';
+export * from './creator-dna-engine';
 export * from './api';

@@ -212,6 +212,30 @@ export const api = {
         '/api/v1/magik-ai/conversation'
       ),
   },
+  ccd: {
+    getDashboard: () =>
+      request<{
+        character: import('@ucbs/shared').CharacterDNA | null;
+        preferences: import('@ucbs/shared').CreatorPreferencesDNA | null;
+        pendingEvolutions: import('@ucbs/shared').CharacterEvolutionProposal[];
+        recommendations: import('@ucbs/shared').CcdRecommendation[];
+      }>('/api/v1/ccd'),
+    getContext: () =>
+      request<{
+        characterDna: import('@ucbs/shared').CharacterDNA | null;
+        creatorPreferences: import('@ucbs/shared').CreatorPreferencesDNA | null;
+      }>('/api/v1/ccd/context'),
+    acceptEvolution: (id: string) =>
+      request<{ character: import('@ucbs/shared').CharacterDNA; proposal: import('@ucbs/shared').CharacterEvolutionProposal }>(
+        `/api/v1/ccd/evolution/${id}/accept`,
+        { method: 'POST' }
+      ),
+    rejectEvolution: (id: string) =>
+      request<{ proposal: import('@ucbs/shared').CharacterEvolutionProposal }>(
+        `/api/v1/ccd/evolution/${id}/reject`,
+        { method: 'POST' }
+      ),
+  },
   files: {
     list: () => request<{ files: UserFile[] }>('/api/v1/files'),
     get: (id: string) => request<{ file: UserFile & { dataUrl: string } }>(`/api/v1/files/${id}`),

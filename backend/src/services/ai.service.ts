@@ -25,6 +25,11 @@ import type {
 import { buildMagikLogoPrompts } from '@ucbs/shared';
 import { getMagikLearningHints } from './magik-learning.service.js';
 import { recordMagikLogoContexts } from './magik-ai/logo-context.service.js';
+import {
+  getCcdPromptContext,
+  processLogoGenerationCcd,
+  appendCcdToPrompt,
+} from './creator-dna-engine/index.js';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
 
 import { ServiceError } from '../lib/errors.js';
@@ -327,7 +332,7 @@ export async function generateMagikLogoPair(
     throw new ServiceError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
   }
 
-  const { variantA, variantB } = buildMagikLogoPrompts(activeDna, studioOptions);
+  const { variantA, variantB } = buildMagikLogoPrompts(activeDna, studioOptions, await getCcdPromptContext(userId));
   const hints = await getMagikLearningHints({
     magikMode: studioOptions.magikMode,
     magikStyle: studioOptions.magikStyle,
@@ -353,6 +358,8 @@ export async function generateMagikLogoPair(
     { jobId: jobA.id, variant: 'a', prompt: promptA, imageUrl: jobA.imageUrl },
     { jobId: jobB.id, variant: 'b', prompt: promptB, imageUrl: jobB.imageUrl },
   ]).catch(() => {});
+
+  void processLogoGenerationCcd(userId, activeDna, studioOptions, jobA.id, jobA.imageUrl).catch(() => {});
 
   return {
     jobs: [jobA, jobB],
@@ -380,7 +387,9 @@ export async function generateStudioAsset(
   }
 
   const { prompt, size, hd } = buildPromptForStudioModule(activeDna, module, studioOptions);
-  const job = await runGenerationJob(userId, module, activeDna, prompt, { size, hd });
+  const { characterDna } = await getCcdPromptContext(userId);
+  const enrichedPrompt = appendCcdToPrompt(prompt, characterDna);
+  const job = await runGenerationJob(userId, module, activeDna, enrichedPrompt, { size, hd });
 
   return {
     job,

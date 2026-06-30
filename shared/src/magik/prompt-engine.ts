@@ -1,12 +1,11 @@
 import type { LogoGenerationOptions } from '../studio';
+import type { CharacterDNA, CreatorPreferencesDNA } from '../creator-dna-engine';
+import { buildPromptDNABundle, buildStyleDNA } from '../creator-dna-engine';
 
-/** Minimal DNA context for MAGIK prompt building. */
-export type LogoDnaContext = {
-  name: string;
-  styleDirection?: string;
-  primaryColors: string[];
-  secondaryColors: string[];
-  accentColors: string[];
+/** Kontext für MAGIK inkl. optionaler CCD-Daten. */
+export type MagikPromptContext = LogoDnaContext & {
+  characterDna?: CharacterDNA | null;
+  creatorPreferences?: CreatorPreferencesDNA | null;
 };
 import { collectLogoColors } from '../logo-prompt';
 import {
@@ -17,6 +16,15 @@ import {
   type MagikRingMode,
 } from './constants';
 import { analyzeMagikName, resolveMagikCharacter } from './name-parser';
+
+/** Minimal DNA context for MAGIK prompt building. */
+export type LogoDnaContext = {
+  name: string;
+  styleDirection?: string;
+  primaryColors: string[];
+  secondaryColors: string[];
+  accentColors: string[];
+};
 
 export type MagikLogoMode = 'name' | 'character';
 export type MagikPromptVariant = 'a' | 'b';
@@ -118,7 +126,8 @@ function qualityBlock(opts: LogoGenerationOptions): string {
 function buildCorePrompt(
   dna: LogoDnaContext,
   opts: LogoGenerationOptions,
-  variant: MagikPromptVariant
+  variant: MagikPromptVariant,
+  ccd?: { characterDna?: CharacterDNA | null; creatorPreferences?: CreatorPreferencesDNA | null }
 ): string {
   const name = opts.logoName!.trim();
   const { motif, nameInsight } = resolveMotif(opts);
@@ -131,6 +140,21 @@ function buildCorePrompt(
     variant === 'a'
       ? `VARIANT A name-focused: emphasize readable wordmark "${name}", strong name identity, mascot supports the title`
       : `VARIANT B design-focused: maximize visual impact, extra particles, smoke, energy, creative AAA detail, mascot as hero`;
+
+  const styleDna = buildStyleDNA(opts, ccd?.characterDna);
+  const promptDna = buildPromptDNABundle(
+    {
+      name: dna.name,
+      styleDirection: dna.styleDirection,
+      primaryColors: dna.primaryColors,
+      secondaryColors: dna.secondaryColors,
+      accentColors: dna.accentColors,
+    },
+    ccd?.characterDna ?? null,
+    ccd?.creatorPreferences ?? null,
+    styleDna,
+    opts
+  );
 
   const parts = [
     `ULTIMATE CREATOR BRANDING STUDIO premium esports logo for "${name}"`,
@@ -146,6 +170,7 @@ function buildCorePrompt(
     `color harmony palette: ${colors}`,
     backgroundPhrase((opts.magikBackground as MagikBackgroundId) ?? 'dark', opts),
     variantFocus,
+    promptDna.combinedPhrase,
     `brand DNA direction: ${dna.styleDirection ?? 'gaming'}`,
     `MAGIK QUALITY DNA: ${qualityBlock(opts)}`,
   ];
@@ -160,17 +185,21 @@ export interface MagikPromptPair {
 }
 
 /** Erzeugt optimierte Prompt-Paare (Variante A + B). */
-export function buildMagikLogoPrompts(dna: LogoDnaContext, opts: LogoGenerationOptions): MagikPromptPair {
+export function buildMagikLogoPrompts(
+  dna: LogoDnaContext,
+  opts: LogoGenerationOptions,
+  ccd?: { characterDna?: CharacterDNA | null; creatorPreferences?: CreatorPreferencesDNA | null }
+): MagikPromptPair {
   const errors = validateMagikLogoOptions(opts);
   if (Object.keys(errors).length > 0) throw new Error('MAGIK Eingaben unvollständig');
 
   const base = { ...opts };
   const nameAnalysis = base.magikMode !== 'character' ? analyzeMagikName(base.logoName!.trim()) : undefined;
 
-  const variantA = base.customPromptOverride?.trim() || buildCorePrompt(dna, base, 'a');
+  const variantA = base.customPromptOverride?.trim() || buildCorePrompt(dna, base, 'a', ccd);
   const variantB = base.customPromptOverride?.trim()
     ? `${base.customPromptOverride.trim()}. VARIANT B design-focused: maximize visual impact, extra particles, smoke, energy, creative AAA detail.`
-    : buildCorePrompt(dna, base, 'b');
+    : buildCorePrompt(dna, base, 'b', ccd);
 
   return { variantA, variantB, nameAnalysis };
 }

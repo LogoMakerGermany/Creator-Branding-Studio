@@ -37,12 +37,14 @@ import { statusRoutes } from './status.routes.js';
 import { configRoutes } from './config.routes.js';
 import { magikRoutes } from './magik.routes.js';
 import { magikAiRoutes } from './magik-ai.routes.js';
+import { ccdRoutes } from './ccd.routes.js';
 
 export const apiRouter = Router();
 
 apiRouter.use('/status', statusRoutes);
 apiRouter.use('/magik', magikRoutes);
 apiRouter.use('/magik-ai', magikAiRoutes);
+apiRouter.use('/ccd', ccdRoutes);
 apiRouter.use('/config', configRoutes);
 
 apiRouter.use('/auth', authRoutes);
