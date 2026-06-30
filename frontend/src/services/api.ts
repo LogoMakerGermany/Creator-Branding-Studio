@@ -532,13 +532,19 @@ export interface GenerationJob {
 
 export interface LayoutElement {
   id: string;
-  type: 'facecam' | 'chatbox' | 'alert' | 'widget' | 'logo' | 'text';
+  type: 'facecam' | 'chatbox' | 'alert' | 'widget' | 'logo' | 'text' | 'image' | 'frame' | 'overlay';
   x: number;
   y: number;
   width: number;
   height: number;
   label?: string;
   color?: string;
+  imageUrl?: string;
+  content?: string;
+  borderWidth?: number;
+  borderRadius?: number;
+  borderColor?: string;
+  opacity?: number;
 }
 
 export interface StreamLayout {

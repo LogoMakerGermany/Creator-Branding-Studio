@@ -35,20 +35,28 @@ layoutRoutes.get(
   })
 );
 
+const layoutElementSchema = z.object({
+  id: z.string(),
+  type: z.enum(['facecam', 'chatbox', 'alert', 'widget', 'logo', 'text', 'image', 'frame', 'overlay']),
+  x: z.number(),
+  y: z.number(),
+  width: z.number().min(20).max(3840),
+  height: z.number().min(20).max(2160),
+  label: z.string().optional(),
+  color: z.string().optional(),
+  imageUrl: z.string().optional(),
+  content: z.string().optional(),
+  borderWidth: z.number().optional(),
+  borderRadius: z.number().optional(),
+  borderColor: z.string().optional(),
+  opacity: z.number().min(0).max(1).optional(),
+});
+
 const createSchema = z.object({
   name: z.string().min(1).max(100),
   platform: z.enum(['obs', 'streamlabs', 'tiktok', 'twitch']),
   canvas: z.object({ width: z.number(), height: z.number() }).optional(),
-  elements: z.array(z.object({
-    id: z.string(),
-    type: z.enum(['facecam', 'chatbox', 'alert', 'widget', 'logo', 'text']),
-    x: z.number(),
-    y: z.number(),
-    width: z.number(),
-    height: z.number(),
-    label: z.string().optional(),
-    color: z.string().optional(),
-  })).optional(),
+  elements: z.array(layoutElementSchema).optional(),
 });
 
 layoutRoutes.post(

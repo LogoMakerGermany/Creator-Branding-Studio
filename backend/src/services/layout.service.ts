@@ -3,13 +3,19 @@ import { dsGet, dsSet, dsDelete, dsList } from '../lib/data-store.js';
 
 export interface LayoutElement {
   id: string;
-  type: 'facecam' | 'chatbox' | 'alert' | 'widget' | 'logo' | 'text';
+  type: 'facecam' | 'chatbox' | 'alert' | 'widget' | 'logo' | 'text' | 'image' | 'frame' | 'overlay';
   x: number;
   y: number;
   width: number;
   height: number;
   label?: string;
   color?: string;
+  imageUrl?: string;
+  content?: string;
+  borderWidth?: number;
+  borderRadius?: number;
+  borderColor?: string;
+  opacity?: number;
 }
 
 export interface StreamLayout {
@@ -78,12 +84,23 @@ export function exportLayout(layout: StreamLayout, format: 'obs' | 'streamlabs' 
   }
 
   const sceneName = layout.name.replace(/[^a-zA-Z0-9]/g, '_');
-  const sources = layout.elements.map((el) => ({
-    name: el.label || el.type,
-    type: el.type === 'facecam' ? 'dshow_input' : el.type === 'text' ? 'text_gdiplus_v2' : 'browser_source',
-    position: { x: el.x, y: el.y },
-    size: { width: el.width, height: el.height },
-  }));
+  const sources = layout.elements.map((el) => {
+    const isMedia = el.type === 'image' || el.type === 'frame' || el.type === 'overlay' || (el.type === 'logo' && el.imageUrl);
+    return {
+      name: el.label || el.type,
+      type: el.type === 'facecam'
+        ? 'dshow_input'
+        : el.type === 'text'
+          ? 'text_gdiplus_v2'
+          : isMedia
+            ? 'browser_source'
+            : 'browser_source',
+      position: { x: el.x, y: el.y },
+      size: { width: el.width, height: el.height },
+      ...(el.imageUrl ? { settings: { url: el.imageUrl } } : {}),
+      ...(el.content ? { text: el.content } : {}),
+    };
+  });
 
   return JSON.stringify({
     format: format === 'obs' ? 'obs-scene-collection-v1' : 'streamlabs-scene-v1',
