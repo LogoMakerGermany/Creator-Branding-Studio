@@ -4,13 +4,26 @@ import {
 } from '@/components/ui';
 import {
   Layout, Plus, Trash2, Download, Save, Camera, MessageSquare,
-  Bell, Type, Image, GripVertical, Frame, Layers, Upload,
+  Bell, Type, Image, GripVertical, Frame, Layers, Upload, Undo2, Redo2,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api, ApiError, type LayoutElement, type StreamLayout } from '@/services/api';
 import { StudioShell } from '@/v2/components/StudioShell';
-
-const MIN_SIZE = 40;
+import {
+  MIN_ELEMENT_SIZE,
+  RESIZE_HANDLES,
+  HANDLE_CURSORS,
+  computeResizedRect,
+  getElementsBounds,
+  applyGroupResize,
+  applyGroupDrag,
+  handlePosition,
+  elementToRect,
+  clampRect,
+  type ResizeHandle,
+  type Rect,
+} from './layout-editor';
+import { useLayoutHistory } from './useLayoutHistory';
 
 const ELEMENT_TYPES = [
   { type: 'facecam' as const, label: 'Facecam', icon: Camera, color: '#7C3AED' },
@@ -26,11 +39,21 @@ const ELEMENT_TYPES = [
 
 const PLATFORMS = ['obs', 'streamlabs', 'twitch', 'tiktok'] as const;
 
-type ResizeHandle = 'e' | 's' | 'se';
-
 type Interaction =
-  | { mode: 'drag'; id: string; offsetX: number; offsetY: number }
-  | { mode: 'resize'; id: string; handle: ResizeHandle };
+  | {
+      mode: 'drag';
+      ids: string[];
+      startPointer: { x: number; y: number };
+      snapshots: Record<string, Rect>;
+    }
+  | {
+      mode: 'resize';
+      ids: string[];
+      handle: ResizeHandle;
+      groupStart: Rect;
+      snapshots: Record<string, Rect>;
+      startPointer: { x: number; y: number };
+    };
 
 function defaultSize(type: LayoutElement['type']) {
   switch (type) {
@@ -57,6 +80,15 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+function buildSnapshots(elements: LayoutElement[], ids: string[]): Record<string, Rect> {
+  const out: Record<string, Rect> = {};
+  for (const id of ids) {
+    const el = elements.find((e) => e.id === id);
+    if (el) out[id] = elementToRect(el);
+  }
+  return out;
+}
+
 export function LayoutStudioPage() {
   const { activeDna } = useAuth();
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -65,8 +97,19 @@ export function LayoutStudioPage() {
   const [current, setCurrent] = useState<StreamLayout | null>(null);
   const [name, setName] = useState('Mein Stream Layout');
   const [platform, setPlatform] = useState<typeof PLATFORMS[number]>('obs');
-  const [elements, setElements] = useState<LayoutElement[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const {
+    elements,
+    setElements,
+    setElementsTransient,
+    beginInteraction,
+    endInteraction,
+    undo,
+    redo,
+    resetHistory,
+    canUndo,
+    canRedo,
+  } = useLayoutHistory([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [interaction, setInteraction] = useState<Interaction | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -76,15 +119,58 @@ export function LayoutStudioPage() {
   const canvasW = 1920;
   const canvasH = 1080;
 
-  const selected = elements.find((e) => e.id === selectedId) ?? null;
+  const primarySelectedId = selectedIds[selectedIds.length - 1] ?? null;
+  const selected = elements.find((e) => e.id === primarySelectedId) ?? null;
+  const selectionBounds = getElementsBounds(elements, selectedIds);
 
   useEffect(() => {
     api.layout.list().then((r) => setLayouts(r.layouts)).catch(() => {});
   }, []);
 
-  const updateElement = useCallback((id: string, patch: Partial<LayoutElement>) => {
-    setElements((prev) => prev.map((el) => (el.id === id ? { ...el, ...patch } : el)));
-  }, []);
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [undo, redo]);
+
+  const updateElement = useCallback(
+    (id: string, patch: Partial<LayoutElement>) => {
+      setElements((prev) =>
+        prev.map((el) => {
+          if (el.id !== id) return el;
+          const next = { ...el, ...patch };
+          return {
+            ...next,
+            ...clampRect(
+              { x: next.x, y: next.y, width: next.width, height: next.height },
+              canvasW,
+              canvasH
+            ),
+          };
+        })
+      );
+    },
+    [setElements, canvasW, canvasH]
+  );
+
+  function selectElement(id: string, additive: boolean) {
+    if (additive) {
+      setSelectedIds((prev) =>
+        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      );
+    } else {
+      setSelectedIds([id]);
+    }
+  }
 
   function addElement(type: LayoutElement['type']) {
     const def = ELEMENT_TYPES.find((e) => e.type === type);
@@ -106,81 +192,114 @@ export function LayoutStudioPage() {
         opacity: 1,
       },
     ]);
-    setSelectedId(id);
+    setSelectedIds([id]);
   }
 
-  const canvasPoint = useCallback((clientX: number, clientY: number) => {
-    if (!canvasRef.current) return { x: 0, y: 0 };
-    const rect = canvasRef.current.getBoundingClientRect();
-    return {
-      x: (clientX - rect.left) / scale,
-      y: (clientY - rect.top) / scale,
-    };
-  }, [scale]);
+  const canvasPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!canvasRef.current) return { x: 0, y: 0 };
+      const rect = canvasRef.current.getBoundingClientRect();
+      return {
+        x: (clientX - rect.left) / scale,
+        y: (clientY - rect.top) / scale,
+      };
+    },
+    [scale]
+  );
+
+  const getModifiers = useCallback((e: PointerEvent | React.PointerEvent) => ({
+    maintainAspect: e.shiftKey,
+    fromCenter: e.altKey,
+    disableSnap: e.ctrlKey || e.metaKey,
+  }), []);
 
   useEffect(() => {
     if (!interaction) return;
     const active = interaction;
 
-    function onMove(e: MouseEvent) {
-      const { x, y } = canvasPoint(e.clientX, e.clientY);
+    function onPointerMove(e: PointerEvent) {
+      const ptr = canvasPoint(e.clientX, e.clientY);
+      const mods = getModifiers(e);
 
       if (active.mode === 'drag') {
-        setElements((prev) =>
-          prev.map((el) => {
-            if (el.id !== active.id) return el;
-            const nx = Math.round(Math.max(0, Math.min(canvasW - el.width, x - active.offsetX)));
-            const ny = Math.round(Math.max(0, Math.min(canvasH - el.height, y - active.offsetY)));
-            return { ...el, x: nx, y: ny };
-          })
+        const dx = ptr.x - active.startPointer.x;
+        const dy = ptr.y - active.startPointer.y;
+        setElementsTransient((prev) =>
+          applyGroupDrag(prev, active.ids, active.snapshots, dx, dy, canvasW, canvasH)
         );
         return;
       }
 
-      setElements((prev) =>
-        prev.map((el) => {
-          if (el.id !== active.id) return el;
-          let { width, height } = el;
-          if (active.handle === 'e' || active.handle === 'se') {
-            width = Math.round(Math.max(MIN_SIZE, Math.min(canvasW - el.x, x - el.x)));
-          }
-          if (active.handle === 's' || active.handle === 'se') {
-            height = Math.round(Math.max(MIN_SIZE, Math.min(canvasH - el.y, y - el.y)));
-          }
-          return { ...el, width, height };
-        })
+      const groupNext = computeResizedRect(
+        active.groupStart,
+        active.startPointer,
+        ptr,
+        active.handle,
+        canvasW,
+        canvasH,
+        mods
+      );
+
+      setElementsTransient((prev) =>
+        applyGroupResize(prev, active.ids, active.snapshots, active.groupStart, groupNext)
       );
     }
 
-    function onUp() {
+    function onPointerUp() {
+      endInteraction();
       setInteraction(null);
     }
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
     };
-  }, [interaction, canvasPoint, canvasW, canvasH]);
+  }, [interaction, canvasPoint, canvasW, canvasH, getModifiers, setElementsTransient, endInteraction]);
 
-  function startDrag(e: React.MouseEvent, id: string) {
+  function startDrag(e: React.PointerEvent, id: string) {
+    if (e.button !== 0) return;
     e.stopPropagation();
-    const el = elements.find((x) => x.id === id);
-    if (!el) return;
-    const { x, y } = canvasPoint(e.clientX, e.clientY);
-    setSelectedId(id);
-    setInteraction({ mode: 'drag', id, offsetX: x - el.x, offsetY: y - el.y });
+    e.currentTarget.setPointerCapture(e.pointerId);
+
+    const ids = selectedIds.includes(id) && selectedIds.length > 1 ? selectedIds : [id];
+    if (!selectedIds.includes(id)) setSelectedIds([id]);
+
+    const ptr = canvasPoint(e.clientX, e.clientY);
+    beginInteraction(elements);
+    setInteraction({
+      mode: 'drag',
+      ids,
+      startPointer: ptr,
+      snapshots: buildSnapshots(elements, ids),
+    });
   }
 
-  function startResize(e: React.MouseEvent, id: string, handle: ResizeHandle) {
+  function startResize(e: React.PointerEvent, handle: ResizeHandle) {
+    if (e.button !== 0 || selectedIds.length === 0) return;
     e.stopPropagation();
-    setSelectedId(id);
-    setInteraction({ mode: 'resize', id, handle });
+    e.preventDefault();
+
+    const bounds = getElementsBounds(elements, selectedIds);
+    if (!bounds) return;
+
+    const ptr = canvasPoint(e.clientX, e.clientY);
+    beginInteraction(elements);
+    setInteraction({
+      mode: 'resize',
+      ids: selectedIds,
+      handle,
+      groupStart: bounds,
+      snapshots: buildSnapshots(elements, selectedIds),
+      startPointer: ptr,
+    });
   }
 
   async function handleImageUpload(file: File, targetId?: string) {
-    const id = targetId ?? selectedId;
+    const id = targetId ?? primarySelectedId;
     if (!id) return;
     if (file.size > 5 * 1024 * 1024) {
       setError('Bild max. 5 MB');
@@ -254,14 +373,14 @@ export function LayoutStudioPage() {
     setCurrent(layout);
     setName(layout.name);
     setPlatform(layout.platform);
-    setElements(layout.elements);
-    setSelectedId(layout.elements[0]?.id ?? null);
+    resetHistory(layout.elements);
+    setSelectedIds(layout.elements[0]?.id ? [layout.elements[0].id] : []);
   }
 
   function renderElement(el: LayoutElement) {
     const def = ELEMENT_TYPES.find((e) => e.type === el.type);
     const Icon = def?.icon ?? Layout;
-    const isSelected = selectedId === el.id;
+    const isSelected = selectedIds.includes(el.id);
     const showImage = el.imageUrl && supportsImage(el.type);
     const frameStyle = el.type === 'frame'
       ? {
@@ -275,8 +394,8 @@ export function LayoutStudioPage() {
     return (
       <div
         key={el.id}
-        className={`absolute overflow-hidden text-xs font-medium text-white/90 ${
-          isSelected ? 'ring-2 ring-[var(--ucbs-accent-cyan)] ring-offset-1 ring-offset-zinc-900' : ''
+        className={`absolute touch-none overflow-hidden text-xs font-medium text-white/90 ${
+          isSelected ? 'ring-2 ring-[var(--ucbs-accent-cyan)]' : ''
         }`}
         style={{
           left: el.x * scale,
@@ -288,8 +407,11 @@ export function LayoutStudioPage() {
           border: el.type === 'frame' ? undefined : `2px dashed ${el.color ?? '#7C3AED'}`,
           ...frameStyle,
         }}
-        onMouseDown={(e) => startDrag(e, el.id)}
-        onClick={(e) => { e.stopPropagation(); setSelectedId(el.id); }}
+        onPointerDown={(e) => startDrag(e, el.id)}
+        onClick={(e) => {
+          e.stopPropagation();
+          selectElement(el.id, e.shiftKey);
+        }}
       >
         {showImage && (
           <img
@@ -318,32 +440,43 @@ export function LayoutStudioPage() {
         <button
           type="button"
           className="absolute right-1 top-1 rounded bg-black/40 p-0.5 hover:bg-red-500/60"
-          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
             setElements((p) => p.filter((x) => x.id !== el.id));
-            if (selectedId === el.id) setSelectedId(null);
+            setSelectedIds((prev) => prev.filter((x) => x !== el.id));
           }}
         >
           <Trash2 className="h-3 w-3" />
         </button>
+      </div>
+    );
+  }
 
-        {isSelected && (
-          <>
-            <div
-              className="absolute bottom-0 right-0 h-3 w-3 cursor-se-resize rounded-sm bg-[var(--ucbs-accent-cyan)]"
-              onMouseDown={(e) => startResize(e, el.id, 'se')}
-            />
-            <div
-              className="absolute right-0 top-1/2 h-6 w-2 -translate-y-1/2 cursor-e-resize rounded-sm bg-[var(--ucbs-accent-cyan)]/80"
-              onMouseDown={(e) => startResize(e, el.id, 'e')}
-            />
-            <div
-              className="absolute bottom-0 left-1/2 h-2 w-6 -translate-x-1/2 cursor-s-resize rounded-sm bg-[var(--ucbs-accent-cyan)]/80"
-              onMouseDown={(e) => startResize(e, el.id, 's')}
-            />
-          </>
-        )}
+  function renderSelectionOverlay() {
+    if (!selectionBounds || selectedIds.length === 0) return null;
+
+    return (
+      <div
+        className="pointer-events-none absolute border-2 border-[var(--ucbs-accent-cyan)]"
+        style={{
+          left: selectionBounds.x * scale,
+          top: selectionBounds.y * scale,
+          width: selectionBounds.width * scale,
+          height: selectionBounds.height * scale,
+        }}
+      >
+        {RESIZE_HANDLES.map((handle) => (
+          <div
+            key={handle}
+            className="pointer-events-auto z-20 rounded-sm border border-zinc-900 bg-[var(--ucbs-accent-cyan)] shadow-md hover:scale-110"
+            style={{
+              ...handlePosition(handle, selectionBounds, scale),
+              cursor: HANDLE_CURSORS[handle],
+            }}
+            onPointerDown={(e) => startResize(e, handle)}
+          />
+        ))}
       </div>
     );
   }
@@ -351,10 +484,16 @@ export function LayoutStudioPage() {
   return (
     <StudioShell
       title="Layout Studio"
-      description="Drag-and-Drop Editor — Elemente verschieben, Größe ändern, Bilder & Rahmen einfügen"
+      description="Professioneller Editor — verschieben, 8-Wege-Resize, Mehrfachauswahl, Undo/Redo"
       badge={<Badge variant="brand">UCBS</Badge>}
       actions={
         <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" size="sm" onClick={undo} disabled={!canUndo} title="Rückgängig (Strg+Z)">
+            <Undo2 className="h-4 w-4" />
+          </Button>
+          <Button variant="secondary" size="sm" onClick={redo} disabled={!canRedo} title="Wiederholen (Strg+Y)">
+            <Redo2 className="h-4 w-4" />
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => handleExport('obs')} disabled={elements.length === 0}>
             <Download className="h-4 w-4" /> OBS
           </Button>
@@ -404,131 +543,175 @@ export function LayoutStudioPage() {
           {selected && (
             <NeonCard accent="purple">
               <CardTitle className="text-sm">Eigenschaften</CardTitle>
-              <p className="mt-1 text-xs text-zinc-500">{selected.label ?? selected.type}</p>
+              <p className="mt-1 text-xs text-zinc-500">
+                {selectedIds.length > 1
+                  ? `${selectedIds.length} Elemente ausgewählt`
+                  : (selected.label ?? selected.type)}
+              </p>
               <div className="mt-3 space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <Input
                     label="Breite"
                     type="number"
-                    min={MIN_SIZE}
-                    value={selected.width}
-                    onChange={(e) => updateElement(selected.id, { width: Number(e.target.value) || MIN_SIZE })}
+                    min={MIN_ELEMENT_SIZE}
+                    value={selectedIds.length > 1 ? selectionBounds?.width ?? selected.width : selected.width}
+                    onChange={(e) => {
+                      const w = Number(e.target.value) || MIN_ELEMENT_SIZE;
+                      if (selectedIds.length > 1 && selectionBounds) {
+                        const ratio = w / selectionBounds.width;
+                        setElements((prev) =>
+                          prev.map((el) => {
+                            if (!selectedIds.includes(el.id)) return el;
+                            return {
+                              ...el,
+                              width: Math.round(el.width * ratio),
+                              height: Math.round(el.height * ratio),
+                            };
+                          })
+                        );
+                      } else {
+                        updateElement(selected.id, { width: w });
+                      }
+                    }}
                   />
                   <Input
                     label="Höhe"
                     type="number"
-                    min={MIN_SIZE}
-                    value={selected.height}
-                    onChange={(e) => updateElement(selected.id, { height: Number(e.target.value) || MIN_SIZE })}
+                    min={MIN_ELEMENT_SIZE}
+                    value={selectedIds.length > 1 ? selectionBounds?.height ?? selected.height : selected.height}
+                    onChange={(e) => {
+                      const h = Number(e.target.value) || MIN_ELEMENT_SIZE;
+                      if (selectedIds.length > 1 && selectionBounds) {
+                        const ratio = h / selectionBounds.height;
+                        setElements((prev) =>
+                          prev.map((el) => {
+                            if (!selectedIds.includes(el.id)) return el;
+                            return {
+                              ...el,
+                              width: Math.round(el.width * ratio),
+                              height: Math.round(el.height * ratio),
+                            };
+                          })
+                        );
+                      } else {
+                        updateElement(selected.id, { height: h });
+                      }
+                    }}
                   />
                   <Input
                     label="X"
                     type="number"
                     min={0}
-                    value={selected.x}
+                    value={selectedIds.length > 1 ? selectionBounds?.x ?? selected.x : selected.x}
+                    disabled={selectedIds.length > 1}
                     onChange={(e) => updateElement(selected.id, { x: Number(e.target.value) || 0 })}
                   />
                   <Input
                     label="Y"
                     type="number"
                     min={0}
-                    value={selected.y}
+                    value={selectedIds.length > 1 ? selectionBounds?.y ?? selected.y : selected.y}
+                    disabled={selectedIds.length > 1}
                     onChange={(e) => updateElement(selected.id, { y: Number(e.target.value) || 0 })}
                   />
                 </div>
 
-                <Input
-                  label="Label"
-                  value={selected.label ?? ''}
-                  onChange={(e) => updateElement(selected.id, { label: e.target.value })}
-                />
-
-                {selected.type === 'text' && (
-                  <Input
-                    label="Textinhalt"
-                    value={selected.content ?? ''}
-                    onChange={(e) => updateElement(selected.id, { content: e.target.value })}
-                  />
-                )}
-
-                <div>
-                  <label className="mb-1 block text-xs text-zinc-400">Farbe</label>
-                  <input
-                    type="color"
-                    value={selected.color ?? '#7C3AED'}
-                    onChange={(e) => updateElement(selected.id, { color: e.target.value })}
-                    className="h-9 w-full cursor-pointer rounded border border-white/10 bg-transparent"
-                  />
-                </div>
-
-                {selected.type === 'frame' && (
+                {selectedIds.length === 1 && (
                   <>
                     <Input
-                      label="Rahmenbreite"
-                      type="number"
-                      min={1}
-                      max={24}
-                      value={selected.borderWidth ?? 4}
-                      onChange={(e) => updateElement(selected.id, { borderWidth: Number(e.target.value) || 4 })}
+                      label="Label"
+                      value={selected.label ?? ''}
+                      onChange={(e) => updateElement(selected.id, { label: e.target.value })}
                     />
-                    <Input
-                      label="Eckenradius"
-                      type="number"
-                      min={0}
-                      max={64}
-                      value={selected.borderRadius ?? 12}
-                      onChange={(e) => updateElement(selected.id, { borderRadius: Number(e.target.value) || 0 })}
-                    />
+
+                    {selected.type === 'text' && (
+                      <Input
+                        label="Textinhalt"
+                        value={selected.content ?? ''}
+                        onChange={(e) => updateElement(selected.id, { content: e.target.value })}
+                      />
+                    )}
+
                     <div>
-                      <label className="mb-1 block text-xs text-zinc-400">Rahmenfarbe</label>
+                      <label className="mb-1 block text-xs text-zinc-400">Farbe</label>
                       <input
                         type="color"
-                        value={selected.borderColor ?? selected.color ?? '#A855F7'}
-                        onChange={(e) => updateElement(selected.id, { borderColor: e.target.value })}
+                        value={selected.color ?? '#7C3AED'}
+                        onChange={(e) => updateElement(selected.id, { color: e.target.value })}
                         className="h-9 w-full cursor-pointer rounded border border-white/10 bg-transparent"
+                      />
+                    </div>
+
+                    {selected.type === 'frame' && (
+                      <>
+                        <Input
+                          label="Rahmenbreite"
+                          type="number"
+                          min={1}
+                          max={24}
+                          value={selected.borderWidth ?? 4}
+                          onChange={(e) => updateElement(selected.id, { borderWidth: Number(e.target.value) || 4 })}
+                        />
+                        <Input
+                          label="Eckenradius"
+                          type="number"
+                          min={0}
+                          max={64}
+                          value={selected.borderRadius ?? 12}
+                          onChange={(e) => updateElement(selected.id, { borderRadius: Number(e.target.value) || 0 })}
+                        />
+                        <div>
+                          <label className="mb-1 block text-xs text-zinc-400">Rahmenfarbe</label>
+                          <input
+                            type="color"
+                            value={selected.borderColor ?? selected.color ?? '#A855F7'}
+                            onChange={(e) => updateElement(selected.id, { borderColor: e.target.value })}
+                            className="h-9 w-full cursor-pointer rounded border border-white/10 bg-transparent"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {supportsImage(selected.type) && (
+                      <div className="space-y-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full gap-2"
+                          loading={uploading}
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          <Upload className="h-4 w-4" />
+                          Bild einfügen
+                        </Button>
+                        {selected.imageUrl && (
+                          <button
+                            type="button"
+                            className="w-full text-xs text-red-400 hover:underline"
+                            onClick={() => updateElement(selected.id, { imageUrl: undefined })}
+                          >
+                            Bild entfernen
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="mb-1 block text-xs text-zinc-400">
+                        Deckkraft ({Math.round((selected.opacity ?? 1) * 100)}%)
+                      </label>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={1}
+                        step={0.05}
+                        value={selected.opacity ?? 1}
+                        onChange={(e) => updateElement(selected.id, { opacity: Number(e.target.value) })}
+                        className="w-full"
                       />
                     </div>
                   </>
                 )}
-
-                {supportsImage(selected.type) && (
-                  <div className="space-y-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full gap-2"
-                      loading={uploading}
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Upload className="h-4 w-4" />
-                      Bild einfügen
-                    </Button>
-                    {selected.imageUrl && (
-                      <button
-                        type="button"
-                        className="w-full text-xs text-red-400 hover:underline"
-                        onClick={() => updateElement(selected.id, { imageUrl: undefined })}
-                      >
-                        Bild entfernen
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <div>
-                  <label className="mb-1 block text-xs text-zinc-400">
-                    Deckkraft ({Math.round((selected.opacity ?? 1) * 100)}%)
-                  </label>
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={1}
-                    step={0.05}
-                    value={selected.opacity ?? 1}
-                    onChange={(e) => updateElement(selected.id, { opacity: Number(e.target.value) })}
-                    className="w-full"
-                  />
-                </div>
               </div>
             </NeonCard>
           )}
@@ -564,26 +747,31 @@ export function LayoutStudioPage() {
               </div>
             )}
           </NeonCard>
+
+          <p className="text-[10px] leading-relaxed text-zinc-600">
+            Shift = Seitenverhältnis · Alt = von Mitte · Strg = Snap aus · Shift+Klick = Mehrfachauswahl
+          </p>
         </div>
 
         <NeonCard accent="purple" className="lg:col-span-3 overflow-hidden p-4">
           <div
             ref={canvasRef}
-            className="relative mx-auto border border-white/10 bg-zinc-950"
+            className="relative mx-auto touch-none border border-white/10 bg-zinc-950"
             style={{ width: canvasW * scale, height: canvasH * scale }}
-            onMouseDown={() => setSelectedId(null)}
+            onPointerDown={() => setSelectedIds([])}
           >
             {elements.map(renderElement)}
+            {renderSelectionOverlay()}
             {elements.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-zinc-600">
                 <span>Elemente aus der Sidebar hinzufügen</span>
-                <span className="text-xs">Verschieben · Größe ziehen · Bilder & Rahmen</span>
+                <span className="text-xs">8 Resize-Handles · Mehrfachauswahl · Undo/Redo</span>
               </div>
             )}
           </div>
           <p className="mt-2 text-center text-xs text-zinc-500">
             Canvas {canvasW}×{canvasH} · {elements.length} Elemente
-            {selected ? ` · Ausgewählt: ${selected.label ?? selected.type}` : ''}
+            {selectedIds.length > 0 ? ` · ${selectedIds.length} ausgewählt` : ''}
           </p>
         </NeonCard>
       </div>
