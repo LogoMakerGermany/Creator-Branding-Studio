@@ -15,4 +15,5 @@ export * from './marketplace';
 export * from './studio';
 export * from './logo-prompt';
 export * from './magik';
+export * from './magik-ai';
 export * from './api';

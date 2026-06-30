@@ -75,6 +75,7 @@ export const PROJECTS_MODULES: HubModule[] = [
 export const SETTINGS_LINKS: HubModule[] = [
   { id: 'dna', title: 'Creator DNA', description: 'Farben, Stil, Plattformen', path: '/creator-dna', accent: 'cyan' },
   { id: 'coins', title: 'Coins & Premium', description: 'Guthaben & Zahlungen', path: '/coins', accent: 'purple' },
+  { id: 'magik-assistant', title: 'MAGIK AI Assistant', description: 'Persönlicher Logo-Begleiter (Demnächst)', path: '/settings/magik-assistant', accent: 'purple', tags: ['Demnächst'] },
   { id: 'mobile', title: 'Mobile App', description: 'PWA & Installation', path: '/mobile-app', accent: 'green' },
 ];
 

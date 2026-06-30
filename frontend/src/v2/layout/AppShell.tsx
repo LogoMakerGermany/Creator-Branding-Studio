@@ -6,6 +6,7 @@ import { TopBar } from './TopBar';
 import { PageTransition } from '@/v2/components/PageTransition';
 import { useUiStore } from '@/v2/store/ui-store';
 import { PwaInstallBanner } from '@/components/pwa/PwaInstallBanner';
+import { MagikAssistantShell } from '@/components/magik';
 
 export function AppShell() {
   const location = useLocation();
@@ -33,6 +34,7 @@ export function AppShell() {
           </AnimatePresence>
         </main>
       </div>
+      <MagikAssistantShell />
     </div>
   );
 }

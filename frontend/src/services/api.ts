@@ -177,6 +177,41 @@ export const api = {
         body: JSON.stringify(body),
       }),
   },
+  magikAi: {
+    getStatus: () =>
+      request<import('@ucbs/shared').MagikAiStatusResponse>('/api/v1/magik-ai/status'),
+    getSettings: () =>
+      request<{
+        settings: import('@ucbs/shared').MagikAiSettings;
+        defaults: import('@ucbs/shared').MagikAiSettings;
+        personalities: import('@ucbs/shared').MagikAiPersonality[];
+        locked: boolean;
+      }>('/api/v1/magik-ai/settings'),
+    updateSettings: (body: Partial<import('@ucbs/shared').MagikAiSettings>) =>
+      request<{ settings: import('@ucbs/shared').MagikAiSettings; locked: boolean }>(
+        '/api/v1/magik-ai/settings',
+        { method: 'PUT', body: JSON.stringify(body) }
+      ),
+    getLogoContexts: () =>
+      request<{ contexts: import('@ucbs/shared').MagikLogoContextRecord[] }>(
+        '/api/v1/magik-ai/logo-context'
+      ),
+    getAvatar: () =>
+      request<{ avatar: import('@ucbs/shared').MagikAiAvatar | null }>('/api/v1/magik-ai/avatar'),
+    getMemory: () =>
+      request<{
+        status: import('@ucbs/shared').MagikAiMemoryStatus;
+        entries: import('@ucbs/shared').MagikAiMemoryEntry[];
+      }>('/api/v1/magik-ai/memory'),
+    getRecommendations: () =>
+      request<{ items: import('@ucbs/shared').MagikAiRecommendation[] }>(
+        '/api/v1/magik-ai/recommendations'
+      ),
+    getConversation: () =>
+      request<{ session: import('@ucbs/shared').MagikAiConversationSession | null }>(
+        '/api/v1/magik-ai/conversation'
+      ),
+  },
   files: {
     list: () => request<{ files: UserFile[] }>('/api/v1/files'),
     get: (id: string) => request<{ file: UserFile & { dataUrl: string } }>(`/api/v1/files/${id}`),

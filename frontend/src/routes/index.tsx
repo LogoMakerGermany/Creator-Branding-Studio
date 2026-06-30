@@ -26,6 +26,7 @@ import { MobileAppPage } from '@/pages/mobile/MobileAppPage';
 import { FileCloudPage } from '@/pages/files/FileCloudPage';
 import { ModulePage } from '@/pages/modules/ModulePage';
 import { CoinsPage } from '@/pages/coins/CoinsPage';
+import { MagikAssistantSettingsPage } from '@/pages/settings/MagikAssistantSettingsPage';
 import { CREATOR_MODULES } from '@ucbs/shared';
 import { Skeleton } from '@/v2/components/Skeleton';
 
@@ -73,6 +74,7 @@ const IMPLEMENTED_PATHS = new Set([
   '/team-chat',
   '/mobile-app',
   '/file-cloud',
+  '/settings/magik-assistant',
 ]);
 
 const IMPLEMENTED_ROUTES: Record<string, ReactNode> = {
@@ -99,6 +101,7 @@ const IMPLEMENTED_ROUTES: Record<string, ReactNode> = {
   '/team-chat': <TeamChatPage />,
   '/mobile-app': <MobileAppPage />,
   '/file-cloud': <FileCloudPage />,
+  '/settings/magik-assistant': <MagikAssistantSettingsPage />,
 };
 
 export function AppRoutes() {
@@ -130,6 +133,7 @@ export function AppRoutes() {
         <Route path="/teams" element={<Lazy><TeamsHubPage /></Lazy>} />
         <Route path="/projects" element={<Lazy><ProjectsHubPage /></Lazy>} />
         <Route path="/settings" element={<Lazy><SettingsHubPage /></Lazy>} />
+        <Route path="/settings/magik-assistant" element={<MagikAssistantSettingsPage />} />
         <Route path="/ai-music" element={<Navigate to="/ai-creator" replace />} />
         <Route path="/coins" element={<CoinsPage />} />
         {CREATOR_MODULES.filter((m) => m.id !== 'dashboard' && m.id !== 'coins' && m.id !== 'ai-music').map((mod) => (
