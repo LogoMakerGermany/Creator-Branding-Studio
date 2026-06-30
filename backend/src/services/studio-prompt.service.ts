@@ -1,44 +1,19 @@
 import type { CreatorDNA } from '@ucbs/shared';
 import {
   BANNER_PLATFORM_SPECS,
+  buildLogoPrompt,
   type BannerGenerationOptions,
   type FacecamGenerationOptions,
-  type LogoGenerationOptions,
   type OverlayGenerationOptions,
   type StickerGenerationOptions,
 } from '@ucbs/shared';
+
+export { buildLogoPrompt };
 
 function colorList(dna: CreatorDNA, custom?: string[]): string {
   const fromDna = [...dna.primaryColors, ...dna.secondaryColors, ...dna.accentColors].filter(Boolean);
   const merged = [...(custom ?? []), ...fromDna].slice(0, 6);
   return merged.length ? merged.join(', ') : 'purple, dark blue, cyan accents';
-}
-
-export function buildLogoPrompt(dna: CreatorDNA, opts: LogoGenerationOptions = {}): string {
-  const styles: string[] = [];
-  if (opts.style) styles.push(opts.style);
-  if (opts.threeD || opts.style === '3D') styles.push('3D rendered');
-  if (opts.realistic || opts.style === 'Realistisch') styles.push('photorealistic');
-  if (opts.cartoon || opts.style === 'Cartoon') styles.push('cartoon');
-  if (opts.anime || opts.style === 'Anime') styles.push('anime');
-  if (opts.neon || opts.style === 'Neon') styles.push('neon glow');
-  if (opts.ultraCinematic || opts.style === 'Ultra Cinematic') styles.push('ultra cinematic, dramatic lighting');
-
-  const name = opts.logoName || opts.clanName || dna.name;
-  const parts = [
-    `Professional creator logo for "${name}"`,
-    opts.clanName && opts.clanName !== name ? `clan/team name: ${opts.clanName}` : null,
-    opts.slogan ? `incorporating tagline mood: "${opts.slogan}"` : null,
-    opts.game ? `themed for game: ${opts.game}` : null,
-    opts.platform ? `optimized for platform: ${opts.platform}` : null,
-    opts.ringLogo ? 'circular ring logo emblem, centered icon inside ring' : 'strong iconic mark',
-    opts.transparentBackground ? 'transparent background, isolated logo, no backdrop fill' : 'clean solid or gradient backdrop',
-    styles.length ? `visual style: ${styles.join(', ')}` : `style: ${dna.styleDirection}`,
-    `color palette: ${colorList(dna, opts.customColors)}`,
-    'vector-friendly shapes, sharp edges, high contrast, no watermark, no mockup frame',
-  ];
-
-  return parts.filter(Boolean).join('. ') + '.';
 }
 
 export function buildBannerPrompt(dna: CreatorDNA, opts: BannerGenerationOptions): string {

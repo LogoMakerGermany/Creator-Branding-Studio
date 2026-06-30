@@ -165,6 +165,18 @@ export const api = {
     generateBrandingPack: () =>
       request<GenerateResult>('/api/v1/branding/generate-pack', { method: 'POST' }),
   },
+  magik: {
+    feedback: (body: {
+      eventType: 'download' | 'delete' | 'favorite' | 'regenerate';
+      variant?: 'a' | 'b';
+      prompt: string;
+      profile: Record<string, string | undefined>;
+    }) =>
+      request<{ recorded: boolean }>('/api/v1/magik/feedback', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+  },
   files: {
     list: () => request<{ files: UserFile[] }>('/api/v1/files'),
     get: (id: string) => request<{ file: UserFile & { dataUrl: string } }>(`/api/v1/files/${id}`),
@@ -501,6 +513,17 @@ export interface CreateDnaBody {
   targetPlatforms?: string[];
 }
 
+export interface LogoVariantResult {
+  variant: 'a' | 'b';
+  jobId: string;
+  status: string;
+  imageUrl?: string;
+  exports?: { png: string; hd?: string; svg?: string };
+  provider?: string;
+  prompt: string;
+  error?: string;
+}
+
 export interface GenerateResult {
   jobId: string;
   status: string;
@@ -513,6 +536,8 @@ export interface GenerateResult {
   newBalance?: number;
   message?: string;
   jobs?: GenerationJob[];
+  variants?: LogoVariantResult[];
+  prompts?: { a: string; b: string };
 }
 
 export interface GenerationJob {

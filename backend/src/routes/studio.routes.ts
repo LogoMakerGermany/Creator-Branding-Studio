@@ -11,7 +11,7 @@ import { authenticate } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { asyncHandler, sendSuccess } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
-import { generateStudioAsset, getJobsByUser } from '../services/ai.service.js';
+import { generateStudioAsset, generateMagikLogoPair, getJobsByUser } from '../services/ai.service.js';
 
 type StudioRouteConfig = {
   moduleName: string;
@@ -45,23 +45,67 @@ function createStudioRoutes(config: StudioRouteConfig) {
     })
   );
 
-  const logoSchema = z.object({
-    logoName: z.string().max(80).optional(),
-    clanName: z.string().max(80).optional(),
-    slogan: z.string().max(120).optional(),
-    style: z.string().max(40).optional(),
-    game: z.string().max(60).optional(),
-    platform: z.string().max(40).optional(),
-    ringLogo: z.boolean().optional(),
-    transparentBackground: z.boolean().optional(),
-    threeD: z.boolean().optional(),
-    realistic: z.boolean().optional(),
-    cartoon: z.boolean().optional(),
-    anime: z.boolean().optional(),
-    neon: z.boolean().optional(),
-    ultraCinematic: z.boolean().optional(),
-    customColors: z.array(z.string()).max(6).optional(),
-  });
+  const logoSchema = z
+    .object({
+      logoName: z.string().min(2).max(80),
+      clanName: z.string().max(80).optional(),
+      slogan: z.string().max(120).optional(),
+      game: z.string().max(60).optional(),
+      platform: z.string().max(40).optional(),
+      magikMode: z.enum(['name', 'character']).optional(),
+      magikCharacter: z.string().max(60).optional(),
+      customCharacter: z.string().max(120).optional(),
+      magikStyle: z.string().max(40).optional(),
+      magikLogoArt: z.enum(['2d', '3d', 'ultra-3d', 'ultra-cinematic-3d']).optional(),
+      ringLogoMode: z.enum(['yes', 'no', 'auto']).optional(),
+      magikBackground: z.string().max(30).optional(),
+      selectedColors: z.array(z.string()).max(6).optional(),
+      primaryColor: z.string().max(20).optional(),
+      secondaryColor: z.string().max(20).optional(),
+      accentColor: z.string().max(20).optional(),
+      customPromptOverride: z.string().max(4000).optional(),
+      transparentBackground: z.boolean().optional(),
+      symbol: z.string().max(120).optional(),
+      style: z.string().max(40).optional(),
+      dimension: z.enum(['2d', '3d']).optional(),
+      ringLogo: z.boolean().optional(),
+      backgroundType: z.string().optional(),
+      backgroundColor: z.string().max(20).optional(),
+      customColors: z.array(z.string()).max(6).optional(),
+      threeD: z.boolean().optional(),
+      realistic: z.boolean().optional(),
+      cartoon: z.boolean().optional(),
+      anime: z.boolean().optional(),
+      neon: z.boolean().optional(),
+      ultraCinematic: z.boolean().optional(),
+    })
+    .superRefine((data, ctx) => {
+      const colors =
+        data.selectedColors?.length ||
+        data.primaryColor ||
+        data.secondaryColor ||
+        data.accentColor ||
+        (data.customColors && data.customColors.length > 0);
+      if (!colors) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Mindestens eine Farbe erforderlich',
+          path: ['selectedColors'],
+        });
+      }
+      if (data.magikMode === 'character') {
+        const hasChar =
+          (data.magikCharacter && data.magikCharacter !== 'Eigene Figur') ||
+          (data.magikCharacter === 'Eigene Figur' && data.customCharacter?.trim());
+        if (!hasChar) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Figur erforderlich',
+            path: ['magikCharacter'],
+          });
+        }
+      }
+    });
 
   const bannerSchema = z.object({
     platform: z.enum(Object.keys(BANNER_PLATFORM_SPECS) as [BannerPlatform, ...BannerPlatform[]]),
@@ -95,16 +139,63 @@ function createStudioRoutes(config: StudioRouteConfig) {
   router.post(
     '/generate',
     asyncHandler(async (req: AuthenticatedRequest, res) => {
+      if (moduleKey === 'logo') {
+        const logoOptions = logoSchema.parse(req.body);
+        const result = await generateMagikLogoPair(
+          req.user!.uid,
+          coinCategory,
+          moduleName,
+          logoOptions as import('@ucbs/shared').LogoGenerationOptions
+        );
+        const [jobA, jobB] = result.jobs;
+        sendSuccess(
+          res,
+          {
+            module: moduleName,
+            jobId: jobA.id,
+            status: jobA.status,
+            imageUrl: jobA.imageUrl,
+            exports: jobA.exports,
+            provider: jobA.provider,
+            prompts: result.prompts,
+            variants: [
+              {
+                variant: 'a',
+                jobId: jobA.id,
+                status: jobA.status,
+                imageUrl: jobA.imageUrl,
+                exports: jobA.exports,
+                provider: jobA.provider,
+                prompt: result.prompts.a,
+                error: jobA.error,
+              },
+              {
+                variant: 'b',
+                jobId: jobB.id,
+                status: jobB.status,
+                imageUrl: jobB.imageUrl,
+                exports: jobB.exports,
+                provider: jobB.provider,
+                prompt: result.prompts.b,
+                error: jobB.error,
+              },
+            ],
+            coinsSpent: result.coinsSpent,
+            newBalance: result.newBalance,
+          },
+          201
+        );
+        return;
+      }
+
       const studioOptions =
-        moduleKey === 'logo'
-          ? logoSchema.parse(req.body)
-          : moduleKey === 'banner'
-            ? bannerSchema.parse(req.body)
-            : moduleKey === 'facecam'
-              ? facecamSchema.parse(req.body)
-              : moduleKey === 'overlay'
-                ? overlaySchema.parse(req.body)
-                : stickerSchema.parse(req.body);
+        moduleKey === 'banner'
+          ? bannerSchema.parse(req.body)
+          : moduleKey === 'facecam'
+            ? facecamSchema.parse(req.body)
+            : moduleKey === 'overlay'
+              ? overlaySchema.parse(req.body)
+              : stickerSchema.parse(req.body);
 
       const result = await generateStudioAsset(
         req.user!.uid,

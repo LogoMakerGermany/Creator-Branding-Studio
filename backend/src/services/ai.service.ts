@@ -22,6 +22,8 @@ import type {
   StickerGenerationOptions,
   StudioModuleKey,
 } from '@ucbs/shared';
+import { buildMagikLogoPrompts } from '@ucbs/shared';
+import { getMagikLearningHints } from './magik-learning.service.js';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
 
 import { ServiceError } from '../lib/errors.js';
@@ -306,6 +308,52 @@ export async function runGenerationJob(
 
   await saveJob(job);
   return job;
+}
+
+export async function generateMagikLogoPair(
+  userId: string,
+  coinCategory: CoinSpendCategory,
+  moduleLabel: string,
+  studioOptions: LogoGenerationOptions
+) {
+  const activeDna = await getActiveDna(userId);
+  if (!activeDna) {
+    throw new ServiceError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
+  }
+
+  const coinResult = await deductCoins(userId, coinCategory, `${moduleLabel} MAGIK (2 Varianten)`);
+  if (!coinResult.success) {
+    throw new ServiceError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
+  }
+
+  const { variantA, variantB } = buildMagikLogoPrompts(activeDna, studioOptions);
+  const hints = await getMagikLearningHints({
+    magikMode: studioOptions.magikMode,
+    magikStyle: studioOptions.magikStyle,
+    game: studioOptions.game,
+    magikCharacter: studioOptions.magikCharacter,
+    magikLogoArt: studioOptions.magikLogoArt,
+    magikBackground: studioOptions.magikBackground,
+  });
+
+  const baseA = studioOptions.customPromptOverride?.trim() || variantA;
+  const baseB = studioOptions.customPromptOverride?.trim()
+    ? `${studioOptions.customPromptOverride.trim()}. VARIANT B design-focused: maximize visual impact, extra particles, smoke, energy, creative AAA detail.`
+    : variantB;
+
+  const promptA = hints.variantA ? `${baseA}. ${hints.variantA}` : baseA;
+  const promptB = hints.variantB ? `${baseB}. ${hints.variantB}` : baseB;
+
+  const genOpts = { size: '1024x1024' as const, hd: true };
+  const jobA = await runGenerationJob(userId, 'logo', activeDna, promptA, genOpts);
+  const jobB = await runGenerationJob(userId, 'logo', activeDna, promptB, genOpts);
+
+  return {
+    jobs: [jobA, jobB],
+    prompts: { a: promptA, b: promptB },
+    coinsSpent: coinResult.cost,
+    newBalance: coinResult.newBalance,
+  };
 }
 
 export async function generateStudioAsset(

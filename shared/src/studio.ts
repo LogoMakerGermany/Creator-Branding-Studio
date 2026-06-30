@@ -32,8 +32,15 @@ export interface LogoGenerationOptions {
   style?: string;
   game?: string;
   platform?: string;
+  symbol?: string;
+  dimension?: '2d' | '3d';
   ringLogo?: boolean;
   transparentBackground?: boolean;
+  backgroundType?: 'transparent' | 'solid' | 'gradient' | 'dark';
+  backgroundColor?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  accentColor?: string;
   threeD?: boolean;
   realistic?: boolean;
   cartoon?: boolean;
@@ -41,6 +48,17 @@ export interface LogoGenerationOptions {
   neon?: boolean;
   ultraCinematic?: boolean;
   customColors?: string[];
+  /** MAGIK PROMPT SYSTEM */
+  magikMode?: 'name' | 'character';
+  magikCharacter?: string;
+  customCharacter?: string;
+  magikStyle?: string;
+  magikLogoArt?: '2d' | '3d' | 'ultra-3d' | 'ultra-cinematic-3d';
+  ringLogoMode?: 'yes' | 'no' | 'auto';
+  magikBackground?: string;
+  selectedColors?: string[];
+  customPromptOverride?: string;
+  magikVariant?: 'a' | 'b';
 }
 
 export interface BannerGenerationOptions {
