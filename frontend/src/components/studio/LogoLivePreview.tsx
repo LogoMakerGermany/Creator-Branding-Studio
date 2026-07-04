@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { LogoGenerationOptions } from '@ucbs/shared';
-import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset, logoCameraPreviewFactors, logoDetailsPreviewFactors, logoTypographyPreviewStyle, getLogoFontPreset, resolveLogoTypography } from '@ucbs/shared';
+import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset, logoCameraPreviewFactors, logoDetailsPreviewFactors, logoTypographyPreviewStyle, getLogoFontPreset, resolveLogoTypography, logoAiSettingsPreviewLabel } from '@ucbs/shared';
 
 interface LogoLivePreviewProps {
   form: LogoGenerationOptions;
@@ -28,6 +28,7 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
   const typography = resolveLogoTypography(form);
   const typographyStyle = logoTypographyPreviewStyle(form, glow);
   const fontPreset = getLogoFontPreset(typography.fontFamily);
+  const aiLabel = logoAiSettingsPreviewLabel(form);
   const name = form.logoName?.trim() || 'Dein Logo';
   const isRing = form.ringLogoMode === 'yes' || (form.ringLogoMode === 'auto' && form.ringLogo);
   const is3d = form.magikLogoArt?.includes('3d') || form.dimension === '3d' || form.threeD;
@@ -158,6 +159,9 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
         {form.game?.trim() && <span className="rounded-full border border-white/10 px-2 py-0.5">{form.game}</span>}
         <span className="rounded-full border border-[var(--ucbs-accent-purple)]/30 px-2 py-0.5 text-[var(--ucbs-accent-purple)]">
           Zoom {Math.round(camera.zoom * 100)}%
+        </span>
+        <span className="rounded-full border border-[var(--ucbs-accent-purple)]/30 px-2 py-0.5 text-[var(--ucbs-accent-purple)]">
+          KI · {aiLabel}
         </span>
         <span className="rounded-full border border-[var(--ucbs-accent-cyan)]/30 px-2 py-0.5 text-[var(--ucbs-accent-cyan)]">
           {fontPreset.label}

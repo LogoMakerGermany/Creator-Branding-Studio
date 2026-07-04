@@ -17,6 +17,7 @@ import { applyLogoBackgroundSelection, randomLogoBackground } from './logo-backg
 import { randomLogoCamera } from './logo-camera';
 import { randomLogoDetails } from './logo-details';
 import { randomLogoTypography } from './logo-typography';
+import { randomLogoAiSettings } from './logo-ai-settings';
 
 const RANDOM_LOGO_NAMES = [
   'NeonWolf',
@@ -103,6 +104,7 @@ export function buildRandomLogoOptions(form: LogoGenerationOptions): LogoGenerat
     logoCamera: randomLogoCamera(),
     logoDetails: randomLogoDetails(),
     logoTypography: randomLogoTypography(),
+    logoAiSettings: randomLogoAiSettings(),
     selectedColors: [...palette.colors, palette.colors[2]!, palette.colors[1]!],
     customPromptOverride: undefined,
   };

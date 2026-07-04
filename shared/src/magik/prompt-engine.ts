@@ -18,6 +18,7 @@ import { buildLogoBackgroundPromptPhrase } from './logo-backgrounds';
 import { buildLogoCameraPromptPhrase } from './logo-camera';
 import { buildLogoDetailsPromptPhrase } from './logo-details';
 import { buildLogoTypographyPromptPhrase } from './logo-typography';
+import { buildLogoAiSettingsPromptPhrase } from './logo-ai-settings';
 import {
   MAGIK_QUALITY_DNA,
   DEFAULT_MAGIK_STYLE,
@@ -176,6 +177,7 @@ function buildCorePrompt(
     buildLogoCameraPromptPhrase(opts),
     buildLogoDetailsPromptPhrase(opts),
     buildLogoTypographyPromptPhrase(opts),
+    buildLogoAiSettingsPromptPhrase(opts),
     variantFocus,
     promptDna.combinedPhrase,
     `brand DNA direction: ${dna.styleDirection ?? 'gaming'}`,

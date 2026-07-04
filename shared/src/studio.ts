@@ -63,6 +63,15 @@ export interface LogoTypographySettings {
   letterSpacing: number;
 }
 
+export interface LogoAiSettings {
+  creativity: number;
+  promptStrength: number;
+  styleAdherence: number;
+  variation: number;
+  coherence: number;
+  qualityFocus: number;
+}
+
 export interface LogoGenerationOptions {
   logoName?: string;
   clanName?: string;
@@ -123,6 +132,8 @@ export interface LogoGenerationOptions {
   logoDetails?: Partial<LogoDetailsSettings>;
   /** Logo Studio Schritt 10 — Schrift / Typografie */
   logoTypography?: Partial<LogoTypographySettings>;
+  /** Logo Studio Schritt 11 — KI-Einstellungen (0–100 je Regler) */
+  logoAiSettings?: Partial<LogoAiSettings>;
 }
 
 export interface BannerGenerationOptions {
