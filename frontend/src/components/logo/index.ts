@@ -11,3 +11,5 @@ export { LogoTypographySection } from './LogoTypographySection';
 export { LogoAiSettingsSection } from './LogoAiSettingsSection';
 export { LogoLivePromptSidebar } from './LogoLivePromptSidebar';
 export { LogoTemplatesSection } from './LogoTemplatesSection';
+export { LogoProModeSection } from './LogoProModeSection';
+export { LogoFavoritesSection } from './LogoFavoritesSection';

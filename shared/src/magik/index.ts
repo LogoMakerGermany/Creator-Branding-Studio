@@ -4,6 +4,8 @@ export * from './logo-details';
 export * from './logo-typography';
 export * from './logo-ai-settings';
 export * from './logo-templates';
+export * from './logo-studio-mode';
+export * from './logo-favorites';
 export * from './logo-effects';
 export * from './logo-materials';
 export * from './logo-lighting';

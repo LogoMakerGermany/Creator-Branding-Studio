@@ -5,7 +5,7 @@ import {
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
 import { LogoLivePreview } from '@/components/studio/LogoLivePreview';
-import { LogoNameSection, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection, LogoEffectsSection, LogoBackgroundSection, LogoCameraSection, LogoDetailsSection, LogoTypographySection, LogoAiSettingsSection, LogoLivePromptSidebar, LogoTemplatesSection } from '@/components/logo';
+import { LogoNameSection, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection, LogoEffectsSection, LogoBackgroundSection, LogoCameraSection, LogoDetailsSection, LogoTypographySection, LogoAiSettingsSection, LogoLivePromptSidebar, LogoTemplatesSection, LogoProModeSection, LogoFavoritesSection } from '@/components/logo';
 import { ImprovementChips } from '@/components/ultimate';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
@@ -30,7 +30,12 @@ import {
   applyNameBasedLogoOptions,
   buildRandomLogoOptions,
   applyLogoTemplate,
+  readLogoStudioMode,
+  writeLogoStudioMode,
+  isLogoStudioProMode,
   type LogoGenerationOptions,
+  type LogoStudioMode,
+  type SavedLogoFavorite,
 } from '@ucbs/shared';
 import { StudioShell } from '@/v2/components/StudioShell';
 import { StudioWorkbench } from '@/v2/components/StudioWorkbench';
@@ -97,6 +102,22 @@ export function LogoStudioPage() {
   const [form, setForm] = useState<LogoGenerationOptions>(EMPTY_FORM);
   const [editPrompt, setEditPrompt] = useState(false);
   const [promptDraft, setPromptDraft] = useState('');
+  const [studioMode, setStudioMode] = useState<LogoStudioMode>(() => readLogoStudioMode());
+  const [activeFavoriteId, setActiveFavoriteId] = useState<string | null>(null);
+
+  const isProMode = isLogoStudioProMode(studioMode);
+
+  function setStudioModePersist(mode: LogoStudioMode) {
+    setStudioMode(mode);
+    writeLogoStudioMode(mode);
+  }
+
+  function loadFavorite(favorite: SavedLogoFavorite) {
+    setForm({ ...EMPTY_FORM, ...favorite.options });
+    setActiveFavoriteId(favorite.id);
+    setEditPrompt(false);
+    setTouched(false);
+  }
 
   useEffect(() => {
     if (!activeDna) return;
@@ -281,6 +302,8 @@ export function LogoStudioPage() {
         previewTitle="Live-Vorschau & Varianten"
         settings={
           <div className="max-h-[75vh] space-y-5 overflow-y-auto pr-1">
+            <LogoProModeSection mode={studioMode} onModeChange={setStudioModePersist} />
+
             <LogoNameSection
               form={form}
               onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
@@ -312,6 +335,21 @@ export function LogoStudioPage() {
               colorError={touched ? validationErrors.colors : undefined}
             />
 
+            <LogoTemplatesSection
+              form={form}
+              onApplyTemplate={(templateId) => {
+                setForm((prev) => applyLogoTemplate(templateId, prev));
+                setEditPrompt(false);
+              }}
+            />
+
+            <LogoBackgroundSection
+              form={form}
+              onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+            />
+
+            {isProMode && (
+              <>
             <LogoLightingSection
               form={form}
               onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
@@ -323,11 +361,6 @@ export function LogoStudioPage() {
             />
 
             <LogoEffectsSection
-              form={form}
-              onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
-            />
-
-            <LogoBackgroundSection
               form={form}
               onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
             />
@@ -351,13 +384,14 @@ export function LogoStudioPage() {
               form={form}
               onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
             />
+              </>
+            )}
 
-            <LogoTemplatesSection
+            <LogoFavoritesSection
               form={form}
-              onApplyTemplate={(templateId) => {
-                setForm((prev) => applyLogoTemplate(templateId, prev));
-                setEditPrompt(false);
-              }}
+              activeFavoriteId={activeFavoriteId}
+              onLoadFavorite={loadFavorite}
+              onClearActiveFavorite={() => setActiveFavoriteId(null)}
             />
 
             <GlassCard accent="purple" hover={false} className="!p-3">
@@ -367,6 +401,8 @@ export function LogoStudioPage() {
               </p>
             </GlassCard>
 
+            {isProMode && (
+              <>
             <section>
               <FieldLabel>MAGIK Modus</FieldLabel>
               <div className="flex gap-2">
@@ -475,6 +511,8 @@ export function LogoStudioPage() {
                 }
               }}
             />
+              </>
+            )}
 
             {!formValid && (
               <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
@@ -485,7 +523,7 @@ export function LogoStudioPage() {
           </div>
         }
         preview={
-          <div className="grid gap-4 xl:grid-cols-[1fr_minmax(260px,300px)]">
+          <div className={`grid gap-4 ${isProMode ? 'xl:grid-cols-[1fr_minmax(260px,300px)]' : ''}`}>
             <div className="space-y-4">
             {variants.length > 0 ? (
               <>
@@ -559,6 +597,7 @@ export function LogoStudioPage() {
             )}
             </div>
 
+            {isProMode && (
             <LogoLivePromptSidebar
               variantA={magikPrompts?.variantA ?? ''}
               variantB={magikPrompts?.variantB ?? ''}
@@ -575,6 +614,7 @@ export function LogoStudioPage() {
                 }))
               }
             />
+            )}
           </div>
         }
         actions={
