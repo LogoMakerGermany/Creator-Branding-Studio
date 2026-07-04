@@ -1,5 +1,5 @@
 import type { LogoGenerationOptions } from '@ucbs/shared';
-import { collectMagikColors as collectLogoColors } from '@ucbs/shared';
+import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors } from '@ucbs/shared';
 
 interface LogoLivePreviewProps {
   form: LogoGenerationOptions;
@@ -14,6 +14,7 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
   const secondary = form.secondaryColor ?? colors[1] ?? '#a855f7';
   const accent = form.accentColor ?? colors[2] ?? '#34d399';
   const glow = form.glowColor ?? accent;
+  const lighting = logoLightingPreviewFactors(form);
   const gradientCss =
     form.logoGradientEnabled && form.logoGradientFrom && form.logoGradientTo
       ? `linear-gradient(${form.logoGradientAngle ?? 135}deg, ${form.logoGradientFrom}, ${form.logoGradientTo})`
@@ -57,8 +58,16 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
         } ${is3d ? 'shadow-[0_12px_40px_-8px_rgba(0,0,0,0.8)]' : 'shadow-lg'}`}
         style={{
           borderColor: primary,
-          background: `linear-gradient(${is3d ? '145deg' : '180deg'}, ${primary}55, ${secondary}33)`,
-          boxShadow: is3d ? `0 8px 32px ${glow}88, 0 0 24px ${glow}44` : `0 0 16px ${glow}55`,
+          background: `linear-gradient(${is3d ? '145deg' : '180deg'}, ${primary}bb, ${secondary}55)`,
+          boxShadow: [
+            is3d
+              ? `0 ${8 + lighting.shadow * 16}px ${28 + lighting.bloom * 28}px -8px rgba(0,0,0,${(0.45 + lighting.shadow * 0.4).toFixed(2)})`
+              : '',
+            `0 0 ${18 + lighting.glow * 42}px ${glow}${lighting.glow > 0.5 ? 'cc' : '88'}`,
+            lighting.rim > 0.3 ? `inset 0 0 ${Math.round(lighting.rim * 24)}px ${glow}44` : '',
+          ]
+            .filter(Boolean)
+            .join(', '),
         }}
       >
         <span className="text-center text-[10px] font-bold uppercase tracking-wider text-white/90">
@@ -78,7 +87,10 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
         className="mt-4 font-display text-lg font-bold tracking-tight"
         style={{
           color: primary,
-          textShadow: form.neon || form.magikStyle === 'Neon' ? `0 0 12px ${glow}, 0 0 24px ${glow}88` : undefined,
+          textShadow:
+            form.neon || form.magikStyle === 'Neon' || lighting.glow > 0.45
+              ? `0 0 ${8 + lighting.glow * 16}px ${glow}, 0 0 ${16 + lighting.bloom * 24}px ${glow}88`
+              : undefined,
         }}
       >
         {name}

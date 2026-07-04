@@ -5,7 +5,7 @@ import {
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
 import { LogoLivePreview } from '@/components/studio/LogoLivePreview';
-import { LogoNameSection, LogoStyleSection, LogoColorSection } from '@/components/logo';
+import { LogoNameSection, LogoStyleSection, LogoColorSection, LogoLightingSection } from '@/components/logo';
 import { ImprovementChips } from '@/components/ultimate';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
@@ -20,6 +20,7 @@ import {
   MAGIK_CHARACTERS,
   DEFAULT_MAGIK_STYLE,
   DEFAULT_MAGIK_LOGO_ART,
+  DEFAULT_LOGO_LIGHTING,
   buildMagikLogoPrompts,
   validateMagikLogoOptions,
   isMagikFormValid,
@@ -62,6 +63,7 @@ const EMPTY_FORM: LogoGenerationOptions = {
   logoGradientTo: '#a855f7',
   logoGradientAngle: 135,
   selectedColors: ['#22d3ee', '#a855f7', '#34d399', '#22d3ee', '#0b0f14'],
+  logoLighting: { ...DEFAULT_LOGO_LIGHTING },
 };
 
 function FieldLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
@@ -302,6 +304,11 @@ export function LogoStudioPage() {
               form={form}
               onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
               colorError={touched ? validationErrors.colors : undefined}
+            />
+
+            <LogoLightingSection
+              form={form}
+              onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
             />
 
             <GlassCard accent="purple" hover={false} className="!p-3">

@@ -25,6 +25,18 @@ export const LOGO_STYLE_PRESETS = [
   'Fantasy',
 ] as const;
 
+export interface LogoLightingSettings {
+  glow: number;
+  light: number;
+  shadow: number;
+  reflections: number;
+  bloom: number;
+  hdr: number;
+  lensFlare: number;
+  rimLight: number;
+  ambientLight: number;
+}
+
 export interface LogoGenerationOptions {
   logoName?: string;
   clanName?: string;
@@ -67,6 +79,8 @@ export interface LogoGenerationOptions {
   magikVariant?: 'a' | 'b';
   /** Optionaler Kontext: Gaming, Esports, Streamer, Clan, Creator */
   logoSubtitle?: string;
+  /** Logo Studio Schritt 4 — Beleuchtung (0–100 je Regler) */
+  logoLighting?: Partial<LogoLightingSettings>;
 }
 
 export interface BannerGenerationOptions {

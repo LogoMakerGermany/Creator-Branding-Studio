@@ -11,6 +11,7 @@ import {
   buildLogoColorPromptPhrase,
   syncLogoSelectedColors,
 } from './logo-colors';
+import { buildLogoLightingPromptPhrase } from './logo-lighting';
 import {
   MAGIK_QUALITY_DNA,
   DEFAULT_MAGIK_STYLE,
@@ -183,6 +184,7 @@ function buildCorePrompt(
     logoArtPhrase(opts.magikLogoArt ?? 'ultra-cinematic-3d'),
     resolveRingMode(opts, analysis),
     `color harmony: ${colors}`,
+    buildLogoLightingPromptPhrase(opts),
     backgroundPhrase((opts.magikBackground as MagikBackgroundId) ?? 'dark', opts),
     variantFocus,
     promptDna.combinedPhrase,

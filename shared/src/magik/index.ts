@@ -1,3 +1,4 @@
+export * from './logo-lighting';
 export * from './logo-colors';
 export * from './constants';
 export * from './name-parser';
