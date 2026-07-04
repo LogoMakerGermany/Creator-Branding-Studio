@@ -37,6 +37,14 @@ export interface LogoLightingSettings {
   ambientLight: number;
 }
 
+export interface LogoCameraSettings {
+  zoom: number;
+  rotation: number;
+  perspective: number;
+  angle: number;
+  depthOfField: number;
+}
+
 export interface LogoGenerationOptions {
   logoName?: string;
   clanName?: string;
@@ -91,6 +99,8 @@ export interface LogoGenerationOptions {
   logoBackground?: string;
   logoBackgroundUpload?: string;
   logoBackgroundUploadName?: string;
+  /** Logo Studio Schritt 8 — Kamera (0–100 je Regler) */
+  logoCamera?: Partial<LogoCameraSettings>;
 }
 
 export interface BannerGenerationOptions {

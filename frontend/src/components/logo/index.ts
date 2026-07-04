@@ -5,3 +5,4 @@ export { LogoLightingSection } from './LogoLightingSection';
 export { LogoMaterialSection } from './LogoMaterialSection';
 export { LogoEffectsSection } from './LogoEffectsSection';
 export { LogoBackgroundSection } from './LogoBackgroundSection';
+export { LogoCameraSection } from './LogoCameraSection';

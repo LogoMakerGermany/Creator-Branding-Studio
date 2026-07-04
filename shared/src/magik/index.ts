@@ -1,4 +1,5 @@
 export * from './logo-backgrounds';
+export * from './logo-camera';
 export * from './logo-effects';
 export * from './logo-materials';
 export * from './logo-lighting';

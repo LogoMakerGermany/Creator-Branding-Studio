@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { LogoGenerationOptions } from '@ucbs/shared';
-import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset } from '@ucbs/shared';
+import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset, logoCameraPreviewFactors } from '@ucbs/shared';
 
 interface LogoLivePreviewProps {
   form: LogoGenerationOptions;
@@ -23,6 +23,7 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
   const effectHints = logoEffectsPreviewHints(effects);
   const bgId = resolveLogoBackground(form);
   const bgPreview = logoBackgroundPreviewStyle(bgId, form);
+  const camera = logoCameraPreviewFactors(form);
   const name = form.logoName?.trim() || 'Dein Logo';
   const isRing = form.ringLogoMode === 'yes' || (form.ringLogoMode === 'auto' && form.ringLogo);
   const is3d = form.magikLogoArt?.includes('3d') || form.dimension === '3d' || form.threeD;
@@ -41,20 +42,35 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
     );
   }
 
+  const bgStyle = bgTransparent
+    ? 'repeating-conic-gradient(#1a1f2a 0% 25%, #151b24 0% 50%) 0 0 / 16px 16px'
+    : bgPreview ?? form.backgroundColor ?? '#151b24';
+  const bgBlur = camera.depthOfField > 0.55 ? (camera.depthOfField - 0.55) * 8 : 0;
+
   return (
-    <div
-      className="flex h-full w-full flex-col items-center justify-center p-6"
-      style={{
-        background: bgTransparent
-          ? 'repeating-conic-gradient(#1a1f2a 0% 25%, #151b24 0% 50%) 0 0 / 16px 16px'
-          : bgPreview ?? form.backgroundColor ?? '#151b24',
-      }}
-    >
+    <div className="relative flex h-full w-full flex-col items-center justify-center overflow-hidden p-6">
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: bgStyle,
+          filter: bgBlur > 0 ? `blur(${bgBlur}px)` : undefined,
+          transform: bgBlur > 0 ? 'scale(1.08)' : undefined,
+        }}
+        aria-hidden
+      />
+      <div className="relative z-10 flex flex-col items-center">
       <div
         className={`relative flex items-center justify-center transition-all ${
           isRing ? 'h-40 w-40 rounded-full border-4' : 'h-36 w-36 rounded-2xl border-2'
         } ${is3d ? 'shadow-[0_12px_40px_-8px_rgba(0,0,0,0.8)]' : 'shadow-lg'}`}
         style={{
+          transform: [
+            `scale(${0.75 + camera.zoom * 0.45})`,
+            `rotate(${camera.rotation}deg)`,
+            `perspective(${400 + camera.perspective * 600}px)`,
+            `rotateX(${(0.5 - camera.angle) * 35}deg)`,
+          ].join(' '),
+          transformStyle: 'preserve-3d',
           borderColor: primary,
           borderStyle: materialPreview.borderStyle as CSSProperties['borderStyle'],
           background: materialPreview.sheen
@@ -120,6 +136,9 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
           <span className="rounded-full border border-white/10 px-2 py-0.5">+{effects.length - 3}</span>
         )}
         {form.game?.trim() && <span className="rounded-full border border-white/10 px-2 py-0.5">{form.game}</span>}
+        <span className="rounded-full border border-[var(--ucbs-accent-purple)]/30 px-2 py-0.5 text-[var(--ucbs-accent-purple)]">
+          Zoom {Math.round(camera.zoom * 100)}%
+        </span>
         <span className="rounded-full border border-white/10 px-2 py-0.5">{is3d ? '3D' : '2D'}</span>
         {isRing && <span className="rounded-full border border-white/10 px-2 py-0.5">Ring</span>}
       </div>
@@ -133,6 +152,7 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
       <p className="mt-4 max-w-xs text-center text-xs text-zinc-500">
         Live-Vorschau deiner Einstellungen — nach „Logo generieren“ erscheint das KI-Ergebnis hier.
       </p>
+      </div>
     </div>
   );
 }
