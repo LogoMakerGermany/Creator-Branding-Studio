@@ -1,3 +1,4 @@
+export * from './logo-materials';
 export * from './logo-lighting';
 export * from './logo-colors';
 export * from './constants';

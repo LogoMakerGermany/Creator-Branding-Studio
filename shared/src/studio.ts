@@ -81,6 +81,10 @@ export interface LogoGenerationOptions {
   logoSubtitle?: string;
   /** Logo Studio Schritt 4 — Beleuchtung (0–100 je Regler) */
   logoLighting?: Partial<LogoLightingSettings>;
+  /** Logo Studio Schritt 5 — Material (siehe LOGO_MATERIAL_PRESETS) */
+  logoMaterial?: string;
+  /** Materialstärke 0–100 */
+  logoMaterialIntensity?: number;
 }
 
 export interface BannerGenerationOptions {

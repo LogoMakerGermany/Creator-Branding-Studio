@@ -12,6 +12,7 @@ import {
 import { analyzeMagikName } from './name-parser';
 import { normalizeMagikStyle } from './logo-style-presets';
 import { randomLogoLighting } from './logo-lighting';
+import { randomLogoMaterial } from './logo-materials';
 
 const RANDOM_LOGO_NAMES = [
   'NeonWolf',
@@ -91,6 +92,8 @@ export function buildRandomLogoOptions(form: LogoGenerationOptions): LogoGenerat
     logoGradientTo: palette.colors[1],
     logoGradientAngle: pickRandom([90, 135, 180, 225] as const),
     logoLighting: randomLogoLighting(),
+    logoMaterial: randomLogoMaterial(),
+    logoMaterialIntensity: Math.floor(Math.random() * 61) + 40,
     selectedColors: [...palette.colors, palette.colors[2]!, palette.colors[1]!],
     customPromptOverride: undefined,
   };

@@ -1,5 +1,6 @@
+import type { CSSProperties } from 'react';
 import type { LogoGenerationOptions } from '@ucbs/shared';
-import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors } from '@ucbs/shared';
+import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle } from '@ucbs/shared';
 
 interface LogoLivePreviewProps {
   form: LogoGenerationOptions;
@@ -15,6 +16,9 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
   const accent = form.accentColor ?? colors[2] ?? '#34d399';
   const glow = form.glowColor ?? accent;
   const lighting = logoLightingPreviewFactors(form);
+  const materialId = resolveLogoMaterial(form);
+  const materialPreset = getLogoMaterialPreset(materialId);
+  const materialPreview = logoMaterialPreviewStyle(materialId);
   const gradientCss =
     form.logoGradientEnabled && form.logoGradientFrom && form.logoGradientTo
       ? `linear-gradient(${form.logoGradientAngle ?? 135}deg, ${form.logoGradientFrom}, ${form.logoGradientTo})`
@@ -58,7 +62,10 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
         } ${is3d ? 'shadow-[0_12px_40px_-8px_rgba(0,0,0,0.8)]' : 'shadow-lg'}`}
         style={{
           borderColor: primary,
-          background: `linear-gradient(${is3d ? '145deg' : '180deg'}, ${primary}bb, ${secondary}55)`,
+          borderStyle: materialPreview.borderStyle as CSSProperties['borderStyle'],
+          background: materialPreview.sheen
+            ? `${materialPreview.sheen}, linear-gradient(${is3d ? '145deg' : '180deg'}, ${primary}bb, ${secondary}55)`
+            : `linear-gradient(${is3d ? '145deg' : '180deg'}, ${primary}bb, ${secondary}55)`,
           boxShadow: [
             is3d
               ? `0 ${8 + lighting.shadow * 16}px ${28 + lighting.bloom * 28}px -8px rgba(0,0,0,${(0.45 + lighting.shadow * 0.4).toFixed(2)})`
@@ -102,6 +109,7 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
 
       <div className="mt-4 flex flex-wrap justify-center gap-2 text-[10px] text-zinc-500">
         {form.magikStyle && <span className="rounded-full border border-white/10 px-2 py-0.5">{form.magikStyle}</span>}
+        <span className="rounded-full border border-white/10 px-2 py-0.5">{materialPreset.label}</span>
         {form.game?.trim() && <span className="rounded-full border border-white/10 px-2 py-0.5">{form.game}</span>}
         <span className="rounded-full border border-white/10 px-2 py-0.5">{is3d ? '3D' : '2D'}</span>
         {isRing && <span className="rounded-full border border-white/10 px-2 py-0.5">Ring</span>}

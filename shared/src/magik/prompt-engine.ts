@@ -12,6 +12,7 @@ import {
   syncLogoSelectedColors,
 } from './logo-colors';
 import { buildLogoLightingPromptPhrase } from './logo-lighting';
+import { buildLogoMaterialPromptPhrase } from './logo-materials';
 import {
   MAGIK_QUALITY_DNA,
   DEFAULT_MAGIK_STYLE,
@@ -185,6 +186,7 @@ function buildCorePrompt(
     resolveRingMode(opts, analysis),
     `color harmony: ${colors}`,
     buildLogoLightingPromptPhrase(opts),
+    buildLogoMaterialPromptPhrase(opts),
     backgroundPhrase((opts.magikBackground as MagikBackgroundId) ?? 'dark', opts),
     variantFocus,
     promptDna.combinedPhrase,
