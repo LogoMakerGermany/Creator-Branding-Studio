@@ -59,6 +59,8 @@ export interface LogoGenerationOptions {
   selectedColors?: string[];
   customPromptOverride?: string;
   magikVariant?: 'a' | 'b';
+  /** Optionaler Kontext: Gaming, Esports, Streamer, Clan, Creator */
+  logoSubtitle?: string;
 }
 
 export interface BannerGenerationOptions {

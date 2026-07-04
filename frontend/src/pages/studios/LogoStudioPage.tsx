@@ -5,6 +5,7 @@ import {
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
 import { LogoLivePreview } from '@/components/studio/LogoLivePreview';
+import { LogoNameSection } from '@/components/logo';
 import { ImprovementChips } from '@/components/ultimate';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
@@ -26,6 +27,8 @@ import {
   isMagikFormValid,
   collectMagikColors,
   analyzeMagikName,
+  applyNameBasedLogoOptions,
+  buildRandomLogoOptions,
   type LogoGenerationOptions,
 } from '@ucbs/shared';
 import { StudioShell } from '@/v2/components/StudioShell';
@@ -38,6 +41,7 @@ const COIN_COST = 15;
 
 const EMPTY_FORM: LogoGenerationOptions = {
   logoName: '',
+  logoSubtitle: '',
   clanName: '',
   slogan: '',
   game: '',
@@ -169,13 +173,15 @@ export function LogoStudioPage() {
     }));
   }
 
-  async function handleGenerate() {
+  async function runGenerate(nextForm?: LogoGenerationOptions) {
+    const payloadForm = nextForm ?? form;
     setTouched(true);
     if (!activeDna) {
       setError('Erstelle zuerst eine Creator DNA');
       return;
     }
-    if (!formValid) {
+    const errors = validateMagikLogoOptions(payloadForm);
+    if (Object.keys(errors).length > 0) {
       setError('Bitte Pflichtfelder ausfüllen — MAGIK benötigt deine Eingaben.');
       return;
     }
@@ -185,7 +191,12 @@ export function LogoStudioPage() {
     setLoading(true);
     setError(null);
     try {
-      const payload = buildPayload(editPrompt ? promptDraft : undefined);
+      const payload = {
+        ...payloadForm,
+        selectedColors: collectMagikColors(payloadForm),
+        transparentBackground: payloadForm.magikBackground === 'transparent',
+        customPromptOverride: editPrompt ? promptDraft : undefined,
+      };
       const res = await api.studio.generate('logo', payload);
       if (res.variants?.length) {
         setVariants(res.variants);
@@ -210,6 +221,29 @@ export function LogoStudioPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleGenerate() {
+    await runGenerate();
+  }
+
+  async function handleGenerateFromName() {
+    if (!form.logoName?.trim()) {
+      setTouched(true);
+      setError('Bitte zuerst einen Namen eingeben');
+      return;
+    }
+    const prepared = applyNameBasedLogoOptions(form);
+    setForm(prepared);
+    setEditPrompt(false);
+    await runGenerate(prepared);
+  }
+
+  async function handleGenerateRandom() {
+    const prepared = buildRandomLogoOptions(form);
+    setForm(prepared);
+    setEditPrompt(false);
+    await runGenerate(prepared);
   }
 
   return (
@@ -241,27 +275,32 @@ export function LogoStudioPage() {
         previewTitle="Live-Vorschau & Varianten"
         settings={
           <div className="max-h-[75vh] space-y-5 overflow-y-auto pr-1">
+            <LogoNameSection
+              form={form}
+              onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+              nameAnalysis={
+                nameAnalysis
+                  ? {
+                      summary: nameAnalysis.summary,
+                      suggestedStyle: nameAnalysis.suggestedStyle,
+                      styleReason: nameAnalysis.styleReason,
+                    }
+                  : null
+              }
+              nameError={touched ? validationErrors.logoName : undefined}
+              loading={loading}
+              disabled={!activeDna || (user?.coinBalance ?? 0) < COIN_COST}
+              coinCost={COIN_COST}
+              onGenerateFromName={handleGenerateFromName}
+              onGenerateRandom={handleGenerateRandom}
+            />
+
             <GlassCard accent="purple" hover={false} className="!p-3">
               <p className="flex items-center gap-2 text-xs text-[var(--ucbs-accent-purple)]">
                 <Wand2 className="h-4 w-4" />
                 Ultimate Qualitäts-DNA ist immer aktiv (AAA, cinematic, 3D, esports)
               </p>
             </GlassCard>
-
-            <section>
-              <FieldLabel required>Logo-Name</FieldLabel>
-              <Input
-                placeholder="z.B. alienzecke666, FireWolf, ShadowHunter"
-                value={form.logoName ?? ''}
-                onChange={(e) => setField('logoName', e.target.value)}
-              />
-              <FieldError message={touched ? validationErrors.logoName : undefined} />
-              {nameAnalysis && form.magikMode === 'name' && (
-                <p className="mt-2 text-xs text-[var(--ucbs-accent-cyan)]">
-                  {nameAnalysis.summary}
-                </p>
-              )}
-            </section>
 
             <section>
               <FieldLabel>MAGIK Modus</FieldLabel>

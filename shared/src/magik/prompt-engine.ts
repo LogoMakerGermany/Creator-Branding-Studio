@@ -159,6 +159,7 @@ function buildCorePrompt(
   const parts = [
     `ULTIMATE CREATOR BRANDING STUDIO premium esports logo for "${name}"`,
     opts.clanName?.trim() ? `team: ${opts.clanName.trim()}` : null,
+    opts.logoSubtitle?.trim() ? `creator context: ${opts.logoSubtitle.trim()} branding identity` : null,
     opts.slogan?.trim() ? `tagline energy: ${opts.slogan.trim()}` : null,
     nameInsight,
     motif,

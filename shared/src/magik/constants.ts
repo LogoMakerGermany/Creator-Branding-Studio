@@ -149,3 +149,16 @@ export const MAGIK_COLOR_PALETTES = [
 
 export const DEFAULT_MAGIK_STYLE = 'Ultra-Cinematic';
 export const DEFAULT_MAGIK_LOGO_ART: MagikLogoArtId = 'ultra-cinematic-3d';
+
+/** Logo Studio — Untertitel / Kontext */
+export const LOGO_SUBTITLE_PRESETS = ['Gaming', 'Esports', 'Streamer', 'Clan', 'Creator'] as const;
+export type LogoSubtitlePreset = (typeof LOGO_SUBTITLE_PRESETS)[number];
+
+/** Beispielnamen für die UI */
+export const LOGO_NAME_EXAMPLES = [
+  'DerMax',
+  'Ghostface481',
+  'BlackQueen',
+  'LogoMakerGermany',
+  'Team WRG',
+] as const;
