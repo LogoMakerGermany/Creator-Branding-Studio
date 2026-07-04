@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { LogoGenerationOptions } from '@ucbs/shared';
-import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset, logoCameraPreviewFactors } from '@ucbs/shared';
+import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset, logoCameraPreviewFactors, logoDetailsPreviewFactors } from '@ucbs/shared';
 
 interface LogoLivePreviewProps {
   form: LogoGenerationOptions;
@@ -24,6 +24,7 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
   const bgId = resolveLogoBackground(form);
   const bgPreview = logoBackgroundPreviewStyle(bgId, form);
   const camera = logoCameraPreviewFactors(form);
+  const details = logoDetailsPreviewFactors(form);
   const name = form.logoName?.trim() || 'Dein Logo';
   const isRing = form.ringLogoMode === 'yes' || (form.ringLogoMode === 'auto' && form.ringLogo);
   const is3d = form.magikLogoArt?.includes('3d') || form.dimension === '3d' || form.threeD;
@@ -71,11 +72,25 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
             `rotateX(${(0.5 - camera.angle) * 35}deg)`,
           ].join(' '),
           transformStyle: 'preserve-3d',
+          filter: [
+            `contrast(${0.85 + details.contrast * 0.35})`,
+            `saturate(${0.75 + details.saturation * 0.5})`,
+            details.sharpness > 0.55 ? `drop-shadow(0 0 ${(details.sharpness - 0.55) * 3}px rgba(255,255,255,0.15))` : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+          borderWidth: details.detail > 0.6 ? (isRing ? 4 : 3) : isRing ? 4 : 2,
           borderColor: primary,
           borderStyle: materialPreview.borderStyle as CSSProperties['borderStyle'],
-          background: materialPreview.sheen
-            ? `${materialPreview.sheen}, linear-gradient(${is3d ? '145deg' : '180deg'}, ${primary}bb, ${secondary}55)`
-            : `linear-gradient(${is3d ? '145deg' : '180deg'}, ${primary}bb, ${secondary}55)`,
+          background: [
+            materialPreview.sheen,
+            `linear-gradient(${is3d ? '145deg' : '180deg'}, ${primary}${details.realism > 0.6 ? 'ee' : 'bb'}, ${secondary}${details.realism > 0.6 ? '88' : '55'})`,
+            details.texture > 0.5
+              ? `repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(255,255,255,${(details.texture - 0.5) * 0.08}) 2px, rgba(255,255,255,${(details.texture - 0.5) * 0.08}) 4px)`
+              : '',
+          ]
+            .filter(Boolean)
+            .join(', '),
           boxShadow: [
             is3d
               ? `0 ${8 + lighting.shadow * 16}px ${28 + lighting.bloom * 28}px -8px rgba(0,0,0,${(0.45 + lighting.shadow * 0.4).toFixed(2)})`
@@ -138,6 +153,9 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
         {form.game?.trim() && <span className="rounded-full border border-white/10 px-2 py-0.5">{form.game}</span>}
         <span className="rounded-full border border-[var(--ucbs-accent-purple)]/30 px-2 py-0.5 text-[var(--ucbs-accent-purple)]">
           Zoom {Math.round(camera.zoom * 100)}%
+        </span>
+        <span className="rounded-full border border-[var(--ucbs-accent-green)]/30 px-2 py-0.5 text-[var(--ucbs-accent-green)]">
+          Detail {Math.round(details.detail * 100)}%
         </span>
         <span className="rounded-full border border-white/10 px-2 py-0.5">{is3d ? '3D' : '2D'}</span>
         {isRing && <span className="rounded-full border border-white/10 px-2 py-0.5">Ring</span>}

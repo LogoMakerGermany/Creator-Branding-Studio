@@ -45,6 +45,15 @@ export interface LogoCameraSettings {
   depthOfField: number;
 }
 
+export interface LogoDetailsSettings {
+  detail: number;
+  realism: number;
+  sharpness: number;
+  contrast: number;
+  saturation: number;
+  texture: number;
+}
+
 export interface LogoGenerationOptions {
   logoName?: string;
   clanName?: string;
@@ -101,6 +110,8 @@ export interface LogoGenerationOptions {
   logoBackgroundUploadName?: string;
   /** Logo Studio Schritt 8 — Kamera (0–100 je Regler) */
   logoCamera?: Partial<LogoCameraSettings>;
+  /** Logo Studio Schritt 9 — Logo-Details (0–100 je Regler) */
+  logoDetails?: Partial<LogoDetailsSettings>;
 }
 
 export interface BannerGenerationOptions {
