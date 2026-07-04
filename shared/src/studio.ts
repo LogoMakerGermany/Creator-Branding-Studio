@@ -134,6 +134,8 @@ export interface LogoGenerationOptions {
   logoTypography?: Partial<LogoTypographySettings>;
   /** Logo Studio Schritt 11 — KI-Einstellungen (0–100 je Regler) */
   logoAiSettings?: Partial<LogoAiSettings>;
+  /** Logo Studio Schritt 13 — Aktive Franchise-Vorlage */
+  logoTemplate?: string;
 }
 
 export interface BannerGenerationOptions {

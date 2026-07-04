@@ -18,6 +18,7 @@ import { randomLogoCamera } from './logo-camera';
 import { randomLogoDetails } from './logo-details';
 import { randomLogoTypography } from './logo-typography';
 import { randomLogoAiSettings } from './logo-ai-settings';
+import { applyLogoTemplate, randomLogoTemplate } from './logo-templates';
 
 const RANDOM_LOGO_NAMES = [
   'NeonWolf',
@@ -76,12 +77,13 @@ export function buildRandomLogoOptions(form: LogoGenerationOptions): LogoGenerat
 
   const bgId = randomLogoBackground();
   const bgPatch = applyLogoBackgroundSelection(bgId, form);
+  const templateId = randomLogoTemplate();
 
-  return {
+  const randomBase = {
     ...form,
     logoName: name,
     logoSubtitle: subtitle,
-    magikMode: 'name',
+    magikMode: 'name' as const,
     magikCharacter: '',
     customCharacter: '',
     magikStyle: style,
@@ -108,6 +110,8 @@ export function buildRandomLogoOptions(form: LogoGenerationOptions): LogoGenerat
     selectedColors: [...palette.colors, palette.colors[2]!, palette.colors[1]!],
     customPromptOverride: undefined,
   };
+
+  return Math.random() > 0.35 ? applyLogoTemplate(templateId, randomBase) : randomBase;
 }
 
 export { RANDOM_LOGO_NAMES };

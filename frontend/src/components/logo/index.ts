@@ -10,3 +10,4 @@ export { LogoDetailsSection } from './LogoDetailsSection';
 export { LogoTypographySection } from './LogoTypographySection';
 export { LogoAiSettingsSection } from './LogoAiSettingsSection';
 export { LogoLivePromptSidebar } from './LogoLivePromptSidebar';
+export { LogoTemplatesSection } from './LogoTemplatesSection';

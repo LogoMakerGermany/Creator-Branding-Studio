@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { LogoGenerationOptions } from '@ucbs/shared';
-import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset, logoCameraPreviewFactors, logoDetailsPreviewFactors, logoTypographyPreviewStyle, getLogoFontPreset, resolveLogoTypography, logoAiSettingsPreviewLabel } from '@ucbs/shared';
+import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset, logoCameraPreviewFactors, logoDetailsPreviewFactors, logoTypographyPreviewStyle, getLogoFontPreset, resolveLogoTypography, logoAiSettingsPreviewLabel, getLogoTemplate } from '@ucbs/shared';
 
 interface LogoLivePreviewProps {
   form: LogoGenerationOptions;
@@ -29,6 +29,7 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
   const typographyStyle = logoTypographyPreviewStyle(form, glow);
   const fontPreset = getLogoFontPreset(typography.fontFamily);
   const aiLabel = logoAiSettingsPreviewLabel(form);
+  const template = form.logoTemplate ? getLogoTemplate(form.logoTemplate) : null;
   const name = form.logoName?.trim() || 'Dein Logo';
   const isRing = form.ringLogoMode === 'yes' || (form.ringLogoMode === 'auto' && form.ringLogo);
   const is3d = form.magikLogoArt?.includes('3d') || form.dimension === '3d' || form.threeD;
@@ -142,6 +143,11 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
 
       <div className="mt-4 flex flex-wrap justify-center gap-2 text-[10px] text-zinc-500">
         {form.magikStyle && <span className="rounded-full border border-white/10 px-2 py-0.5">{form.magikStyle}</span>}
+        {template && (
+          <span className="rounded-full border border-[var(--ucbs-accent-purple)]/30 px-2 py-0.5 text-[var(--ucbs-accent-purple)]">
+            {template.label}
+          </span>
+        )}
         <span className="rounded-full border border-white/10 px-2 py-0.5">{materialPreset.label}</span>
         <span className="rounded-full border border-white/10 px-2 py-0.5">
           {bgId === 'custom'
