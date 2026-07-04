@@ -17,4 +17,5 @@ export * from './logo-prompt';
 export * from './magik';
 export * from './magik-ai';
 export * from './creator-dna-engine';
+export * from './ultimate-creator';
 export * from './api';

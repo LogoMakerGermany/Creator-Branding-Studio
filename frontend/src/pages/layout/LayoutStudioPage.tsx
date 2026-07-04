@@ -110,7 +110,7 @@ export function LayoutStudioPage() {
     canRedo,
   } = useLayoutHistory([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [interaction, setInteraction] = useState<Interaction | null>(null);
+  const interactionRef = useRef<Interaction | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -214,10 +214,10 @@ export function LayoutStudioPage() {
   }), []);
 
   useEffect(() => {
-    if (!interaction) return;
-    const active = interaction;
-
     function onPointerMove(e: PointerEvent) {
+      const active = interactionRef.current;
+      if (!active) return;
+
       const ptr = canvasPoint(e.clientX, e.clientY);
       const mods = getModifiers(e);
 
@@ -246,8 +246,9 @@ export function LayoutStudioPage() {
     }
 
     function onPointerUp() {
+      if (!interactionRef.current) return;
       endInteraction();
-      setInteraction(null);
+      interactionRef.current = null;
     }
 
     window.addEventListener('pointermove', onPointerMove);
@@ -258,7 +259,7 @@ export function LayoutStudioPage() {
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
     };
-  }, [interaction, canvasPoint, canvasW, canvasH, getModifiers, setElementsTransient, endInteraction]);
+  }, [canvasPoint, canvasW, canvasH, getModifiers, setElementsTransient, endInteraction]);
 
   function startDrag(e: React.PointerEvent, id: string) {
     if (e.button !== 0) return;
@@ -270,32 +271,35 @@ export function LayoutStudioPage() {
 
     const ptr = canvasPoint(e.clientX, e.clientY);
     beginInteraction(elements);
-    setInteraction({
+    const nextInteraction: Interaction = {
       mode: 'drag',
       ids,
       startPointer: ptr,
       snapshots: buildSnapshots(elements, ids),
-    });
+    };
+    interactionRef.current = nextInteraction;
   }
 
   function startResize(e: React.PointerEvent, handle: ResizeHandle) {
     if (e.button !== 0 || selectedIds.length === 0) return;
     e.stopPropagation();
     e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
     const bounds = getElementsBounds(elements, selectedIds);
     if (!bounds) return;
 
     const ptr = canvasPoint(e.clientX, e.clientY);
     beginInteraction(elements);
-    setInteraction({
+    const nextInteraction: Interaction = {
       mode: 'resize',
       ids: selectedIds,
       handle,
       groupStart: bounds,
       snapshots: buildSnapshots(elements, selectedIds),
       startPointer: ptr,
-    });
+    };
+    interactionRef.current = nextInteraction;
   }
 
   async function handleImageUpload(file: File, targetId?: string) {
@@ -458,7 +462,7 @@ export function LayoutStudioPage() {
 
     return (
       <div
-        className="pointer-events-none absolute border-2 border-[var(--ucbs-accent-cyan)]"
+        className="pointer-events-none absolute z-50 border-2 border-[var(--ucbs-accent-cyan)]"
         style={{
           left: selectionBounds.x * scale,
           top: selectionBounds.y * scale,
@@ -469,9 +473,10 @@ export function LayoutStudioPage() {
         {RESIZE_HANDLES.map((handle) => (
           <div
             key={handle}
-            className="pointer-events-auto z-20 rounded-sm border border-zinc-900 bg-[var(--ucbs-accent-cyan)] shadow-md hover:scale-110"
+            data-layout-handle={handle}
+            className="pointer-events-auto touch-none rounded-sm border-2 border-zinc-900 bg-[var(--ucbs-accent-cyan)] shadow-lg hover:scale-110"
             style={{
-              ...handlePosition(handle, selectionBounds, scale),
+              ...handlePosition(handle, selectionBounds.width, selectionBounds.height, scale),
               cursor: HANDLE_CURSORS[handle],
             }}
             onPointerDown={(e) => startResize(e, handle)}
@@ -758,7 +763,10 @@ export function LayoutStudioPage() {
             ref={canvasRef}
             className="relative mx-auto touch-none border border-white/10 bg-zinc-950"
             style={{ width: canvasW * scale, height: canvasH * scale }}
-            onPointerDown={() => setSelectedIds([])}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              setSelectedIds([]);
+            }}
           >
             {elements.map(renderElement)}
             {renderSelectionOverlay()}

@@ -34,6 +34,7 @@ export enum CoinSpendCategory {
   OVERLAY_GENERATION = 'overlay_generation',
   STICKER_GENERATION = 'sticker_generation',
   BRANDING_PACK = 'branding_pack',
+  ULTIMATE_CREATOR_PACK = 'ultimate_creator_pack',
   VIDEO_EDIT = 'video_edit',
   MARKETPLACE_PURCHASE = 'marketplace_purchase',
 }
@@ -49,6 +50,7 @@ export const COIN_COSTS: Record<CoinSpendCategory, number> = {
   [CoinSpendCategory.OVERLAY_GENERATION]: 12,
   [CoinSpendCategory.STICKER_GENERATION]: 8,
   [CoinSpendCategory.BRANDING_PACK]: 50,
+  [CoinSpendCategory.ULTIMATE_CREATOR_PACK]: 65,
   [CoinSpendCategory.VIDEO_EDIT]: 20,
   [CoinSpendCategory.MARKETPLACE_PURCHASE]: 0,
 };

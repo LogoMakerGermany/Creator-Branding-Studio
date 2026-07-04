@@ -236,6 +236,30 @@ export const api = {
         { method: 'POST' }
       ),
   },
+  ultimateCreator: {
+    listProjects: () =>
+      request<{ projects: import('@ucbs/shared').UltimateCreatorProject[] }>(
+        '/api/v1/ultimate-creator/projects'
+      ).then((r) => r.projects),
+    getProject: (id: string) =>
+      request<{ project: import('@ucbs/shared').UltimateCreatorProject }>(
+        `/api/v1/ultimate-creator/projects/${id}`
+      ).then((r) => r.project),
+    create: (body: import('@ucbs/shared').UltimateCreatorWizardInput) =>
+      request<{
+        project: import('@ucbs/shared').UltimateCreatorProject;
+        coinsSpent: number;
+        newBalance: number;
+      }>('/api/v1/ultimate-creator/create', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    exportProject: (id: string, platform = 'all') =>
+      request<{ project: import('@ucbs/shared').UltimateCreatorProject }>(
+        `/api/v1/ultimate-creator/projects/${id}/export`,
+        { method: 'POST', body: JSON.stringify({ platform }) }
+      ),
+  },
   files: {
     list: () => request<{ files: UserFile[] }>('/api/v1/files'),
     get: (id: string) => request<{ file: UserFile & { dataUrl: string } }>(`/api/v1/files/${id}`),

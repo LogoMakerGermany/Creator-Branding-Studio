@@ -5,6 +5,7 @@ import {
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
 import { LogoLivePreview } from '@/components/studio/LogoLivePreview';
+import { ImprovementChips } from '@/components/ultimate';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
 import { useAuth } from '@/context/AuthContext';
@@ -452,6 +453,17 @@ export function LogoStudioPage() {
                 </p>
               )}
             </section>
+
+            <ImprovementChips
+              disabled={loading}
+              onApply={(patch, suffix) => {
+                setForm((f) => ({ ...f, ...patch }));
+                if (suffix) {
+                  setEditPrompt(true);
+                  setPromptDraft((prev) => (prev ? `${prev}, ${suffix}` : suffix));
+                }
+              }}
+            />
 
             {!formValid && (
               <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">

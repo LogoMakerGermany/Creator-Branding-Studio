@@ -26,6 +26,7 @@ import { MobileAppPage } from '@/pages/mobile/MobileAppPage';
 import { FileCloudPage } from '@/pages/files/FileCloudPage';
 import { ModulePage } from '@/pages/modules/ModulePage';
 import { CoinsPage } from '@/pages/coins/CoinsPage';
+import { UltimateCreatorPage, ExportCenterPage } from '@/pages/ultimate';
 import { MagikAssistantSettingsPage } from '@/pages/settings/MagikAssistantSettingsPage';
 import { CREATOR_MODULES } from '@ucbs/shared';
 import { Skeleton } from '@/v2/components/Skeleton';
@@ -133,6 +134,8 @@ export function AppRoutes() {
         <Route path="/teams" element={<Lazy><TeamsHubPage /></Lazy>} />
         <Route path="/projects" element={<Lazy><ProjectsHubPage /></Lazy>} />
         <Route path="/settings" element={<Lazy><SettingsHubPage /></Lazy>} />
+        <Route path="/ultimate-creator" element={<UltimateCreatorPage />} />
+        <Route path="/export-center" element={<ExportCenterPage />} />
         <Route path="/settings/magik-assistant" element={<MagikAssistantSettingsPage />} />
         <Route path="/ai-music" element={<Navigate to="/ai-creator" replace />} />
         <Route path="/coins" element={<CoinsPage />} />

@@ -251,23 +251,26 @@ export function applyGroupDrag(
   });
 }
 
-export function handlePosition(handle: ResizeHandle, bounds: Rect, scale: number): CSSProperties {
-  const hs = 10;
+export function handlePosition(
+  handle: ResizeHandle,
+  boxWidth: number,
+  boxHeight: number,
+  scale: number
+): CSSProperties {
+  const hs = 12;
   const half = hs / 2;
-  const left = bounds.x * scale;
-  const top = bounds.y * scale;
-  const w = bounds.width * scale;
-  const h = bounds.height * scale;
+  const w = boxWidth * scale;
+  const h = boxHeight * scale;
 
   const positions: Record<ResizeHandle, CSSProperties> = {
-    nw: { left: left - half, top: top - half },
-    n: { left: left + w / 2 - half, top: top - half },
-    ne: { left: left + w - half, top: top - half },
-    e: { left: left + w - half, top: top + h / 2 - half },
-    se: { left: left + w - half, top: top + h - half },
-    s: { left: left + w / 2 - half, top: top + h - half },
-    sw: { left: left - half, top: top + h - half },
-    w: { left: left - half, top: top + h / 2 - half },
+    nw: { left: -half, top: -half },
+    n: { left: w / 2 - half, top: -half },
+    ne: { left: w - half, top: -half },
+    e: { left: w - half, top: h / 2 - half },
+    se: { left: w - half, top: h - half },
+    s: { left: w / 2 - half, top: h - half },
+    sw: { left: -half, top: h - half },
+    w: { left: -half, top: h / 2 - half },
   };
 
   return {

@@ -1,22 +1,33 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, Menu, Coins, Crown, User, LogOut } from 'lucide-react';
+import { Search, Menu, Coins, Crown, User, LogOut, FolderKanban } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { formatCoins } from '@/lib/utils';
 import { useUiStore } from '@/v2/store/ui-store';
+import { useProjectStore } from '@/v2/store/project-store';
+import { api } from '@/services/api';
 import { PRIMARY_NAV, BRANDING_MODULES, AI_CREATOR_MODULES } from '@/v2/config/navigation';
 
 const SEARCH_ITEMS = [
   ...PRIMARY_NAV.map((n) => ({ title: n.label, path: n.path })),
   ...BRANDING_MODULES.map((m) => ({ title: m.title, path: m.path })),
   ...AI_CREATOR_MODULES.map((m) => ({ title: m.title, path: m.path })),
+  { title: 'Ultimate Creator', path: '/ultimate-creator' },
+  { title: 'Export Center', path: '/export-center' },
 ];
 
 export function TopBar() {
   const { user, logout } = useAuth();
   const { setMobileNavOpen, searchOpen, setSearchOpen } = useUiStore();
+  const { projects, activeProjectId, setProjects, setActiveProjectId, activeProject } = useProjectStore();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    api.ultimateCreator.listProjects().then(setProjects).catch(() => {});
+  }, [setProjects]);
+
+  const currentProject = activeProject();
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -68,6 +79,33 @@ export function TopBar() {
           </div>
         )}
       </div>
+
+      {projects.length > 0 && (
+        <div className="hidden items-center gap-1.5 md:flex">
+          <FolderKanban className="h-4 w-4 text-zinc-500" />
+          <select
+            value={activeProjectId ?? ''}
+            onChange={(e) => {
+              const id = e.target.value;
+              if (!id) return;
+              setActiveProjectId(id);
+              navigate(`/export-center?project=${id}`);
+            }}
+            className="max-w-[140px] truncate rounded-lg border border-white/10 bg-[var(--ucbs-card)] px-2 py-1.5 text-xs text-zinc-300 focus:outline-none lg:max-w-[180px]"
+            aria-label="Aktives Projekt"
+          >
+            {!activeProjectId && <option value="">Projekt…</option>}
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {currentProject && (
+            <span className="hidden text-[10px] text-zinc-600 lg:inline">{currentProject.status}</span>
+          )}
+        </div>
+      )}
 
       <Link
         to="/coins"

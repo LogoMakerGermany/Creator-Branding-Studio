@@ -316,22 +316,7 @@ export async function runGenerationJob(
   return job;
 }
 
-export async function generateMagikLogoPair(
-  userId: string,
-  coinCategory: CoinSpendCategory,
-  moduleLabel: string,
-  studioOptions: LogoGenerationOptions
-) {
-  const activeDna = await getActiveDna(userId);
-  if (!activeDna) {
-    throw new ServiceError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
-  }
-
-  const coinResult = await deductCoins(userId, coinCategory, `${moduleLabel} MAGIK (2 Varianten)`);
-  if (!coinResult.success) {
-    throw new ServiceError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
-  }
-
+async function buildMagikPromptPair(userId: string, activeDna: CreatorDNA, studioOptions: LogoGenerationOptions) {
   const { variantA, variantB } = buildMagikLogoPrompts(activeDna, studioOptions, await getCcdPromptContext(userId));
   const hints = await getMagikLearningHints({
     magikMode: studioOptions.magikMode,
@@ -349,21 +334,56 @@ export async function generateMagikLogoPair(
 
   const promptA = hints.variantA ? `${baseA}. ${hints.variantA}` : baseA;
   const promptB = hints.variantB ? `${baseB}. ${hints.variantB}` : baseB;
+  return { promptA, promptB };
+}
 
+/** MAGIK Logo-Jobs ohne Coin-Abzug (Ultimate Creator Pack). */
+export async function runMagikLogoJobs(
+  userId: string,
+  studioOptions: LogoGenerationOptions,
+  activeDna?: CreatorDNA
+) {
+  const dna = activeDna ?? (await getActiveDna(userId));
+  if (!dna) {
+    throw new ServiceError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
+  }
+
+  const { promptA, promptB } = await buildMagikPromptPair(userId, dna, studioOptions);
   const genOpts = { size: '1024x1024' as const, hd: true };
-  const jobA = await runGenerationJob(userId, 'logo', activeDna, promptA, genOpts);
-  const jobB = await runGenerationJob(userId, 'logo', activeDna, promptB, genOpts);
+  const jobA = await runGenerationJob(userId, 'logo', dna, promptA, genOpts);
+  const jobB = await runGenerationJob(userId, 'logo', dna, promptB, genOpts);
 
   void recordMagikLogoContexts(userId, studioOptions, [
     { jobId: jobA.id, variant: 'a', prompt: promptA, imageUrl: jobA.imageUrl },
     { jobId: jobB.id, variant: 'b', prompt: promptB, imageUrl: jobB.imageUrl },
   ]).catch(() => {});
 
-  void processLogoGenerationCcd(userId, activeDna, studioOptions, jobA.id, jobA.imageUrl).catch(() => {});
+  void processLogoGenerationCcd(userId, dna, studioOptions, jobA.id, jobA.imageUrl).catch(() => {});
+
+  return { jobs: [jobA, jobB], prompts: { a: promptA, b: promptB } };
+}
+
+export async function generateMagikLogoPair(
+  userId: string,
+  coinCategory: CoinSpendCategory,
+  moduleLabel: string,
+  studioOptions: LogoGenerationOptions
+) {
+  const activeDna = await getActiveDna(userId);
+  if (!activeDna) {
+    throw new ServiceError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
+  }
+
+  const coinResult = await deductCoins(userId, coinCategory, `${moduleLabel} MAGIK (2 Varianten)`);
+  if (!coinResult.success) {
+    throw new ServiceError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
+  }
+
+  const result = await runMagikLogoJobs(userId, studioOptions, activeDna);
 
   return {
-    jobs: [jobA, jobB],
-    prompts: { a: promptA, b: promptB },
+    jobs: result.jobs,
+    prompts: result.prompts,
     coinsSpent: coinResult.cost,
     newBalance: coinResult.newBalance,
   };

@@ -8,6 +8,7 @@ import { GlassCard } from '@/v2/components/GlassCard';
 import { Skeleton } from '@/v2/components/Skeleton';
 
 const QUICK_ACTIONS = [
+  { label: 'Ultimate Creator', path: '/ultimate-creator', icon: Sparkles, accent: 'purple' as const },
   { label: 'Logo erstellen', path: '/logo-studio', icon: Sparkles, accent: 'cyan' as const },
   { label: 'Banner erstellen', path: '/banner-studio', icon: Image, accent: 'purple' as const },
   { label: 'Overlay erstellen', path: '/overlay-studio', icon: Image, accent: 'green' as const },
@@ -62,8 +63,15 @@ export function DashboardV2Page() {
               </div>
             </div>
             <Link
+              to={activeDna ? '/ultimate-creator' : '/creator-dna'}
+              className="mt-4 inline-flex items-center gap-2 rounded-xl border border-[var(--ucbs-accent-purple)]/40 bg-[var(--ucbs-accent-purple)]/10 px-4 py-2 text-sm font-semibold text-[var(--ucbs-accent-purple)] hover:bg-[var(--ucbs-accent-purple)]/20"
+            >
+              <Sparkles className="h-4 w-4" />
+              Ultimate Creator — 60 Sekunden
+            </Link>
+            <Link
               to={activeDna ? '/creator-dna' : '/creator-dna'}
-              className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-[var(--ucbs-accent-cyan)] hover:underline"
+              className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-[var(--ucbs-accent-cyan)] hover:underline"
             >
               <Dna className="h-4 w-4" />
               {activeDna ? `DNA: ${activeDna.name}` : 'Creator DNA einrichten'}
