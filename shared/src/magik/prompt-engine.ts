@@ -7,7 +7,10 @@ export type MagikPromptContext = LogoDnaContext & {
   characterDna?: CharacterDNA | null;
   creatorPreferences?: CreatorPreferencesDNA | null;
 };
-import { collectLogoColors } from '../logo-prompt';
+import {
+  buildLogoColorPromptPhrase,
+  syncLogoSelectedColors,
+} from './logo-colors';
 import {
   MAGIK_QUALITY_DNA,
   DEFAULT_MAGIK_STYLE,
@@ -54,8 +57,12 @@ export function isMagikFormValid(opts: LogoGenerationOptions): boolean {
 }
 
 export function collectMagikColors(opts: LogoGenerationOptions): string[] {
-  if (opts.selectedColors?.length) return opts.selectedColors.filter(Boolean).slice(0, 6);
-  return collectLogoColors(opts);
+  const synced = syncLogoSelectedColors(opts);
+  if (synced.length) return synced;
+  if (opts.selectedColors?.length) return opts.selectedColors.filter(Boolean).slice(0, 8);
+  return [opts.primaryColor, opts.secondaryColor, opts.accentColor, opts.glowColor]
+    .filter(Boolean)
+    .slice(0, 8) as string[];
 }
 
 function resolveRingMode(opts: LogoGenerationOptions, nameAnalysis?: ReturnType<typeof analyzeMagikName>): string {
@@ -85,6 +92,12 @@ function logoArtPhrase(art: MagikLogoArtId = 'ultra-cinematic-3d'): string {
 function backgroundPhrase(bg: MagikBackgroundId = 'transparent', opts: LogoGenerationOptions): string {
   if (bg === 'transparent' || opts.transparentBackground) {
     return 'transparent background, isolated logo, alpha channel ready, no backdrop fill';
+  }
+  if (opts.logoGradientEnabled && opts.logoGradientFrom && opts.logoGradientTo) {
+    return `gradient background from ${opts.logoGradientFrom} to ${opts.logoGradientTo}, cinematic backdrop`;
+  }
+  if (opts.backgroundColor?.trim()) {
+    return `solid background color ${opts.backgroundColor.trim()}, subtle vignette`;
   }
   const map: Record<MagikBackgroundId, string> = {
     transparent: 'transparent background',
@@ -133,7 +146,7 @@ function buildCorePrompt(
   const name = opts.logoName!.trim();
   const { motif, nameInsight } = resolveMotif(opts);
   const analysis = opts.magikMode !== 'character' ? analyzeMagikName(name) : undefined;
-  const colors = collectMagikColors(opts).join(', ');
+  const colors = buildLogoColorPromptPhrase(opts);
   const game = opts.game?.trim() ? `game universe: ${opts.game.trim()}` : 'general esports gaming';
   const platform = opts.platform?.trim() ? `platform: ${opts.platform}` : null;
 
@@ -169,7 +182,7 @@ function buildCorePrompt(
     `visual style: ${stylePhrase(opts)}`,
     logoArtPhrase(opts.magikLogoArt ?? 'ultra-cinematic-3d'),
     resolveRingMode(opts, analysis),
-    `color harmony palette: ${colors}`,
+    `color harmony: ${colors}`,
     backgroundPhrase((opts.magikBackground as MagikBackgroundId) ?? 'dark', opts),
     variantFocus,
     promptDna.combinedPhrase,

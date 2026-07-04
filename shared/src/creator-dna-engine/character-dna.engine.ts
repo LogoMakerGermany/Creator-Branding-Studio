@@ -98,7 +98,7 @@ function buildColorDna(opts: LogoGenerationOptions, creatorDna: CreatorDNA): Cha
     primary,
     secondary,
     accent,
-    glow: accent.length ? accent : ['#22d3ee'],
+    glow: opts.glowColor ? [opts.glowColor] : accent.length ? accent : ['#22d3ee'],
     metal: ['#c0c0c0', '#2d2d2d'],
     lighting: ['volumetric rim light', 'cinematic key light'],
   };

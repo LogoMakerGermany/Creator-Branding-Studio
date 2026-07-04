@@ -83,7 +83,13 @@ export function buildRandomLogoOptions(form: LogoGenerationOptions): LogoGenerat
     primaryColor: palette.colors[0],
     secondaryColor: palette.colors[1],
     accentColor: palette.colors[2],
-    selectedColors: [...palette.colors],
+    glowColor: palette.colors[2],
+    backgroundColor: palette.colors[1],
+    logoGradientEnabled: Math.random() > 0.5,
+    logoGradientFrom: palette.colors[0],
+    logoGradientTo: palette.colors[1],
+    logoGradientAngle: pickRandom([90, 135, 180, 225] as const),
+    selectedColors: [...palette.colors, palette.colors[2]!, palette.colors[1]!],
     customPromptOverride: undefined,
   };
 }

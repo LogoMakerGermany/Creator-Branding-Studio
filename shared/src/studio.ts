@@ -41,6 +41,12 @@ export interface LogoGenerationOptions {
   primaryColor?: string;
   secondaryColor?: string;
   accentColor?: string;
+  glowColor?: string;
+  /** Farbverlauf im Logo / Hintergrund */
+  logoGradientEnabled?: boolean;
+  logoGradientFrom?: string;
+  logoGradientTo?: string;
+  logoGradientAngle?: number;
   threeD?: boolean;
   realistic?: boolean;
   cartoon?: boolean;

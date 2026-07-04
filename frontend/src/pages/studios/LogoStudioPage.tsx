@@ -5,7 +5,7 @@ import {
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
 import { LogoLivePreview } from '@/components/studio/LogoLivePreview';
-import { LogoNameSection, LogoStyleSection } from '@/components/logo';
+import { LogoNameSection, LogoStyleSection, LogoColorSection } from '@/components/logo';
 import { ImprovementChips } from '@/components/ultimate';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
@@ -18,7 +18,6 @@ import {
   MAGIK_RING_MODES,
   MAGIK_BACKGROUND_PRESETS,
   MAGIK_CHARACTERS,
-  MAGIK_COLOR_PALETTES,
   DEFAULT_MAGIK_STYLE,
   DEFAULT_MAGIK_LOGO_ART,
   buildMagikLogoPrompts,
@@ -56,7 +55,13 @@ const EMPTY_FORM: LogoGenerationOptions = {
   primaryColor: '#22d3ee',
   secondaryColor: '#a855f7',
   accentColor: '#34d399',
-  selectedColors: ['#22d3ee', '#a855f7', '#34d399'],
+  glowColor: '#22d3ee',
+  backgroundColor: '#0b0f14',
+  logoGradientEnabled: false,
+  logoGradientFrom: '#22d3ee',
+  logoGradientTo: '#a855f7',
+  logoGradientAngle: 135,
+  selectedColors: ['#22d3ee', '#a855f7', '#34d399', '#22d3ee', '#0b0f14'],
 };
 
 function FieldLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
@@ -92,12 +97,18 @@ export function LogoStudioPage() {
       activeDna.secondaryColors[0] ?? '#a855f7',
       activeDna.accentColors[0] ?? '#34d399',
     ];
+    const glow = activeDna.accentColors[0] ?? colors[0];
+    const bg = activeDna.secondaryColors[0] ?? '#0b0f14';
     setForm((prev) => ({
       ...prev,
       primaryColor: colors[0],
       secondaryColor: colors[1],
       accentColor: colors[2],
-      selectedColors: colors,
+      glowColor: glow,
+      backgroundColor: bg,
+      logoGradientFrom: colors[0],
+      logoGradientTo: colors[1],
+      selectedColors: [...colors, glow, bg],
     }));
   }, [activeDna]);
 
@@ -131,12 +142,13 @@ export function LogoStudioPage() {
   }
 
   function buildPayload(override?: string): LogoGenerationOptions {
-    return {
+    const merged = {
       ...form,
       selectedColors: collectMagikColors(form),
       transparentBackground: form.magikBackground === 'transparent',
       customPromptOverride: override,
     };
+    return merged;
   }
 
   function magikProfile() {
@@ -157,19 +169,6 @@ export function LogoStudioPage() {
   ) {
     if (!prompt) return;
     api.magik.feedback({ eventType, variant, prompt, profile: magikProfile() }).catch(() => {});
-  }
-
-  function togglePalette(colors: string[]) {
-    const key = colors.join(',');
-    const current = form.selectedColors ?? [];
-    if (current.join(',') === key) return;
-    setForm((prev) => ({
-      ...prev,
-      selectedColors: colors,
-      primaryColor: colors[0],
-      secondaryColor: colors[1],
-      accentColor: colors[2],
-    }));
   }
 
   async function runGenerate(nextForm?: LogoGenerationOptions) {
@@ -299,6 +298,12 @@ export function LogoStudioPage() {
               onStyleChange={(style) => setField('magikStyle', style)}
             />
 
+            <LogoColorSection
+              form={form}
+              onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+              colorError={touched ? validationErrors.colors : undefined}
+            />
+
             <GlassCard accent="purple" hover={false} className="!p-3">
               <p className="flex items-center gap-2 text-xs text-[var(--ucbs-accent-purple)]">
                 <Wand2 className="h-4 w-4" />
@@ -402,41 +407,6 @@ export function LogoStudioPage() {
                   </StudioOptionPill>
                 ))}
               </div>
-            </section>
-
-            <section>
-              <FieldLabel required>Farben</FieldLabel>
-              <div className="mb-2 flex flex-wrap gap-1">
-                {MAGIK_COLOR_PALETTES.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => togglePalette([...p.colors])}
-                    className="flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-[10px] text-zinc-400 hover:border-white/20"
-                  >
-                    {p.colors.map((c) => (
-                      <span key={c} className="h-3 w-3 rounded-full" style={{ backgroundColor: c }} />
-                    ))}
-                    {p.id}
-                  </button>
-                ))}
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {(['primaryColor', 'secondaryColor', 'accentColor'] as const).map((key, i) => (
-                  <input
-                    key={key}
-                    type="color"
-                    value={form[key] ?? '#000'}
-                    onChange={(e) => {
-                      const next = [...(form.selectedColors ?? ['#22d3ee', '#a855f7', '#34d399'])];
-                      next[i] = e.target.value;
-                      setForm((prev) => ({ ...prev, [key]: e.target.value, selectedColors: next }));
-                    }}
-                    className="h-10 w-full cursor-pointer rounded-lg border border-white/10"
-                  />
-                ))}
-              </div>
-              <FieldError message={touched ? validationErrors.colors : undefined} />
             </section>
 
             <section>

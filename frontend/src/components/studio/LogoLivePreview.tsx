@@ -10,9 +10,14 @@ interface LogoLivePreviewProps {
 
 export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoLivePreviewProps) {
   const colors = collectLogoColors(form);
-  const primary = colors[0] ?? '#22d3ee';
-  const secondary = colors[1] ?? '#a855f7';
-  const accent = colors[2] ?? '#34d399';
+  const primary = form.primaryColor ?? colors[0] ?? '#22d3ee';
+  const secondary = form.secondaryColor ?? colors[1] ?? '#a855f7';
+  const accent = form.accentColor ?? colors[2] ?? '#34d399';
+  const glow = form.glowColor ?? accent;
+  const gradientCss =
+    form.logoGradientEnabled && form.logoGradientFrom && form.logoGradientTo
+      ? `linear-gradient(${form.logoGradientAngle ?? 135}deg, ${form.logoGradientFrom}, ${form.logoGradientTo})`
+      : null;
   const name = form.logoName?.trim() || 'Dein Logo';
   const isRing = form.ringLogoMode === 'yes' || (form.ringLogoMode === 'auto' && form.ringLogo);
   const is3d = form.magikLogoArt?.includes('3d') || form.dimension === '3d' || form.threeD;
@@ -37,11 +42,13 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
       style={{
         background: bgTransparent
           ? 'repeating-conic-gradient(#1a1f2a 0% 25%, #151b24 0% 50%) 0 0 / 16px 16px'
-          : form.backgroundType === 'gradient'
-            ? `linear-gradient(135deg, ${primary}44, ${secondary}66)`
-            : form.backgroundType === 'dark'
-              ? 'linear-gradient(180deg, #0b0f14, #1a1f2a)'
-              : form.backgroundColor ?? '#151b24',
+          : gradientCss
+            ? gradientCss
+            : form.backgroundType === 'gradient'
+              ? `linear-gradient(135deg, ${primary}44, ${secondary}66)`
+              : form.backgroundType === 'dark'
+                ? 'linear-gradient(180deg, #0b0f14, #1a1f2a)'
+                : form.backgroundColor ?? '#151b24',
       }}
     >
       <div
@@ -51,7 +58,7 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
         style={{
           borderColor: primary,
           background: `linear-gradient(${is3d ? '145deg' : '180deg'}, ${primary}55, ${secondary}33)`,
-          boxShadow: is3d ? `0 8px 32px ${primary}55` : undefined,
+          boxShadow: is3d ? `0 8px 32px ${glow}88, 0 0 24px ${glow}44` : `0 0 16px ${glow}55`,
         }}
       >
         <span className="text-center text-[10px] font-bold uppercase tracking-wider text-white/90">
@@ -71,7 +78,7 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
         className="mt-4 font-display text-lg font-bold tracking-tight"
         style={{
           color: primary,
-          textShadow: form.neon || form.style === 'Neon' ? `0 0 12px ${primary}` : undefined,
+          textShadow: form.neon || form.magikStyle === 'Neon' ? `0 0 12px ${glow}, 0 0 24px ${glow}88` : undefined,
         }}
       >
         {name}
