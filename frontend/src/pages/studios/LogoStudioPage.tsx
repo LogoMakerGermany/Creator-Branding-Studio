@@ -5,7 +5,7 @@ import {
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
 import { LogoLivePreview } from '@/components/studio/LogoLivePreview';
-import { LogoNameSection, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection, LogoEffectsSection } from '@/components/logo';
+import { LogoNameSection, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection, LogoEffectsSection, LogoBackgroundSection } from '@/components/logo';
 import { ImprovementChips } from '@/components/ultimate';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
@@ -16,9 +16,9 @@ import {
   MAGIK_GAME_PRESETS,
   MAGIK_LOGO_ART,
   MAGIK_RING_MODES,
-  MAGIK_BACKGROUND_PRESETS,
   MAGIK_CHARACTERS,
   DEFAULT_MAGIK_STYLE,
+  DEFAULT_LOGO_BACKGROUND,
   DEFAULT_MAGIK_LOGO_ART,
   DEFAULT_LOGO_LIGHTING,
   DEFAULT_LOGO_MATERIAL,
@@ -53,6 +53,7 @@ const EMPTY_FORM: LogoGenerationOptions = {
   magikLogoArt: DEFAULT_MAGIK_LOGO_ART,
   ringLogoMode: 'auto',
   magikBackground: 'transparent',
+  logoBackground: DEFAULT_LOGO_BACKGROUND,
   transparentBackground: true,
   primaryColor: '#22d3ee',
   secondaryColor: '#a855f7',
@@ -325,6 +326,11 @@ export function LogoStudioPage() {
               onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
             />
 
+            <LogoBackgroundSection
+              form={form}
+              onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+            />
+
             <GlassCard accent="purple" hover={false} className="!p-3">
               <p className="flex items-center gap-2 text-xs text-[var(--ucbs-accent-purple)]">
                 <Wand2 className="h-4 w-4" />
@@ -425,22 +431,6 @@ export function LogoStudioPage() {
                     onClick={() => setField('ringLogoMode', r.id)}
                   >
                     {r.label}
-                  </StudioOptionPill>
-                ))}
-              </div>
-            </section>
-
-            <section>
-              <FieldLabel>Hintergrund</FieldLabel>
-              <div className="flex flex-wrap gap-1">
-                {MAGIK_BACKGROUND_PRESETS.map((bg) => (
-                  <StudioOptionPill
-                    key={bg.id}
-                    active={form.magikBackground === bg.id}
-                    onClick={() => setField('magikBackground', bg.id)}
-                    className="text-[10px]"
-                  >
-                    {bg.label}
                   </StudioOptionPill>
                 ))}
               </div>

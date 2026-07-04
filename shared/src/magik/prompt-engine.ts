@@ -14,6 +14,7 @@ import {
 import { buildLogoLightingPromptPhrase } from './logo-lighting';
 import { buildLogoMaterialPromptPhrase } from './logo-materials';
 import { buildLogoEffectsPromptPhrase } from './logo-effects';
+import { buildLogoBackgroundPromptPhrase } from './logo-backgrounds';
 import {
   MAGIK_QUALITY_DNA,
   DEFAULT_MAGIK_STYLE,
@@ -92,29 +93,8 @@ function logoArtPhrase(art: MagikLogoArtId = 'ultra-cinematic-3d'): string {
   }
 }
 
-function backgroundPhrase(bg: MagikBackgroundId = 'transparent', opts: LogoGenerationOptions): string {
-  if (bg === 'transparent' || opts.transparentBackground) {
-    return 'transparent background, isolated logo, alpha channel ready, no backdrop fill';
-  }
-  if (opts.logoGradientEnabled && opts.logoGradientFrom && opts.logoGradientTo) {
-    return `gradient background from ${opts.logoGradientFrom} to ${opts.logoGradientTo}, cinematic backdrop`;
-  }
-  if (opts.backgroundColor?.trim()) {
-    return `solid background color ${opts.backgroundColor.trim()}, subtle vignette`;
-  }
-  const map: Record<MagikBackgroundId, string> = {
-    transparent: 'transparent background',
-    dark: 'dark cinematic void background with subtle vignette',
-    fire: 'fiery inferno background with embers and heat distortion',
-    ice: 'frozen ice crystal background with cold mist',
-    lightning: 'electric lightning storm background with energy arcs',
-    fog: 'mysterious fog and smoke atmosphere',
-    space: 'deep space nebula cosmic background',
-    ruins: 'ancient ruins apocalyptic background',
-    abstract: 'abstract geometric energy background',
-    arena: 'esports arena stadium lights background',
-  };
-  return map[bg] ?? map.dark;
+function backgroundPhrase(_bg: MagikBackgroundId = 'transparent', opts: LogoGenerationOptions): string {
+  return buildLogoBackgroundPromptPhrase(opts);
 }
 
 function stylePhrase(opts: LogoGenerationOptions): string {

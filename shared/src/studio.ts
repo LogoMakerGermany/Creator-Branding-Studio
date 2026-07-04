@@ -87,6 +87,10 @@ export interface LogoGenerationOptions {
   logoMaterialIntensity?: number;
   /** Logo Studio Schritt 6 — Effekte (IDs aus LOGO_EFFECT_PRESETS) */
   logoEffects?: string[];
+  /** Logo Studio Schritt 7 — Hintergrund */
+  logoBackground?: string;
+  logoBackgroundUpload?: string;
+  logoBackgroundUploadName?: string;
 }
 
 export interface BannerGenerationOptions {

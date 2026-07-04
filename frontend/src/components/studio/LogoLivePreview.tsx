@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { LogoGenerationOptions } from '@ucbs/shared';
-import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints } from '@ucbs/shared';
+import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset } from '@ucbs/shared';
 
 interface LogoLivePreviewProps {
   form: LogoGenerationOptions;
@@ -21,14 +21,12 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
   const materialPreview = logoMaterialPreviewStyle(materialId);
   const effects = resolveLogoEffects(form);
   const effectHints = logoEffectsPreviewHints(effects);
-  const gradientCss =
-    form.logoGradientEnabled && form.logoGradientFrom && form.logoGradientTo
-      ? `linear-gradient(${form.logoGradientAngle ?? 135}deg, ${form.logoGradientFrom}, ${form.logoGradientTo})`
-      : null;
+  const bgId = resolveLogoBackground(form);
+  const bgPreview = logoBackgroundPreviewStyle(bgId, form);
   const name = form.logoName?.trim() || 'Dein Logo';
   const isRing = form.ringLogoMode === 'yes' || (form.ringLogoMode === 'auto' && form.ringLogo);
   const is3d = form.magikLogoArt?.includes('3d') || form.dimension === '3d' || form.threeD;
-  const bgTransparent = form.magikBackground === 'transparent' || form.transparentBackground;
+  const bgTransparent = bgId === 'transparent';
 
   if (imageUrl) {
     return (
@@ -49,13 +47,7 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
       style={{
         background: bgTransparent
           ? 'repeating-conic-gradient(#1a1f2a 0% 25%, #151b24 0% 50%) 0 0 / 16px 16px'
-          : gradientCss
-            ? gradientCss
-            : form.backgroundType === 'gradient'
-              ? `linear-gradient(135deg, ${primary}44, ${secondary}66)`
-              : form.backgroundType === 'dark'
-                ? 'linear-gradient(180deg, #0b0f14, #1a1f2a)'
-                : form.backgroundColor ?? '#151b24',
+          : bgPreview ?? form.backgroundColor ?? '#151b24',
       }}
     >
       <div
@@ -114,6 +106,11 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
       <div className="mt-4 flex flex-wrap justify-center gap-2 text-[10px] text-zinc-500">
         {form.magikStyle && <span className="rounded-full border border-white/10 px-2 py-0.5">{form.magikStyle}</span>}
         <span className="rounded-full border border-white/10 px-2 py-0.5">{materialPreset.label}</span>
+        <span className="rounded-full border border-white/10 px-2 py-0.5">
+          {bgId === 'custom'
+            ? 'Custom BG'
+            : getLogoBackgroundPreset(bgId).label}
+        </span>
         {effects.slice(0, 3).map((id) => (
           <span key={id} className="rounded-full border border-[var(--ucbs-accent-green)]/30 px-2 py-0.5 text-[var(--ucbs-accent-green)]">
             {getLogoEffectPreset(id).label}

@@ -1,6 +1,6 @@
 import type { LogoGenerationOptions } from '../studio';
 import type { CreatorDNA } from '../creator-dna';
-import { analyzeMagikName, resolveMagikCharacter, collectMagikColors, normalizeMagikStyle } from '../magik';
+import { analyzeMagikName, resolveMagikCharacter, collectMagikColors, normalizeMagikStyle, resolveLogoBackground } from '../magik';
 import type {
   CharacterDNA,
   CharacterColorDna,
@@ -117,8 +117,8 @@ export function buildCharacterDNA(input: BuildCharacterDnaInput): CharacterDNA {
   const personality = STYLE_TO_PERSONALITY[style] ?? 'heroic';
   const effects = STYLE_TO_EFFECTS[style] ?? ['particles', 'energy', 'smoke'];
   const pose = STYLE_TO_POSE[style] ?? 'heroic';
-  const bgKey = opts.magikBackground ?? (opts.transparentBackground ? 'transparent' : 'dark');
-  const environment = BACKGROUND_TO_ENVIRONMENT[bgKey] ?? 'abstract';
+  const bgKey = resolveLogoBackground(opts);
+  const environment = BACKGROUND_TO_ENVIRONMENT[bgKey] ?? BACKGROUND_TO_ENVIRONMENT[opts.magikBackground ?? 'dark'] ?? 'abstract';
 
   const visual = existing
     ? mergeVisual(existing.visual, inferVisualDna(figure, style, personality))

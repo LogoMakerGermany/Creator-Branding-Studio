@@ -78,7 +78,11 @@ function createStudioRoutes(config: StudioRouteConfig) {
       anime: z.boolean().optional(),
       neon: z.boolean().optional(),
       ultraCinematic: z.boolean().optional(),
+      logoBackground: z.string().max(30).optional(),
+      logoBackgroundUploadName: z.string().max(200).optional(),
+      logoBackgroundUpload: z.string().max(7_000_000).optional(),
     })
+    .passthrough()
     .superRefine((data, ctx) => {
       const colors =
         data.selectedColors?.length ||

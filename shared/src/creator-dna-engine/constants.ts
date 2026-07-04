@@ -79,6 +79,14 @@ export const BACKGROUND_TO_ENVIRONMENT: Record<string, CharacterEnvironmentId> =
   ruins: 'ruins',
   abstract: 'abstract',
   arena: 'arena',
+  black: 'abstract',
+  gradient: 'abstract',
+  galaxy: 'space',
+  city: 'cyber-city',
+  forest: 'jungle',
+  sky: 'abstract',
+  hell: 'fire-world',
+  custom: 'abstract',
 };
 
 export const STYLE_TO_PERSONALITY: Record<string, CharacterPersonalityId> = {

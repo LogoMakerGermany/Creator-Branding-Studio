@@ -4,7 +4,6 @@ import {
   DEFAULT_MAGIK_STYLE,
   LOGO_SUBTITLE_PRESETS,
   LOGO_STUDIO_STYLE_PRESETS,
-  MAGIK_BACKGROUND_PRESETS,
   MAGIK_COLOR_PALETTES,
   MAGIK_LOGO_ART,
   type LogoSubtitlePreset,
@@ -14,6 +13,7 @@ import { normalizeMagikStyle } from './logo-style-presets';
 import { randomLogoLighting } from './logo-lighting';
 import { randomLogoMaterial } from './logo-materials';
 import { randomLogoEffects } from './logo-effects';
+import { applyLogoBackgroundSelection, randomLogoBackground } from './logo-backgrounds';
 
 const RANDOM_LOGO_NAMES = [
   'NeonWolf',
@@ -65,11 +65,13 @@ export function applyNameBasedLogoOptions(form: LogoGenerationOptions): LogoGene
 /** Zufällige MAGIK-Einstellungen für „Zufälliges Logo“. */
 export function buildRandomLogoOptions(form: LogoGenerationOptions): LogoGenerationOptions {
   const palette = pickRandom(MAGIK_COLOR_PALETTES);
-  const bg = pickRandom(MAGIK_BACKGROUND_PRESETS);
   const art = pickRandom(MAGIK_LOGO_ART);
   const style = pickRandom(LOGO_STUDIO_STYLE_PRESETS);
   const name = form.logoName?.trim() || pickRandom(RANDOM_LOGO_NAMES);
   const subtitle = form.logoSubtitle?.trim() ? form.logoSubtitle : pickRandom(LOGO_SUBTITLE_PRESETS);
+
+  const bgId = randomLogoBackground();
+  const bgPatch = applyLogoBackgroundSelection(bgId, form);
 
   return {
     ...form,
@@ -80,9 +82,8 @@ export function buildRandomLogoOptions(form: LogoGenerationOptions): LogoGenerat
     customCharacter: '',
     magikStyle: style,
     magikLogoArt: art.id,
-    magikBackground: bg.id,
-    transparentBackground: bg.id === 'transparent',
     ringLogoMode: pickRandom(['auto', 'yes', 'no'] as const),
+    ...bgPatch,
     primaryColor: palette.colors[0],
     secondaryColor: palette.colors[1],
     accentColor: palette.colors[2],
