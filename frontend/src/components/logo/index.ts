@@ -3,3 +3,4 @@ export { LogoStyleSection } from './LogoStyleSection';
 export { LogoColorSection } from './LogoColorSection';
 export { LogoLightingSection } from './LogoLightingSection';
 export { LogoMaterialSection } from './LogoMaterialSection';
+export { LogoEffectsSection } from './LogoEffectsSection';

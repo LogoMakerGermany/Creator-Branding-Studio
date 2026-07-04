@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { LogoGenerationOptions } from '@ucbs/shared';
-import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle } from '@ucbs/shared';
+import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints } from '@ucbs/shared';
 
 interface LogoLivePreviewProps {
   form: LogoGenerationOptions;
@@ -19,6 +19,8 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
   const materialId = resolveLogoMaterial(form);
   const materialPreset = getLogoMaterialPreset(materialId);
   const materialPreview = logoMaterialPreviewStyle(materialId);
+  const effects = resolveLogoEffects(form);
+  const effectHints = logoEffectsPreviewHints(effects);
   const gradientCss =
     form.logoGradientEnabled && form.logoGradientFrom && form.logoGradientTo
       ? `linear-gradient(${form.logoGradientAngle ?? 135}deg, ${form.logoGradientFrom}, ${form.logoGradientTo})`
@@ -71,6 +73,8 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
               ? `0 ${8 + lighting.shadow * 16}px ${28 + lighting.bloom * 28}px -8px rgba(0,0,0,${(0.45 + lighting.shadow * 0.4).toFixed(2)})`
               : '',
             `0 0 ${18 + lighting.glow * 42}px ${glow}${lighting.glow > 0.5 ? 'cc' : '88'}`,
+            effectHints.hasGlow ? `0 0 ${28 + lighting.bloom * 20}px ${accent}66` : '',
+            effectHints.hasAtmosphere ? `0 ${12 + lighting.shadow * 8}px ${40}px rgba(0,0,0,0.35)` : '',
             lighting.rim > 0.3 ? `inset 0 0 ${Math.round(lighting.rim * 24)}px ${glow}44` : '',
           ]
             .filter(Boolean)
@@ -110,6 +114,14 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
       <div className="mt-4 flex flex-wrap justify-center gap-2 text-[10px] text-zinc-500">
         {form.magikStyle && <span className="rounded-full border border-white/10 px-2 py-0.5">{form.magikStyle}</span>}
         <span className="rounded-full border border-white/10 px-2 py-0.5">{materialPreset.label}</span>
+        {effects.slice(0, 3).map((id) => (
+          <span key={id} className="rounded-full border border-[var(--ucbs-accent-green)]/30 px-2 py-0.5 text-[var(--ucbs-accent-green)]">
+            {getLogoEffectPreset(id).label}
+          </span>
+        ))}
+        {effects.length > 3 && (
+          <span className="rounded-full border border-white/10 px-2 py-0.5">+{effects.length - 3}</span>
+        )}
         {form.game?.trim() && <span className="rounded-full border border-white/10 px-2 py-0.5">{form.game}</span>}
         <span className="rounded-full border border-white/10 px-2 py-0.5">{is3d ? '3D' : '2D'}</span>
         {isRing && <span className="rounded-full border border-white/10 px-2 py-0.5">Ring</span>}

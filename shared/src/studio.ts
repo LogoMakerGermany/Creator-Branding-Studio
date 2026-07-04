@@ -85,6 +85,8 @@ export interface LogoGenerationOptions {
   logoMaterial?: string;
   /** Materialstärke 0–100 */
   logoMaterialIntensity?: number;
+  /** Logo Studio Schritt 6 — Effekte (IDs aus LOGO_EFFECT_PRESETS) */
+  logoEffects?: string[];
 }
 
 export interface BannerGenerationOptions {

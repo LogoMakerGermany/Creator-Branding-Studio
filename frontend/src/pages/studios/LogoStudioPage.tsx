@@ -5,7 +5,7 @@ import {
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
 import { LogoLivePreview } from '@/components/studio/LogoLivePreview';
-import { LogoNameSection, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection } from '@/components/logo';
+import { LogoNameSection, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection, LogoEffectsSection } from '@/components/logo';
 import { ImprovementChips } from '@/components/ultimate';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
@@ -67,6 +67,7 @@ const EMPTY_FORM: LogoGenerationOptions = {
   logoLighting: { ...DEFAULT_LOGO_LIGHTING },
   logoMaterial: DEFAULT_LOGO_MATERIAL,
   logoMaterialIntensity: 100,
+  logoEffects: [],
 };
 
 function FieldLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
@@ -315,6 +316,11 @@ export function LogoStudioPage() {
             />
 
             <LogoMaterialSection
+              form={form}
+              onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+            />
+
+            <LogoEffectsSection
               form={form}
               onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
             />
