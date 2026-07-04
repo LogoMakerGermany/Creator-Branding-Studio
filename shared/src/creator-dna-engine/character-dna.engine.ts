@@ -1,6 +1,6 @@
 import type { LogoGenerationOptions } from '../studio';
 import type { CreatorDNA } from '../creator-dna';
-import { analyzeMagikName, resolveMagikCharacter, collectMagikColors } from '../magik';
+import { analyzeMagikName, resolveMagikCharacter, collectMagikColors, normalizeMagikStyle } from '../magik';
 import type {
   CharacterDNA,
   CharacterColorDna,
@@ -81,7 +81,7 @@ function inferVisualDna(
     visual.clothing = 'arcane robes';
     visual.jewelry = 'mystic rune jewelry';
   }
-  if (style === 'Fire' || style === 'Ice' || style === 'Toxic') {
+  if (['Gaming', 'Crystal', 'Neon', 'Fire', 'Ice', 'Toxic'].includes(style)) {
     visual.armor = visual.armor ?? 'element-infused armor';
   }
 
@@ -112,7 +112,7 @@ function mergeVisual(existing: CharacterVisualDna, next: CharacterVisualDna): Ch
 export function buildCharacterDNA(input: BuildCharacterDnaInput): CharacterDNA {
   const { userId, creatorDna, opts, existing, jobId, imageUrl } = input;
   const now = new Date().toISOString();
-  const style = opts.magikStyle ?? opts.style ?? 'Ultra-Cinematic';
+  const style = normalizeMagikStyle(opts.magikStyle ?? opts.style);
   const { figure, subFigure, summary } = resolveFigure(opts);
   const personality = STYLE_TO_PERSONALITY[style] ?? 'heroic';
   const effects = STYLE_TO_EFFECTS[style] ?? ['particles', 'energy', 'smoke'];

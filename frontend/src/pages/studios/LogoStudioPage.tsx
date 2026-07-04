@@ -5,7 +5,7 @@ import {
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
 import { LogoLivePreview } from '@/components/studio/LogoLivePreview';
-import { LogoNameSection } from '@/components/logo';
+import { LogoNameSection, LogoStyleSection } from '@/components/logo';
 import { ImprovementChips } from '@/components/ultimate';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
@@ -14,7 +14,6 @@ import { api, ApiError, type LogoVariantResult } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
 import {
   MAGIK_GAME_PRESETS,
-  MAGIK_STYLE_PRESETS,
   MAGIK_LOGO_ART,
   MAGIK_RING_MODES,
   MAGIK_BACKGROUND_PRESETS,
@@ -295,6 +294,11 @@ export function LogoStudioPage() {
               onGenerateRandom={handleGenerateRandom}
             />
 
+            <LogoStyleSection
+              form={form}
+              onStyleChange={(style) => setField('magikStyle', style)}
+            />
+
             <GlassCard accent="purple" hover={false} className="!p-3">
               <p className="flex items-center gap-2 text-xs text-[var(--ucbs-accent-purple)]">
                 <Wand2 className="h-4 w-4" />
@@ -367,22 +371,6 @@ export function LogoStudioPage() {
                 value={form.game ?? ''}
                 onChange={(e) => setField('game', e.target.value)}
               />
-            </section>
-
-            <section>
-              <FieldLabel>Stil</FieldLabel>
-              <div className="flex flex-wrap gap-1">
-                {MAGIK_STYLE_PRESETS.map((s) => (
-                  <StudioOptionPill
-                    key={s}
-                    active={(form.magikStyle ?? DEFAULT_MAGIK_STYLE) === s}
-                    onClick={() => setField('magikStyle', s)}
-                    className="text-[10px]"
-                  >
-                    {s}
-                  </StudioOptionPill>
-                ))}
-              </div>
             </section>
 
             <section>

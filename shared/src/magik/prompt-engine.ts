@@ -11,6 +11,7 @@ import { collectLogoColors } from '../logo-prompt';
 import {
   MAGIK_QUALITY_DNA,
   DEFAULT_MAGIK_STYLE,
+  normalizeMagikStyle,
   type MagikBackgroundId,
   type MagikLogoArtId,
   type MagikRingMode,
@@ -101,7 +102,7 @@ function backgroundPhrase(bg: MagikBackgroundId = 'transparent', opts: LogoGener
 }
 
 function stylePhrase(opts: LogoGenerationOptions): string {
-  return opts.magikStyle ?? opts.style ?? DEFAULT_MAGIK_STYLE;
+  return normalizeMagikStyle(opts.magikStyle ?? opts.style);
 }
 
 function resolveMotif(opts: LogoGenerationOptions): { motif: string; nameInsight?: string } {

@@ -6,16 +6,19 @@ export function StudioOptionPill({
   onClick,
   children,
   className,
+  title,
 }: {
   active: boolean;
   onClick: () => void;
   children: ReactNode;
   className?: string;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={cn(
         'rounded-lg border px-2 py-1 text-xs transition-colors',
         active

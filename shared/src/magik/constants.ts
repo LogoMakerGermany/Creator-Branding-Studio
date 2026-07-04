@@ -48,23 +48,16 @@ export const MAGIK_GAME_PRESETS = [
   'EA FC',
 ] as const;
 
-export const MAGIK_STYLE_PRESETS = [
-  'Ultra-Cinematic',
-  'Dark',
-  'Fantasy',
-  'Cyberpunk',
-  'Realistisch',
-  'Anime',
-  'Esports',
-  'Neon',
-  'Fire',
-  'Ice',
-  'Toxic',
-  'Space',
-  'Apocalyptic',
-  'Horror',
-  'Mystisch',
-] as const;
+export {
+  LOGO_STUDIO_STYLE_PRESETS,
+  LOGO_STYLE_GROUPS,
+  LOGO_STYLE_DESCRIPTIONS,
+  LEGACY_MAGIK_STYLE_MAP,
+  normalizeMagikStyle,
+  MAGIK_STYLE_PRESETS,
+  DEFAULT_MAGIK_STYLE,
+} from './logo-style-presets';
+export type { LogoStudioStylePreset } from './logo-style-presets';
 
 export const MAGIK_LOGO_ART = [
   { id: '2d', label: '2D' },
@@ -147,7 +140,6 @@ export const MAGIK_COLOR_PALETTES = [
   { id: 'gold', colors: ['#f59e0b', '#1f2937', '#fcd34d'] },
 ] as const;
 
-export const DEFAULT_MAGIK_STYLE = 'Ultra-Cinematic';
 export const DEFAULT_MAGIK_LOGO_ART: MagikLogoArtId = 'ultra-cinematic-3d';
 
 /** Logo Studio — Untertitel / Kontext */

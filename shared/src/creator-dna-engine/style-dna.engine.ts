@@ -1,19 +1,28 @@
 import type { LogoGenerationOptions } from '../studio';
 import type { CharacterDNA, StyleDNA } from './types';
+import { normalizeMagikStyle } from '../magik/logo-style-presets';
 
 /** Style DNA Engine — konsistenter visueller Stil über alle Generatoren. */
 export function buildStyleDNA(opts: LogoGenerationOptions, character?: CharacterDNA | null): StyleDNA {
-  const magikStyle = opts.magikStyle ?? opts.style ?? 'Ultra-Cinematic';
+  const magikStyle = normalizeMagikStyle(opts.magikStyle ?? opts.style);
   const logoArt = opts.magikLogoArt ?? 'ultra-cinematic-3d';
 
   const moodMap: Record<string, string[]> = {
-    Fire: ['inferno', 'aggressive', 'blazing'],
-    Ice: ['frozen', 'sharp', 'crystalline'],
+    Gaming: ['dynamic', 'aggressive', 'competitive'],
+    Crystal: ['frozen', 'sharp', 'crystalline'],
     Dark: ['ominous', 'powerful', 'shadow'],
     Cyberpunk: ['neon', 'futuristic', 'edgy'],
-    'Ultra-Cinematic': ['epic', 'cinematic', 'AAA'],
+    Cinematic: ['epic', 'cinematic', 'AAA'],
     Esports: ['competitive', 'bold', 'premium'],
     Fantasy: ['mythic', 'legendary', 'magical'],
+    Horror: ['dark', 'ominous', 'intense'],
+    Neon: ['electric', 'vibrant', 'glow'],
+    'Sci-Fi': ['futuristic', 'cosmic', 'tech'],
+    Metallic: ['industrial', 'chrome', 'heavy'],
+    Premium: ['luxury', 'polished', 'elite'],
+    Diamond: ['brilliant', 'precious', 'sharp'],
+    Military: ['tactical', 'precise', 'bold'],
+    Viking: ['nordic', 'fierce', 'ancient'],
   };
 
   return {

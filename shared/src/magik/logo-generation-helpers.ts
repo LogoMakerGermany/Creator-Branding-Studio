@@ -3,13 +3,14 @@ import {
   DEFAULT_MAGIK_LOGO_ART,
   DEFAULT_MAGIK_STYLE,
   LOGO_SUBTITLE_PRESETS,
+  LOGO_STUDIO_STYLE_PRESETS,
   MAGIK_BACKGROUND_PRESETS,
   MAGIK_COLOR_PALETTES,
   MAGIK_LOGO_ART,
-  MAGIK_STYLE_PRESETS,
   type LogoSubtitlePreset,
 } from './constants';
 import { analyzeMagikName } from './name-parser';
+import { normalizeMagikStyle } from './logo-style-presets';
 
 const RANDOM_LOGO_NAMES = [
   'NeonWolf',
@@ -35,7 +36,7 @@ export function subtitleToStyleHint(subtitle?: string): string | null {
     Esports: 'Esports',
     Streamer: 'Neon',
     Clan: 'Dark',
-    Creator: 'Ultra-Cinematic',
+    Creator: 'Premium',
   };
   const key = subtitle.trim() as LogoSubtitlePreset;
   if (LOGO_SUBTITLE_PRESETS.includes(key)) return map[key];
@@ -53,7 +54,7 @@ export function applyNameBasedLogoOptions(form: LogoGenerationOptions): LogoGene
     magikMode: 'name',
     magikCharacter: '',
     customCharacter: '',
-    magikStyle: subtitleStyle ?? analysis.suggestedStyle,
+    magikStyle: normalizeMagikStyle(subtitleStyle ?? analysis.suggestedStyle),
     ringLogoMode: analysis.suggestRing ? 'auto' : form.ringLogoMode ?? 'auto',
   };
 }
@@ -63,7 +64,7 @@ export function buildRandomLogoOptions(form: LogoGenerationOptions): LogoGenerat
   const palette = pickRandom(MAGIK_COLOR_PALETTES);
   const bg = pickRandom(MAGIK_BACKGROUND_PRESETS);
   const art = pickRandom(MAGIK_LOGO_ART);
-  const style = pickRandom(MAGIK_STYLE_PRESETS);
+  const style = pickRandom(LOGO_STUDIO_STYLE_PRESETS);
   const name = form.logoName?.trim() || pickRandom(RANDOM_LOGO_NAMES);
   const subtitle = form.logoSubtitle?.trim() ? form.logoSubtitle : pickRandom(LOGO_SUBTITLE_PRESETS);
 

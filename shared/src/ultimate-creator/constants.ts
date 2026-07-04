@@ -34,7 +34,7 @@ export const ULTIMATE_PLATFORMS = [
 
 export const IMPROVEMENT_PRESETS: ImprovementPreset[] = [
   { id: 'more-depth', label: 'Mehr Tiefe', description: 'Stärkere 3D-Tiefe', magikLogoArt: 'ultra-3d', promptSuffix: 'extra depth, heavy extrusion, layered composition' },
-  { id: 'more-realism', label: 'Mehr Realismus', description: 'Realistischere Materialien', magikStyle: 'Realistisch', promptSuffix: 'photorealistic materials, realistic lighting' },
+  { id: 'more-realism', label: 'Mehr Realismus', description: 'Realistischere Materialien', magikStyle: 'Ultra Realistic', promptSuffix: 'photorealistic materials, realistic lighting' },
   { id: 'better-colors', label: 'Bessere Farben', description: 'Harmonischere Palette', promptSuffix: 'refined color harmony, cinematic color grading' },
   { id: 'more-detail', label: 'Mehr Details', description: 'Feinere Details', promptSuffix: 'micro details, intricate textures, AAA detail density' },
   { id: 'cinematic-light', label: 'Kinolicht', description: 'Filmische Beleuchtung', promptSuffix: 'cinematic lighting, volumetric rays, dramatic shadows' },
@@ -43,5 +43,5 @@ export const IMPROVEMENT_PRESETS: ImprovementPreset[] = [
   { id: 'horror', label: 'Horror', description: 'Düstere Version', magikStyle: 'Horror', promptSuffix: 'horror atmosphere, dark ominous energy' },
   { id: 'anime', label: 'Anime', description: 'Anime-Stil', magikStyle: 'Anime', promptSuffix: 'anime style, bold cel-shaded energy' },
   { id: 'neon', label: 'Neon', description: 'Neon-Glow', magikStyle: 'Neon', promptSuffix: 'neon glow, electric cyber accents' },
-  { id: 'aggressive', label: 'Aggressiver', description: 'Härter & kraftvoller', magikStyle: 'Fire', promptSuffix: 'aggressive powerful look, fierce energy' },
+  { id: 'aggressive', label: 'Aggressiver', description: 'Härter & kraftvoller', magikStyle: 'Gaming', promptSuffix: 'aggressive powerful look, fierce energy' },
 ];
