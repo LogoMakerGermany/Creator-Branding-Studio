@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Sparkles, CheckCircle2, Download, RefreshCw, AlertCircle, Wand2, Star, Trash2, Pencil, Eye,
+  Sparkles, CheckCircle2, Download, RefreshCw, AlertCircle, Wand2, Star, Trash2,
 } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
 import { LogoLivePreview } from '@/components/studio/LogoLivePreview';
-import { LogoNameSection, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection, LogoEffectsSection, LogoBackgroundSection, LogoCameraSection, LogoDetailsSection, LogoTypographySection, LogoAiSettingsSection } from '@/components/logo';
+import { LogoNameSection, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection, LogoEffectsSection, LogoBackgroundSection, LogoCameraSection, LogoDetailsSection, LogoTypographySection, LogoAiSettingsSection, LogoLivePromptSidebar } from '@/components/logo';
 import { ImprovementChips } from '@/components/ultimate';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
@@ -456,32 +456,6 @@ export function LogoStudioPage() {
               </div>
             </section>
 
-            <section>
-              <div className="mb-2 flex items-center justify-between">
-                <FieldLabel>MAGIK Prompt (live)</FieldLabel>
-                <button
-                  type="button"
-                  onClick={() => setEditPrompt(!editPrompt)}
-                  className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300"
-                >
-                  {editPrompt ? <Eye className="h-3 w-3" /> : <Pencil className="h-3 w-3" />}
-                  {editPrompt ? 'Auto' : 'Bearbeiten'}
-                </button>
-              </div>
-              <textarea
-                readOnly={!editPrompt}
-                value={editPrompt ? promptDraft : magikPrompts?.variantA ?? ''}
-                onChange={(e) => setPromptDraft(e.target.value)}
-                className="h-28 w-full resize-none rounded-lg border border-white/10 bg-[var(--ucbs-bg)] p-2 text-[10px] leading-relaxed text-zinc-400"
-                placeholder="Prompt wird automatisch erzeugt…"
-              />
-              {magikPrompts && !editPrompt && (
-                <p className="mt-1 text-[10px] text-zinc-600">
-                  Variante B wird beim Generieren separat optimiert (Design-Fokus).
-                </p>
-              )}
-            </section>
-
             <ImprovementChips
               disabled={loading}
               onApply={(patch, suffix) => {
@@ -502,7 +476,8 @@ export function LogoStudioPage() {
           </div>
         }
         preview={
-          <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[1fr_minmax(260px,300px)]">
+            <div className="space-y-4">
             {variants.length > 0 ? (
               <>
                 <div className="flex gap-2">
@@ -573,6 +548,24 @@ export function LogoStudioPage() {
                 <LogoLivePreview form={form} loading={loading} nameAnalysis={nameAnalysis?.summary} />
               </NeonPreviewBox>
             )}
+            </div>
+
+            <LogoLivePromptSidebar
+              variantA={magikPrompts?.variantA ?? ''}
+              variantB={magikPrompts?.variantB ?? ''}
+              formValid={formValid}
+              logoName={form.logoName}
+              editPrompt={editPrompt}
+              promptDraft={promptDraft}
+              onEditPromptChange={setEditPrompt}
+              onPromptDraftChange={setPromptDraft}
+              onApplyPrompt={(prompt) =>
+                setForm((prev) => ({
+                  ...prev,
+                  customPromptOverride: prompt.trim() || undefined,
+                }))
+              }
+            />
           </div>
         }
         actions={
