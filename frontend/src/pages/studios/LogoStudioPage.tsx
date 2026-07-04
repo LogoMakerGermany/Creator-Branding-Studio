@@ -5,7 +5,7 @@ import {
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
 import { LogoLivePreview } from '@/components/studio/LogoLivePreview';
-import { LogoNameSection, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection, LogoEffectsSection, LogoBackgroundSection, LogoCameraSection, LogoDetailsSection } from '@/components/logo';
+import { LogoNameSection, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection, LogoEffectsSection, LogoBackgroundSection, LogoCameraSection, LogoDetailsSection, LogoTypographySection } from '@/components/logo';
 import { ImprovementChips } from '@/components/ultimate';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
@@ -337,6 +337,11 @@ export function LogoStudioPage() {
             />
 
             <LogoDetailsSection
+              form={form}
+              onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+            />
+
+            <LogoTypographySection
               form={form}
               onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
             />

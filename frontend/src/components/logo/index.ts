@@ -7,3 +7,4 @@ export { LogoEffectsSection } from './LogoEffectsSection';
 export { LogoBackgroundSection } from './LogoBackgroundSection';
 export { LogoCameraSection } from './LogoCameraSection';
 export { LogoDetailsSection } from './LogoDetailsSection';
+export { LogoTypographySection } from './LogoTypographySection';

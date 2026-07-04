@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { LogoGenerationOptions } from '@ucbs/shared';
-import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset, logoCameraPreviewFactors, logoDetailsPreviewFactors } from '@ucbs/shared';
+import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset, logoCameraPreviewFactors, logoDetailsPreviewFactors, logoTypographyPreviewStyle, getLogoFontPreset, resolveLogoTypography } from '@ucbs/shared';
 
 interface LogoLivePreviewProps {
   form: LogoGenerationOptions;
@@ -25,6 +25,9 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
   const bgPreview = logoBackgroundPreviewStyle(bgId, form);
   const camera = logoCameraPreviewFactors(form);
   const details = logoDetailsPreviewFactors(form);
+  const typography = resolveLogoTypography(form);
+  const typographyStyle = logoTypographyPreviewStyle(form, glow);
+  const fontPreset = getLogoFontPreset(typography.fontFamily);
   const name = form.logoName?.trim() || 'Dein Logo';
   const isRing = form.ringLogoMode === 'yes' || (form.ringLogoMode === 'auto' && form.ringLogo);
   const is3d = form.magikLogoArt?.includes('3d') || form.dimension === '3d' || form.threeD;
@@ -118,13 +121,15 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
       </div>
 
       <p
-        className="mt-4 font-display text-lg font-bold tracking-tight"
+        className="mt-4 tracking-tight"
         style={{
           color: primary,
+          ...typographyStyle,
           textShadow:
-            form.neon || form.magikStyle === 'Neon' || lighting.glow > 0.45
+            typographyStyle.textShadow ??
+            (form.neon || form.magikStyle === 'Neon' || lighting.glow > 0.45
               ? `0 0 ${8 + lighting.glow * 16}px ${glow}, 0 0 ${16 + lighting.bloom * 24}px ${glow}88`
-              : undefined,
+              : undefined),
         }}
       >
         {name}
@@ -153,6 +158,9 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
         {form.game?.trim() && <span className="rounded-full border border-white/10 px-2 py-0.5">{form.game}</span>}
         <span className="rounded-full border border-[var(--ucbs-accent-purple)]/30 px-2 py-0.5 text-[var(--ucbs-accent-purple)]">
           Zoom {Math.round(camera.zoom * 100)}%
+        </span>
+        <span className="rounded-full border border-[var(--ucbs-accent-cyan)]/30 px-2 py-0.5 text-[var(--ucbs-accent-cyan)]">
+          {fontPreset.label}
         </span>
         <span className="rounded-full border border-[var(--ucbs-accent-green)]/30 px-2 py-0.5 text-[var(--ucbs-accent-green)]">
           Detail {Math.round(details.detail * 100)}%

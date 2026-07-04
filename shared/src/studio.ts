@@ -54,6 +54,15 @@ export interface LogoDetailsSettings {
   texture: number;
 }
 
+export interface LogoTypographySettings {
+  fontFamily: string;
+  size: number;
+  weight: number;
+  outline: number;
+  glow: number;
+  letterSpacing: number;
+}
+
 export interface LogoGenerationOptions {
   logoName?: string;
   clanName?: string;
@@ -112,6 +121,8 @@ export interface LogoGenerationOptions {
   logoCamera?: Partial<LogoCameraSettings>;
   /** Logo Studio Schritt 9 — Logo-Details (0–100 je Regler) */
   logoDetails?: Partial<LogoDetailsSettings>;
+  /** Logo Studio Schritt 10 — Schrift / Typografie */
+  logoTypography?: Partial<LogoTypographySettings>;
 }
 
 export interface BannerGenerationOptions {
