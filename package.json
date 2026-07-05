@@ -24,7 +24,7 @@
     "railway:vars": "node scripts/push-railway-vars.mjs",
     "railway:vars:firebase": "node scripts/push-railway-firebase-vars.mjs",
     "railway:status": "node scripts/railway-status.mjs",
-    "railway:up": "railway up --detach -y",
+    "railway:up": "railway up --detach",
     "railway:deploy": "powershell -ExecutionPolicy Bypass -File scripts/railway-deploy.ps1",
     "railway:trigger": "node scripts/railway-trigger-deploy.mjs",
     "lint": "npm run lint --workspaces --if-present",

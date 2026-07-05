@@ -73,6 +73,25 @@ function pickProject(projects) {
   return scored[0]?.p ?? projects[0];
 }
 
+/** Override via RAILWAY_GITHUB_REPO=owner/repo */
+const GITHUB_REPO = process.env.RAILWAY_GITHUB_REPO ?? 'LogoMakerGermany/Creator-Branding-Studio';
+const GITHUB_BRANCH = process.env.RAILWAY_GITHUB_BRANCH ?? 'main';
+
+async function fetchLatestGithubCommitSha() {
+  const res = await fetch(
+    `https://api.github.com/repos/${GITHUB_REPO}/commits/${GITHUB_BRANCH}`,
+    { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'ucbs-railway-trigger' } }
+  );
+  if (!res.ok) {
+    throw new Error(`GitHub commit lookup failed (${res.status}) for ${GITHUB_REPO}@${GITHUB_BRANCH}`);
+  }
+  const data = await res.json();
+  const sha = data.sha?.slice(0, 7);
+  const message = (data.commit?.message ?? '').split('\n')[0];
+  console.log(`GitHub ${GITHUB_BRANCH}: ${sha} — ${message}`);
+  return data.sha;
+}
+
 async function main() {
   const cfg = loadConfig();
   const token = cfg.user?.token;
@@ -145,17 +164,19 @@ async function main() {
     }
   }
 
-  console.log('\nTriggering deploy (latest GitHub commit)…');
+  const commitSha = await fetchLatestGithubCommitSha();
+
+  console.log('\nTriggering deploy (explicit GitHub commit)…');
   const deploy = await gql(
     token,
-    `mutation serviceInstanceDeploy($serviceId: String!, $environmentId: String!, $latestCommit: Boolean) {
-      serviceInstanceDeploy(serviceId: $serviceId, environmentId: $environmentId, latestCommit: $latestCommit)
+    `mutation serviceInstanceDeploy($serviceId: String!, $environmentId: String!, $commitSha: String) {
+      serviceInstanceDeploy(serviceId: $serviceId, environmentId: $environmentId, commitSha: $commitSha)
     }`,
-    { serviceId: service.id, environmentId: environment.id, latestCommit: true }
+    { serviceId: service.id, environmentId: environment.id, commitSha }
   );
 
   const deploymentId = deploy.serviceInstanceDeploy;
-  console.log(`Deploy started: ${deploymentId}`);
+  console.log(`Deploy started: ${deploymentId} (commit ${commitSha.slice(0, 7)})`);
   console.log('Check Railway Dashboard for build logs.');
   console.log('API: https://creatorbrandingstudioultimate-production.up.railway.app/health');
 }
