@@ -18,7 +18,41 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const allowedOrigins = getFrontendUrls();
 
+/** Railway reverse proxy — MUST be set before any middleware (helmet, cors, rate-limit, …). */
 app.set('trust proxy', 1);
+
+function createRateLimiters() {
+  return {
+    webhookLimiter: rateLimit({
+      windowMs: 60 * 1000,
+      max: 300,
+      standardHeaders: true,
+      legacyHeaders: false,
+    }),
+    authLimiter: rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 30,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { success: false, error: { code: 'RATE_LIMIT', message: 'Zu viele Anfragen' } },
+    }),
+    uploadLimiter: rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 40,
+      standardHeaders: true,
+      legacyHeaders: false,
+    }),
+    apiLimiter: rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 200,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { success: false, error: { code: 'RATE_LIMIT', message: 'Zu viele Anfragen' } },
+    }),
+  };
+}
+
+const { webhookLimiter, authLimiter, uploadLimiter, apiLimiter } = createRateLimiters();
 
 app.use(
   helmet({
@@ -51,36 +85,6 @@ app.use(
     credentials: true,
   })
 );
-
-const webhookLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, error: { code: 'RATE_LIMIT', message: 'Zu viele Anfragen' } },
-});
-
-const uploadLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 40,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, error: { code: 'RATE_LIMIT', message: 'Zu viele Anfragen' } },
-});
 
 app.use('/api/v1/stripe/webhook', webhookLimiter);
 app.use('/api/v1/stripe/webhook', express.raw({ type: 'application/json' }));
