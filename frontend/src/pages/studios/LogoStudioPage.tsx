@@ -5,7 +5,7 @@ import {
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
 import { LogoLivePreview } from '@/components/studio/LogoLivePreview';
-import { LogoNameSection, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection, LogoEffectsSection, LogoBackgroundSection, LogoCameraSection, LogoDetailsSection, LogoTypographySection, LogoAiSettingsSection, LogoLivePromptSidebar, LogoTemplatesSection, LogoProModeSection, LogoFavoritesSection } from '@/components/logo';
+import { LogoPreviewNamePanel, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection, LogoEffectsSection, LogoBackgroundSection, LogoCameraSection, LogoDetailsSection, LogoTypographySection, LogoAiSettingsSection, LogoLivePromptSidebar, LogoTemplatesSection, LogoProModeSection, LogoFavoritesSection } from '@/components/logo';
 import { ImprovementChips } from '@/components/ultimate';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
@@ -304,26 +304,6 @@ export function LogoStudioPage() {
           <div className="max-h-[75vh] space-y-5 overflow-y-auto pr-1">
             <LogoProModeSection mode={studioMode} onModeChange={setStudioModePersist} />
 
-            <LogoNameSection
-              form={form}
-              onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
-              nameAnalysis={
-                nameAnalysis
-                  ? {
-                      summary: nameAnalysis.summary,
-                      suggestedStyle: nameAnalysis.suggestedStyle,
-                      styleReason: nameAnalysis.styleReason,
-                    }
-                  : null
-              }
-              nameError={touched ? validationErrors.logoName : undefined}
-              loading={loading}
-              disabled={!activeDna || (user?.coinBalance ?? 0) < COIN_COST}
-              coinCost={COIN_COST}
-              onGenerateFromName={handleGenerateFromName}
-              onGenerateRandom={handleGenerateRandom}
-            />
-
             <LogoStyleSection
               form={form}
               onStyleChange={(style) => setField('magikStyle', style)}
@@ -525,6 +505,25 @@ export function LogoStudioPage() {
         preview={
           <div className={`grid gap-4 ${isProMode ? 'xl:grid-cols-[1fr_minmax(260px,300px)]' : ''}`}>
             <div className="space-y-4">
+            <LogoPreviewNamePanel
+              form={form}
+              onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+              nameAnalysis={
+                nameAnalysis
+                  ? {
+                      summary: nameAnalysis.summary,
+                      suggestedStyle: nameAnalysis.suggestedStyle,
+                      styleReason: nameAnalysis.styleReason,
+                    }
+                  : null
+              }
+              nameError={touched ? validationErrors.logoName : undefined}
+              loading={loading}
+              disabled={!activeDna || (user?.coinBalance ?? 0) < COIN_COST}
+              onGenerateFromName={handleGenerateFromName}
+              onGenerateRandom={handleGenerateRandom}
+            />
+
             {variants.length > 0 ? (
               <>
                 <div className="flex gap-2">
