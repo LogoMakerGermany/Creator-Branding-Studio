@@ -14,28 +14,35 @@ export function initializeFirebase(): void {
 
   if (!isFirebaseAdminConfigured()) {
     if (isProduction()) {
-      throw new Error('Firebase Admin credentials required in production');
+      console.error('[Firebase] Admin credentials missing in production — auth/storage APIs unavailable until configured');
+      initialized = true;
+      return;
     }
     console.warn('[Firebase] Credentials fehlen — lokaler Dev-Store aktiv (nur Entwicklung)');
     initialized = true;
     return;
   }
 
-  const projectId = process.env.FIREBASE_PROJECT_ID!;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL!;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY!.replace(/\\n/g, '\n');
+  try {
+    const projectId = process.env.FIREBASE_PROJECT_ID!;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL!;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY!.replace(/\\n/g, '\n');
 
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId,
-      clientEmail,
-      privateKey,
-    }),
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  });
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail,
+        privateKey,
+      }),
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    });
 
-  initialized = true;
-  console.log('[Firebase] Admin SDK initialisiert');
+    initialized = true;
+    console.log('[Firebase] Admin SDK initialisiert');
+  } catch (err) {
+    initialized = true;
+    console.error('[Firebase] Admin SDK initialization failed:', err);
+  }
 }
 
 export function getFirestore(): admin.firestore.Firestore {

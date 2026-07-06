@@ -23,7 +23,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV SERVE_STATIC=true
-ENV PORT=3001
+ENV PORT=8080
 
 RUN addgroup -S ucbs && adduser -S ucbs -G ucbs
 
@@ -40,9 +40,9 @@ COPY --from=builder /app/frontend/dist ./frontend/dist
 WORKDIR /app/backend
 USER ucbs
 
-EXPOSE 3001
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:3001/health || exit 1
+  CMD wget -qO- http://127.0.0.1:8080/health || exit 1
 
 CMD ["node", "dist/index.js"]

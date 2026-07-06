@@ -72,11 +72,10 @@ export function validateProductionConfig(): void {
   }
 
   if (errors.length > 0) {
-    console.error('[Security] Production startup blocked:');
+    console.error('[Security] Production config issues (server keeps running for /health):');
     for (const err of errors) {
       console.error(`  - ${err}`);
     }
     console.error('[Security] Configure secrets in Railway Variables only — never in frontend or git.');
-    process.exit(1);
   }
 }

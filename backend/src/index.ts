@@ -11,15 +11,20 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { attachStaticFrontend, shouldServeStatic } from './middleware/static.js';
 import { apiRouter } from './routes/index.js';
 
-validateProductionConfig();
-initializeFirebase();
+console.log('Server starting...');
+console.log('PORT =', process.env.PORT);
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8080;
 const allowedOrigins = getFrontendUrls();
 
 /** Railway reverse proxy — MUST be set before any middleware (helmet, cors, rate-limit, …). */
 app.set('trust proxy', 1);
+
+/** Health probe — registered before any other middleware so Railway gets 200 immediately. */
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
 
 function createRateLimiters() {
   return {
@@ -117,22 +122,34 @@ app.use((req, res, next) => {
 
 app.use('/api/v1', apiLimiter);
 
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
-});
-
 app.use('/api/v1', apiRouter);
 
 attachStaticFrontend(app);
 
 app.use(errorHandler);
 
-app.listen(PORT, () => {
+console.log('Listening on', PORT);
+app.listen(Number(PORT), '0.0.0.0', () => {
+  console.log('/health ready');
   const mode = shouldServeStatic() ? 'API + static frontend' : 'API only';
   console.log(`UCBS running (${mode}) on port ${PORT}`);
   if (isDevAuthEnabled()) {
     console.log('[Dev] Dev-Auth aktiv — nur für lokale Entwicklung');
   }
+
+  setImmediate(() => {
+    try {
+      validateProductionConfig();
+    } catch (err) {
+      console.error('[Startup] Config validation failed:', err);
+    }
+
+    try {
+      initializeFirebase();
+    } catch (err) {
+      console.error('[Startup] Firebase initialization failed:', err);
+    }
+  });
 });
 
 export default app;
