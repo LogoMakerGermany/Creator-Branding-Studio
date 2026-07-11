@@ -75,7 +75,8 @@ app.use(
   cors({
     origin(origin, callback) {
       if (isProduction()) {
-        if (origin && allowedOrigins.includes(origin)) {
+        // Same-origin requests often omit Origin — allow them.
+        if (!origin || allowedOrigins.includes(origin.replace(/\/+$/, ''))) {
           callback(null, true);
           return;
         }
@@ -83,7 +84,7 @@ app.use(
         return;
       }
 
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.includes(origin.replace(/\/+$/, ''))) {
         callback(null, true);
         return;
       }

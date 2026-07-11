@@ -24,7 +24,8 @@ export async function authenticate(
   const authHeader = req.headers.authorization;
 
   if (!authHeader?.startsWith('Bearer ')) {
-    throw new AppError(401, 'UNAUTHORIZED', 'Authentifizierung erforderlich');
+    next(new AppError(401, 'UNAUTHORIZED', 'Authentifizierung erforderlich'));
+    return;
   }
 
   const token = authHeader.split('Bearer ')[1];
@@ -50,7 +51,7 @@ export async function authenticate(
     };
     next();
   } catch {
-    throw new AppError(401, 'INVALID_TOKEN', 'Ungültiges Authentifizierungstoken');
+    next(new AppError(401, 'INVALID_TOKEN', 'Ungültiges Authentifizierungstoken'));
   }
 }
 

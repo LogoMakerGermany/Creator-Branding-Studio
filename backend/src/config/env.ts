@@ -36,7 +36,16 @@ export function isDevAuthBypassExplicit(): boolean {
 
 export function getFrontendUrls(): string[] {
   const raw = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || 'http://localhost:5173';
-  return raw.split(',').map((u) => u.trim()).filter(Boolean);
+  const known = [
+    'https://creatorbrandingstudioultimate-production.up.railway.app',
+    'https://creatorstudio-519eb.web.app',
+    'https://creatorstudio-519eb.firebaseapp.com',
+  ];
+  const urls = raw
+    .split(',')
+    .map((u) => u.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  return [...new Set([...urls, ...known])];
 }
 
 export function getPrimaryFrontendUrl(): string {

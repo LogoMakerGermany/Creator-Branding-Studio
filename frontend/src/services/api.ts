@@ -41,16 +41,35 @@ async function getToken(): Promise<string | null> {
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const token = await getToken();
 
-  const res = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options?.headers,
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options?.headers,
+      },
+    });
+  } catch {
+    throw new ApiError(
+      'Server nicht erreichbar. Bitte kurz warten und erneut versuchen.',
+      'NETWORK_ERROR',
+      0
+    );
+  }
 
-  const data = await res.json();
+  let data: { success?: boolean; error?: { message?: string; code?: string }; data?: T };
+  try {
+    data = await res.json();
+  } catch {
+    throw new ApiError(
+      res.ok ? 'Ungültige Server-Antwort' : `Server-Fehler (${res.status})`,
+      'INVALID_RESPONSE',
+      res.status
+    );
+  }
+
   if (!data.success) {
     throw new ApiError(
       data.error?.message || 'API Fehler',
