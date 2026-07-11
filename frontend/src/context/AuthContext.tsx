@@ -17,6 +17,7 @@ import {
   type AuthProviderId,
 } from '@/lib/firebase';
 import { resolveAuthProvider } from '@/lib/auth-providers';
+import { formatAuthError } from '@/lib/auth-errors';
 import { api, setAuthToken, type UserProfile, type CreatorDNA } from '@/services/api';
 
 interface AuthContextValue {
@@ -62,13 +63,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (isFirebaseConfigured()) {
-        const redirectUser = await completeRedirectLogin();
-        if (redirectUser) {
-          const token = await redirectUser.getIdToken();
-          setAuthToken(token);
-          await api.auth.sync(redirectUser.displayName || undefined, resolveAuthProvider(redirectUser));
-          await refreshUser();
-          setLoading(false);
+        try {
+          const redirectUser = await completeRedirectLogin();
+          if (redirectUser) {
+            const token = await redirectUser.getIdToken();
+            setAuthToken(token);
+            await api.auth.sync(redirectUser.displayName || undefined, resolveAuthProvider(redirectUser));
+            await refreshUser();
+            setLoading(false);
+          }
+        } catch (err) {
+          sessionStorage.setItem('auth_error', formatAuthError(err));
         }
 
         const unsub = subscribeToAuth(async (firebaseUser) => {

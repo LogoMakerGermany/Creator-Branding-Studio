@@ -1,8 +1,15 @@
 import { getFrontendUrls } from './env.js';
 
+/** Always allow known production hosts even if FRONTEND_URLS on Railway is stale. */
+const KNOWN_PRODUCTION_ORIGINS = [
+  'https://creatorbrandingstudioultimate-production.up.railway.app',
+  'https://creatorstudio-519eb.web.app',
+  'https://creatorstudio-519eb.firebaseapp.com',
+];
+
 /** CSP for all-in-one production (API serves static SPA). */
 export function getProductionCspDirectives() {
-  const origins = getFrontendUrls();
+  const origins = [...new Set([...getFrontendUrls(), ...KNOWN_PRODUCTION_ORIGINS])];
 
   return {
     defaultSrc: ["'self'"],

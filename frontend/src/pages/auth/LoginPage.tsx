@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button, Input, CardTitle, CardDescription } from '@/components/ui';
 import { GlassCard } from '@/v2/components/GlassCard';
 import { useAuth } from '@/context/AuthContext';
 import { isFirebaseConfigured } from '@/lib/firebase';
+import { formatAuthError } from '@/lib/auth-errors';
 import type { AuthProviderId } from '@/lib/auth-providers';
 
 const OAUTH_PROVIDERS: { id: AuthProviderId; label: string; color: string }[] = [
@@ -28,6 +29,14 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const stored = sessionStorage.getItem('auth_error');
+    if (stored) {
+      setError(stored);
+      sessionStorage.removeItem('auth_error');
+    }
+  }, []);
+
   async function handleOAuth(provider: AuthProviderId) {
     setLoading(true);
     setError(null);
@@ -35,8 +44,9 @@ export function LoginPage() {
       await loginProvider(provider);
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen');
-    } finally {
+      const msg = formatAuthError(err);
+      if (msg.includes('Weiterleitung')) return;
+      setError(msg);
       setLoading(false);
     }
   }
@@ -53,7 +63,7 @@ export function LoginPage() {
       }
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen');
+      setError(formatAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -66,7 +76,7 @@ export function LoginPage() {
       await loginDev();
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Dev-Login fehlgeschlagen');
+      setError(formatAuthError(err));
     } finally {
       setLoading(false);
     }

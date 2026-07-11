@@ -21,6 +21,9 @@ import type { AuthProviderId } from './auth-providers';
 export { isFirebaseConfigured };
 export type { AuthProviderId };
 
+/** Built-in providers: redirect flow (reliable on Railway, no popup/COOP issues). */
+const REDIRECT_PROVIDERS = new Set<AuthProviderId>(['google', 'github', 'apple', 'microsoft']);
+
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 
@@ -88,13 +91,19 @@ export async function loginWithProvider(providerId: AuthProviderId): Promise<Use
   const a = getFirebaseAuth();
   if (!a) throw new Error('Firebase nicht konfiguriert');
   const provider = providerFor(providerId);
+
+  if (REDIRECT_PROVIDERS.has(providerId)) {
+    await signInWithRedirect(a, provider);
+    throw new Error('Weiterleitung zum Anbieter …');
+  }
+
   try {
     const result = await signInWithPopup(a, provider);
     return result.user;
   } catch (err) {
     if (isPopupAuthError(err)) {
       await signInWithRedirect(a, provider);
-      throw new Error('Weiterleitung zum Anbieter … bitte kurz warten');
+      throw new Error('Weiterleitung zum Anbieter …');
     }
     throw err;
   }
