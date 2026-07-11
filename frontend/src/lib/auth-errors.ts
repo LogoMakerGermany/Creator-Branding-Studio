@@ -9,7 +9,7 @@ export function formatAuthError(err: unknown): string {
 
   switch (code) {
     case 'auth/popup-closed-by-user':
-      return 'Anmeldung abgebrochen. Bitte erneut versuchen.';
+      return 'Anmeldung abgebrochen. Bitte erneut klicken — du wirst zu Google weitergeleitet.';
     case 'auth/popup-blocked':
       return 'Popup wurde blockiert. Bitte Popups erlauben oder erneut klicken.';
     case 'auth/internal-error':
@@ -25,6 +25,9 @@ export function formatAuthError(err: unknown): string {
       return 'E-Mail oder Passwort ist falsch.';
     default:
       if (message.includes('Weiterleitung')) return message;
+      if (/auth\/popup-closed-by-user/i.test(message)) {
+        return 'Anmeldung abgebrochen. Bitte erneut klicken — du wirst weitergeleitet.';
+      }
       return message.replace(/^Firebase: Error \(([^)]+)\)\.?$/i, 'Anmeldung fehlgeschlagen ($1).');
   }
 }

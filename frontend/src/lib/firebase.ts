@@ -21,8 +21,16 @@ import type { AuthProviderId } from './auth-providers';
 export { isFirebaseConfigured };
 export type { AuthProviderId };
 
-/** Built-in providers: redirect flow (reliable on Railway, no popup/COOP issues). */
-const REDIRECT_PROVIDERS = new Set<AuthProviderId>(['google', 'github', 'apple', 'microsoft']);
+/** All OAuth providers use redirect — popups fail on Railway, mobile, and with strict COOP/CSP. */
+const REDIRECT_PROVIDERS = new Set<AuthProviderId>([
+  'google',
+  'github',
+  'apple',
+  'microsoft',
+  'discord',
+  'twitch',
+  'tiktok',
+]);
 
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
