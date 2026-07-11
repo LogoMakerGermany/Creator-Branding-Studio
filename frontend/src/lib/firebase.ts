@@ -5,6 +5,8 @@ import {
   GithubAuthProvider,
   OAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
@@ -70,11 +72,32 @@ function providerFor(id: AuthProviderId): AuthProvider {
   }
 }
 
+function isPopupAuthError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code;
+  return code === 'auth/popup-closed-by-user' || code === 'auth/popup-blocked';
+}
+
+export async function completeRedirectLogin(): Promise<User | null> {
+  const a = getFirebaseAuth();
+  if (!a) return null;
+  const result = await getRedirectResult(a);
+  return result?.user ?? null;
+}
+
 export async function loginWithProvider(providerId: AuthProviderId): Promise<User> {
   const a = getFirebaseAuth();
   if (!a) throw new Error('Firebase nicht konfiguriert');
-  const result = await signInWithPopup(a, providerFor(providerId));
-  return result.user;
+  const provider = providerFor(providerId);
+  try {
+    const result = await signInWithPopup(a, provider);
+    return result.user;
+  } catch (err) {
+    if (isPopupAuthError(err)) {
+      await signInWithRedirect(a, provider);
+      throw new Error('Weiterleitung zum Anbieter … bitte kurz warten');
+    }
+    throw err;
+  }
 }
 
 /** @deprecated use loginWithProvider('google') */

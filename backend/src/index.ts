@@ -64,6 +64,8 @@ app.use(
     contentSecurityPolicy: isProduction()
       ? { directives: getProductionCspDirectives() }
       : false,
+    /** Required for Firebase signInWithPopup — default same-origin breaks Google OAuth popups. */
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
     crossOriginResourcePolicy: { policy: 'cross-origin' },
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   })

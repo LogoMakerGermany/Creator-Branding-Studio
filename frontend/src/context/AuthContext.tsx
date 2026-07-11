@@ -13,6 +13,7 @@ import {
   registerWithEmail,
   logoutFirebase,
   subscribeToAuth,
+  completeRedirectLogin,
   type AuthProviderId,
 } from '@/lib/firebase';
 import { resolveAuthProvider } from '@/lib/auth-providers';
@@ -61,6 +62,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (isFirebaseConfigured()) {
+        const redirectUser = await completeRedirectLogin();
+        if (redirectUser) {
+          const token = await redirectUser.getIdToken();
+          setAuthToken(token);
+          await api.auth.sync(redirectUser.displayName || undefined, resolveAuthProvider(redirectUser));
+          await refreshUser();
+          setLoading(false);
+        }
+
         const unsub = subscribeToAuth(async (firebaseUser) => {
           if (firebaseUser) {
             const token = await firebaseUser.getIdToken();
