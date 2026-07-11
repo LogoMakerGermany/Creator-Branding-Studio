@@ -27,6 +27,7 @@
     "railway:up": "railway up --detach",
     "railway:deploy": "powershell -ExecutionPolicy Bypass -File scripts/railway-deploy.ps1",
     "railway:trigger": "node scripts/railway-trigger-deploy.mjs",
+    "railway:fix": "node scripts/fix-railway-production.mjs",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },

@@ -73,8 +73,8 @@ function pickProject(projects) {
   return scored[0]?.p ?? projects[0];
 }
 
-/** Override via RAILWAY_GITHUB_REPO=owner/repo */
-const GITHUB_REPO = process.env.RAILWAY_GITHUB_REPO ?? 'LogoMakerGermany/Creator-Branding-Studio';
+/** Override via RAILWAY_GITHUB_REPO=owner/repo (Railway Settings → Source) */
+const GITHUB_REPO = process.env.RAILWAY_GITHUB_REPO ?? 'LogoMakerGermany/CreatorBrandingStudioUltimate';
 const GITHUB_BRANCH = process.env.RAILWAY_GITHUB_BRANCH ?? 'main';
 
 async function fetchLatestGithubCommitSha() {

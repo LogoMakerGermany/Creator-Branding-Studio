@@ -61,8 +61,8 @@ if (existsSync(railwayPath)) {
     PUBLIC_FIREBASE_STORAGE_BUCKET: cfg.storageBucket,
     PUBLIC_FIREBASE_MESSAGING_SENDER_ID: cfg.messagingSenderId,
     PUBLIC_FIREBASE_APP_ID: cfg.appId,
-    FRONTEND_URL: 'https://creatorstudio-519eb.web.app',
-    FRONTEND_URLS: 'https://creatorstudio-519eb.web.app,https://creatorstudio-519eb.firebaseapp.com,https://creatorbrandingstudioultimate-production.up.railway.app',
+    FRONTEND_URL: 'https://creatorbrandingstudioultimate-production.up.railway.app',
+    FRONTEND_URLS: 'https://creatorbrandingstudioultimate-production.up.railway.app,https://creatorstudio-519eb.web.app,https://creatorstudio-519eb.firebaseapp.com',
   };
 
   for (const [key, value] of Object.entries(updates)) {
