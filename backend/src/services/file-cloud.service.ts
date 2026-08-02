@@ -107,7 +107,7 @@ export async function saveGeneratedAsset(
         ? 'banner'
         : module === 'sticker'
           ? 'sticker'
-          : ['overlay', 'facecam', 'stream-start', 'stream-end', 'panel', 'alert'].includes(module)
+          : ['overlay', 'facecam', 'stream-start', 'stream-end', 'offline', 'panel', 'alert'].includes(module)
             ? 'overlay'
             : 'other';
 

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { getStorage } from '../config/firebase.js';
 import { isDevMode } from '../config/env.js';
 
+const SIGNED_URL_TTL_MS = 60 * 60 * 1000; // 1 hour
+
 export async function uploadAssetFromUrl(
   userId: string,
   sourceUrl: string,
@@ -55,6 +57,10 @@ export async function uploadAssetFromDataUrl(
   });
 }
 
+/**
+ * Upload private object and return a short-lived signed URL.
+ * Objects are NOT made public — storage.rules remain authoritative.
+ */
 async function uploadBuffer(
   userId: string,
   buffer: Buffer,
@@ -73,12 +79,50 @@ async function uploadBuffer(
   const file = bucket.file(path);
 
   await file.save(buffer, {
-    metadata: { contentType: options.contentType },
+    metadata: {
+      contentType: options.contentType,
+      metadata: { ownerId: userId },
+    },
     resumable: false,
+    public: false,
   });
 
-  await file.makePublic().catch(() => undefined);
-  return `https://storage.googleapis.com/${bucket.name}/${path}`;
+  return getSignedDownloadUrl(path);
+}
+
+/** Create a time-limited signed download URL for a storage object path. */
+export async function getSignedDownloadUrl(
+  storagePath: string,
+  ttlMs = SIGNED_URL_TTL_MS
+): Promise<string> {
+  if (isDevMode()) {
+    return storagePath;
+  }
+
+  const storage = getStorage();
+  const bucket = storage.bucket();
+  const file = bucket.file(storagePath);
+  const [url] = await file.getSignedUrl({
+    action: 'read',
+    expires: Date.now() + ttlMs,
+  });
+  return url;
+}
+
+/** Parse gs path or users/... path from a prior signed/public URL when possible. */
+export function extractStoragePathFromUrl(url: string): string | null {
+  if (url.startsWith('users/')) return url.split('?')[0]!;
+  const match = url.match(/\/o\/([^?]+)/);
+  if (match?.[1]) return decodeURIComponent(match[1]);
+  const gcs = url.match(/storage\.googleapis\.com\/[^/]+\/(.+?)(?:\?|$)/);
+  if (gcs?.[1]) return decodeURIComponent(gcs[1]);
+  return null;
+}
+
+export async function deleteStorageObject(storagePath: string): Promise<void> {
+  if (isDevMode()) return;
+  const storage = getStorage();
+  await storage.bucket().file(storagePath).delete({ ignoreNotFound: true });
 }
 
 function extensionFromContentType(contentType: string): string {
@@ -91,6 +135,7 @@ function extensionFromContentType(contentType: string): string {
     'audio/mpeg': 'mp3',
     'audio/wav': 'wav',
     'video/mp4': 'mp4',
+    'application/zip': 'zip',
   };
   return map[contentType] || 'bin';
 }

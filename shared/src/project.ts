@@ -13,6 +13,8 @@ export interface Project {
   deadline?: string;
   assets: ProjectAsset[];
   feedback: ProjectFeedback[];
+  /** Soft-delete timestamp — present when in trash */
+  deletedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

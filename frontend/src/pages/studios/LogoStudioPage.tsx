@@ -130,6 +130,11 @@ export function LogoStudioPage() {
     const bg = activeDna.secondaryColors[0] ?? '#0b0f14';
     setForm((prev) => ({
       ...prev,
+      logoName: prev.logoName || activeDna.name || '',
+      clanName: prev.clanName || activeDna.clanName || '',
+      magikCharacter: prev.magikCharacter || activeDna.mascot || prev.magikCharacter,
+      game: prev.game || activeDna.favoriteGenres?.[0] || '',
+      style: prev.style || activeDna.styleDirection || prev.style,
       primaryColor: colors[0],
       secondaryColor: colors[1],
       accentColor: colors[2],
@@ -226,9 +231,16 @@ export function LogoStudioPage() {
       };
       const res = await api.studio.generate('logo', payload);
       if (res.variants?.length) {
-        setVariants(res.variants);
-        setActiveVariant('a');
-      } else if (res.imageUrl) {
+        const ok = res.variants.filter((v) => v.status === 'completed' && v.imageUrl);
+        if (!ok.length) {
+          const errMsg = res.variants.map((v) => v.error).filter(Boolean).join('; ');
+          setError(errMsg || 'Beide Logo-Varianten sind fehlgeschlagen');
+          setVariants(res.variants);
+        } else {
+          setVariants(res.variants);
+          setActiveVariant(ok[0].variant);
+        }
+      } else if (res.imageUrl && res.status === 'completed') {
         setVariants([
           {
             variant: 'a',
@@ -240,6 +252,8 @@ export function LogoStudioPage() {
             prompt: res.prompts?.a ?? promptDraft,
           },
         ]);
+      } else {
+        setError(res.error || 'Generierung fehlgeschlagen');
       }
       await refreshUser();
       await refresh();

@@ -106,7 +106,11 @@ export function StudioPage({
       }
 
       const res = await api.studio.generate(module, body);
-      if (res.imageUrl) setImageUrl(res.imageUrl);
+      if (res.status === 'failed' || !res.imageUrl) {
+        setError(res.error || 'Generierung fehlgeschlagen');
+        return;
+      }
+      setImageUrl(res.imageUrl);
       if (res.exports) setExportUrls(res.exports);
       setProvider(res.provider ?? null);
       await refreshUser();

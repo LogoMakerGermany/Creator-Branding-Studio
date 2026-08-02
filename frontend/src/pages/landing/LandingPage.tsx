@@ -81,10 +81,10 @@ export function LandingPage() {
             Premium Creator Branding · V2
           </p>
           <h1 className="font-display text-4xl font-bold leading-tight sm:text-5xl lg:text-6xl">
-            Ultimate Creator
+            Deine Creator DNA.
             <br />
             <span className="bg-gradient-to-r from-[var(--ucbs-accent-cyan)] via-brand-400 to-[var(--ucbs-accent-purple)] bg-clip-text text-transparent">
-              Branding Studio
+              Ein Branding. Alle Plattformen.
             </span>
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg text-zinc-400">
@@ -92,14 +92,14 @@ export function LandingPage() {
             Branding-Paket. Im Browser, ohne Download.
           </p>
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-            <Link to="/dashboard">
+            <Link to="/login">
               <Button size="lg" className="gap-2">
-                Dashboard öffnen <ArrowRight className="h-4 w-4" />
+                Kostenlos starten <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
-            <Link to="/login">
+            <Link to="/dashboard">
               <Button variant="outline" size="lg">
-                Kostenlos starten
+                Dashboard öffnen
               </Button>
             </Link>
           </div>

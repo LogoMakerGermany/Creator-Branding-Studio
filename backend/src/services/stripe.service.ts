@@ -1,11 +1,13 @@
 import Stripe from 'stripe';
-import { COIN_PACKAGES } from './coins.service.js';
 import { getPackageById } from './payment-credit.service.js';
 import {
   isStripeConfigured,
   getStripeMode,
   isStripeLiveMode,
   getPrimaryFrontendUrl,
+  getStripeSecretKey,
+  getStripeWebhookSecret,
+  getStripePriceId,
 } from '../config/env.js';
 
 let stripeClient: Stripe | null = null;
@@ -13,23 +15,15 @@ let stripeClient: Stripe | null = null;
 export { isStripeConfigured, getStripeMode, isStripeLiveMode };
 
 export function getStripeClient(): Stripe | null {
-  if (!isStripeConfigured()) return null;
+  const secretKey = getStripeSecretKey();
+  if (!secretKey) return null;
   if (!stripeClient) {
-    stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!);
+    stripeClient = new Stripe(secretKey);
   }
   return stripeClient;
 }
 
 export { getPackageById };
-
-function getStripePriceId(packageId: string): string | undefined {
-  const map: Record<string, string | undefined> = {
-    starter: process.env.STRIPE_PRICE_STARTER,
-    pro: process.env.STRIPE_PRICE_PRO,
-    ultimate: process.env.STRIPE_PRICE_ULTIMATE,
-  };
-  return map[packageId];
-}
 
 export async function createCheckoutSession(
   userId: string,
@@ -74,8 +68,60 @@ export async function createCheckoutSession(
       coins: String(pkg.coins),
       bonusCoins: String(pkg.bonusCoins),
       mode: getStripeMode(),
+      paymentKind: 'coin_package',
     },
     success_url: `${frontendUrl}/coins?success=true&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${frontendUrl}/coins?canceled=true`,
+  });
+
+  if (!session.url) {
+    throw new Error('Checkout-URL konnte nicht erstellt werden');
+  }
+
+  return { url: session.url, sessionId: session.id };
+}
+
+/** Exact-amount Stripe Checkout for a server-validated price quote. */
+export async function createQuoteCheckoutSession(
+  userId: string,
+  email: string,
+  quoteId: string,
+  totalCents: number,
+  summary: string
+): Promise<{ url: string; sessionId: string }> {
+  const stripe = getStripeClient();
+  if (!stripe) {
+    throw new Error('Stripe nicht konfiguriert');
+  }
+  if (!Number.isInteger(totalCents) || totalCents <= 0) {
+    throw new Error('Ungültiger Zahlungsbetrag');
+  }
+
+  const frontendUrl = getPrimaryFrontendUrl();
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    customer_email: email,
+    line_items: [
+      {
+        price_data: {
+          currency: 'eur',
+          product_data: {
+            name: 'Creator Auftrag',
+            description: summary.slice(0, 450) || `Quote ${quoteId}`,
+          },
+          unit_amount: totalCents,
+        },
+        quantity: 1,
+      },
+    ],
+    metadata: {
+      userId,
+      quoteId,
+      totalCents: String(totalCents),
+      mode: getStripeMode(),
+      paymentKind: 'order_quote',
+    },
+    success_url: `${frontendUrl}/coins?quote_success=true&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${frontendUrl}/coins?canceled=true`,
   });
 
@@ -104,7 +150,7 @@ export async function constructWebhookEvent(
     throw new Error('Stripe nicht konfiguriert');
   }
 
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  const secret = getStripeWebhookSecret();
   if (!secret) {
     throw new Error('STRIPE_WEBHOOK_SECRET nicht konfiguriert');
   }

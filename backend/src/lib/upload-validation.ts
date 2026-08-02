@@ -2,6 +2,7 @@ import { ServiceError } from './errors.js';
 
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 export const MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024;
+export const MAX_PROJECT_ZIP_BYTES = 80 * 1024 * 1024;
 export const MAX_FILES_PER_USER = 100;
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -71,6 +72,40 @@ export function parseAndValidateVideoDataUrl(dataUrl: string): {
   }
 
   return { mimeType, size };
+}
+
+export function parseAndValidateProjectZipDataUrl(dataUrl: string): {
+  mimeType: string;
+  size: number;
+  buffer: Buffer;
+} {
+  const trimmed = dataUrl.trim();
+  const match = DATA_URL_PATTERN.exec(trimmed);
+  if (!match) {
+    throw new ServiceError(400, 'INVALID_UPLOAD', 'Ungültiges ZIP-Format (data URL erwartet)');
+  }
+
+  const mimeType = match[1].toLowerCase();
+  const base64 = match[2].replace(/\s/g, '');
+
+  if (mimeType !== 'application/zip' && mimeType !== 'application/x-zip-compressed') {
+    throw new ServiceError(400, 'INVALID_UPLOAD', 'Nur ZIP-Dateien sind für den Projekt-Import erlaubt');
+  }
+
+  const size = Math.max(1, Math.floor((base64.length * 3) / 4));
+  if (size > MAX_PROJECT_ZIP_BYTES) {
+    throw new ServiceError(
+      413,
+      'FILE_TOO_LARGE',
+      `Maximale ZIP-Größe: ${MAX_PROJECT_ZIP_BYTES / (1024 * 1024)} MB`
+    );
+  }
+
+  return {
+    mimeType: 'application/zip',
+    size,
+    buffer: Buffer.from(base64, 'base64'),
+  };
 }
 
 export function isSafeAssetUrl(url: string): boolean {

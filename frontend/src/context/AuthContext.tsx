@@ -14,11 +14,14 @@ import {
   logoutFirebase,
   subscribeToAuth,
   completeRedirectLogin,
+  resetPassword,
   type AuthProviderId,
 } from '@/lib/firebase';
 import { resolveAuthProvider } from '@/lib/auth-providers';
 import { formatAuthError } from '@/lib/auth-errors';
 import { api, setAuthToken, type UserProfile, type CreatorDNA } from '@/services/api';
+
+const PENDING_INVITE_KEY = 'pending_invite_code';
 
 interface AuthContextValue {
   user: UserProfile | null;
@@ -27,13 +30,30 @@ interface AuthContextValue {
   isDevMode: boolean;
   loginProvider: (provider: AuthProviderId) => Promise<void>;
   loginEmail: (email: string, password: string) => Promise<void>;
-  registerEmail: (email: string, password: string) => Promise<void>;
+  registerEmail: (email: string, password: string, inviteCode?: string) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
   loginDev: () => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+async function syncProfile(displayName?: string, authProvider?: string) {
+  const inviteCode = sessionStorage.getItem(PENDING_INVITE_KEY) || undefined;
+  try {
+    await api.auth.sync(displayName, authProvider, inviteCode);
+    sessionStorage.removeItem(PENDING_INVITE_KEY);
+  } catch (err) {
+    const msg = formatAuthError(err);
+    if (msg.toLowerCase().includes('einladung') || msg.toLowerCase().includes('registrierung')) {
+      sessionStorage.setItem('auth_error', msg);
+      await logoutFirebase();
+      setAuthToken(null);
+    }
+    throw err;
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -63,34 +83,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (isFirebaseConfigured()) {
-        try {
-          const redirectUser = await completeRedirectLogin();
-          if (redirectUser) {
-            const token = await redirectUser.getIdToken();
-            setAuthToken(token);
-            await api.auth.sync(redirectUser.displayName || undefined, resolveAuthProvider(redirectUser));
-            await refreshUser();
-            setLoading(false);
-          }
-        } catch (err) {
-          sessionStorage.setItem('auth_error', formatAuthError(err));
-        }
-
         const unsub = subscribeToAuth(async (firebaseUser) => {
           if (firebaseUser) {
             const token = await firebaseUser.getIdToken();
             setAuthToken(token);
-            await api.auth.sync(
-              firebaseUser.displayName || undefined,
-              resolveAuthProvider(firebaseUser)
-            );
-            await refreshUser();
+            try {
+              await syncProfile(
+                firebaseUser.displayName || undefined,
+                resolveAuthProvider(firebaseUser)
+              );
+              await refreshUser();
+            } catch {
+              setUser(null);
+              setActiveDna(null);
+            }
           } else {
             setUser(null);
             setActiveDna(null);
           }
           setLoading(false);
         });
+
+        try {
+          const redirectUser = await completeRedirectLogin();
+          if (redirectUser) {
+            const token = await redirectUser.getIdToken();
+            setAuthToken(token);
+            await syncProfile(
+              redirectUser.displayName || undefined,
+              resolveAuthProvider(redirectUser)
+            );
+            await refreshUser();
+          }
+        } catch (err) {
+          sessionStorage.setItem('auth_error', formatAuthError(err));
+          setLoading(false);
+        }
 
         const refreshInterval = setInterval(async () => {
           const a = (await import('@/lib/firebase')).getFirebaseAuth();
@@ -119,7 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const firebaseUser = await loginFn();
     const token = await firebaseUser.getIdToken();
     setAuthToken(token);
-    await api.auth.sync(firebaseUser.displayName || undefined, resolveAuthProvider(firebaseUser));
+    await syncProfile(firebaseUser.displayName || undefined, resolveAuthProvider(firebaseUser));
     await refreshUser();
   }
 
@@ -131,8 +159,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await handleFirebaseLogin(() => loginWithEmail(email, password));
   };
 
-  const registerEmail = async (email: string, password: string) => {
+  const registerEmail = async (email: string, password: string, inviteCode?: string) => {
+    if (inviteCode) {
+      sessionStorage.setItem(PENDING_INVITE_KEY, inviteCode.trim());
+    }
     await handleFirebaseLogin(() => registerWithEmail(email, password));
+  };
+
+  const requestPasswordReset = async (email: string) => {
+    await resetPassword(email);
   };
 
   const loginDev = async () => {
@@ -148,6 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthToken(null);
     setUser(null);
     setActiveDna(null);
+    sessionStorage.removeItem(PENDING_INVITE_KEY);
   };
 
   return (
@@ -160,6 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loginProvider,
         loginEmail,
         registerEmail,
+        requestPasswordReset,
         loginDev,
         logout,
         refreshUser,

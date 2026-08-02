@@ -1,28 +1,68 @@
+/**
+ * dotenv populates process.env for local development only.
+ * Production secrets are injected by Railway — never assume a .env file exists.
+ * All application code reads configuration exclusively via ./config/env.js.
+ */
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import { initializeFirebase } from './config/firebase.js';
-import { validateProductionConfig } from './config/startup-validation.js';
+import { initializeFirebase, isFirebaseReady } from './config/firebase.js';
+import { assertProductionConfigOrExit } from './config/startup-validation.js';
 import { getProductionCspDirectives } from './config/csp.js';
-import { isDevAuthEnabled, isProduction, getFrontendUrls } from './config/env.js';
+import {
+  isDevAuthEnabled,
+  isProduction,
+  getFrontendUrls,
+  getPort,
+  isFirebaseAdminConfigured,
+  isStripeConfigured,
+  hasImageAiProvider,
+} from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { attachStaticFrontend, shouldServeStatic } from './middleware/static.js';
 import { apiRouter } from './routes/index.js';
 
+assertProductionConfigOrExit();
+initializeFirebase();
+
+if (isProduction() && !isFirebaseReady()) {
+  console.error('[Startup] Firebase Admin failed to initialize — refusing to start');
+  process.exit(1);
+}
+
 console.log('Server starting...');
-console.log('PORT =', process.env.PORT);
+const PORT = getPort();
+console.log('PORT =', PORT);
 
 const app = express();
-const PORT = process.env.PORT || 8080;
 const allowedOrigins = getFrontendUrls();
 
 /** Railway reverse proxy — MUST be set before any middleware (helmet, cors, rate-limit, …). */
 app.set('trust proxy', 1);
 
-/** Health probe — registered before any other middleware so Railway gets 200 immediately. */
+function isReady(): boolean {
+  if (!isProduction()) return true;
+  return (
+    isFirebaseReady() &&
+    isFirebaseAdminConfigured() &&
+    isStripeConfigured() &&
+    hasImageAiProvider()
+  );
+}
+
+/** Liveness + readiness for Railway. Returns 503 when production config/services are not ready. */
 app.get('/health', (_req, res) => {
+  if (!isReady()) {
+    res.status(503).json({
+      status: 'not_ready',
+      firebase: isFirebaseReady(),
+      stripe: isStripeConfigured(),
+      ai: hasImageAiProvider(),
+    });
+    return;
+  }
   res.status(200).json({ status: 'ok' });
 });
 
@@ -120,6 +160,10 @@ app.use((req, res, next) => {
     express.json({ limit: '55mb' })(req, res, next);
     return;
   }
+  if (req.originalUrl.startsWith('/api/v1/projects/import')) {
+    express.json({ limit: '85mb' })(req, res, next);
+    return;
+  }
   express.json({ limit: '512kb' })(req, res, next);
 });
 
@@ -139,20 +183,6 @@ app.listen(Number(PORT), '0.0.0.0', () => {
   if (isDevAuthEnabled()) {
     console.log('[Dev] Dev-Auth aktiv — nur für lokale Entwicklung');
   }
-
-  setImmediate(() => {
-    try {
-      validateProductionConfig();
-    } catch (err) {
-      console.error('[Startup] Config validation failed:', err);
-    }
-
-    try {
-      initializeFirebase();
-    } catch (err) {
-      console.error('[Startup] Firebase initialization failed:', err);
-    }
-  });
 });
 
 export default app;

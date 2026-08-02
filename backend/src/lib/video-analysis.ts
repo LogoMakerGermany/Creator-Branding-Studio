@@ -1,5 +1,5 @@
 import { ServiceError } from './errors.js';
-import { isProduction } from '../config/env.js';
+import { isProduction, getOpenAiApiKey } from '../config/env.js';
 import type { SubtitleSegment } from './video-processing.js';
 import { extractAudioFromVideo } from './video-processing.js';
 
@@ -9,7 +9,8 @@ export interface VideoAnalysisResult {
 }
 
 export async function transcribeVideoSource(sourceUrl: string): Promise<SubtitleSegment[]> {
-  if (!process.env.OPENAI_API_KEY) {
+  const apiKey = getOpenAiApiKey();
+  if (!apiKey) {
     throw new ServiceError(
       503,
       'AI_NOT_CONFIGURED',
@@ -26,7 +27,7 @@ export async function transcribeVideoSource(sourceUrl: string): Promise<Subtitle
 
   const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+    headers: { Authorization: `Bearer ${apiKey}` },
     body: form,
   });
 
@@ -56,7 +57,8 @@ export async function detectHighlightsFromSubtitles(
   subtitles: SubtitleSegment[],
   styleDirection?: string
 ): Promise<VideoAnalysisResult['highlights']> {
-  if (!process.env.OPENAI_API_KEY) {
+  const apiKey = getOpenAiApiKey();
+  if (!apiKey) {
     throw new ServiceError(503, 'AI_NOT_CONFIGURED', 'Highlight-Erkennung benötigt OPENAI_API_KEY');
   }
 
@@ -67,7 +69,7 @@ export async function detectHighlightsFromSubtitles(
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -120,7 +122,7 @@ export async function analyzeVideoFromSource(
 }
 
 export function requireVideoAnalysisConfigured(): void {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!getOpenAiApiKey()) {
     if (isProduction()) {
       throw new ServiceError(
         503,

@@ -1,25 +1,60 @@
 import { CoinSpendCategory, COIN_COSTS, COIN_PACKAGE_DEFINITIONS } from '@ucbs/shared';
+import { getStripePriceId } from '../config/env.js';
 import { devStore, isDevMode } from '../lib/dev-store.js';
 import { getUserById, updateCoinBalance } from './user.service.js';
 import { randomUUID } from 'node:crypto';
 
-function stripePriceIdForPackage(packageId: string): string | undefined {
-  const map: Record<string, string | undefined> = {
-    starter: process.env.STRIPE_PRICE_STARTER,
-    pro: process.env.STRIPE_PRICE_PRO,
-    ultimate: process.env.STRIPE_PRICE_ULTIMATE,
-  };
-  return map[packageId];
-}
-
 export const COIN_PACKAGES = COIN_PACKAGE_DEFINITIONS.map((pkg) => ({
   ...pkg,
-  stripePriceId: stripePriceIdForPackage(pkg.id),
+  stripePriceId: getStripePriceId(pkg.id),
 }));
 
 export async function getCoinBalance(userId: string): Promise<number> {
   const user = await getUserById(userId);
   return user?.coinBalance ?? 0;
+}
+
+async function writeTransaction(tx: Record<string, unknown>): Promise<void> {
+  if (isDevMode()) {
+    devStore.addTransaction(tx);
+    return;
+  }
+  const { getFirestore } = await import('../config/firebase.js');
+  const db = getFirestore();
+  await db.collection('coin_transactions').doc(String(tx.id)).set(tx);
+}
+
+async function adjustBalanceAtomic(
+  userId: string,
+  delta: number
+): Promise<{ success: boolean; newBalance: number; previousBalance: number }> {
+  if (isDevMode()) {
+    const user = await getUserById(userId);
+    if (!user) throw new Error('User not found');
+    const previousBalance = user.coinBalance ?? 0;
+    if (delta < 0 && previousBalance < Math.abs(delta)) {
+      return { success: false, newBalance: previousBalance, previousBalance };
+    }
+    const newBalance = previousBalance + delta;
+    await updateCoinBalance(userId, newBalance);
+    return { success: true, newBalance, previousBalance };
+  }
+
+  const { getFirestore } = await import('../config/firebase.js');
+  const db = getFirestore();
+  const ref = db.collection('users').doc(userId);
+
+  return db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists) throw new Error('User not found');
+    const previousBalance = (snap.data()?.coinBalance as number) ?? 0;
+    if (delta < 0 && previousBalance < Math.abs(delta)) {
+      return { success: false, newBalance: previousBalance, previousBalance };
+    }
+    const newBalance = previousBalance + delta;
+    transaction.update(ref, { coinBalance: newBalance, updatedAt: new Date().toISOString() });
+    return { success: true, newBalance, previousBalance };
+  });
 }
 
 export async function deductCoins(
@@ -28,37 +63,23 @@ export async function deductCoins(
   description: string
 ): Promise<{ success: boolean; newBalance: number; cost: number }> {
   const cost = COIN_COSTS[category];
-  const user = await getUserById(userId);
-  if (!user) throw new Error('User not found');
-
-  const balance = user.coinBalance ?? 0;
-  if (balance < cost) {
-    return { success: false, newBalance: balance, cost };
+  const result = await adjustBalanceAtomic(userId, -cost);
+  if (!result.success) {
+    return { success: false, newBalance: result.newBalance, cost };
   }
 
-  const newBalance = balance - cost;
-  await updateCoinBalance(userId, newBalance);
-
-  const tx = {
+  await writeTransaction({
     id: randomUUID(),
     userId,
     type: 'spend',
     amount: -cost,
-    balanceAfter: newBalance,
+    balanceAfter: result.newBalance,
     category,
     description,
     createdAt: new Date().toISOString(),
-  };
+  });
 
-  if (isDevMode()) {
-    devStore.addTransaction(tx);
-  } else {
-    const { getFirestore } = await import('../config/firebase.js');
-    const db = getFirestore();
-    await db.collection('coin_transactions').doc(tx.id).set(tx);
-  }
-
-  return { success: true, newBalance, cost };
+  return { success: true, newBalance: result.newBalance, cost };
 }
 
 export async function deductAmount(
@@ -66,37 +87,26 @@ export async function deductAmount(
   amount: number,
   description: string
 ): Promise<{ success: boolean; newBalance: number; cost: number }> {
-  const user = await getUserById(userId);
-  if (!user) throw new Error('User not found');
-
-  const balance = user.coinBalance ?? 0;
-  if (balance < amount) {
-    return { success: false, newBalance: balance, cost: amount };
+  if (amount <= 0) {
+    throw new Error('Amount must be positive');
+  }
+  const result = await adjustBalanceAtomic(userId, -amount);
+  if (!result.success) {
+    return { success: false, newBalance: result.newBalance, cost: amount };
   }
 
-  const newBalance = balance - amount;
-  await updateCoinBalance(userId, newBalance);
-
-  const tx = {
+  await writeTransaction({
     id: randomUUID(),
     userId,
     type: 'spend',
     amount: -amount,
-    balanceAfter: newBalance,
+    balanceAfter: result.newBalance,
     category: CoinSpendCategory.MARKETPLACE_PURCHASE,
     description,
     createdAt: new Date().toISOString(),
-  };
+  });
 
-  if (isDevMode()) {
-    devStore.addTransaction(tx);
-  } else {
-    const { getFirestore } = await import('../config/firebase.js');
-    const db = getFirestore();
-    await db.collection('coin_transactions').doc(tx.id).set(tx);
-  }
-
-  return { success: true, newBalance, cost: amount };
+  return { success: true, newBalance: result.newBalance, cost: amount };
 }
 
 export interface AddCoinsOptions {
@@ -113,19 +123,21 @@ export async function addCoins(
   type: 'purchase' | 'bonus' | 'refund' = 'purchase',
   options?: AddCoinsOptions
 ): Promise<number> {
-  const user = await getUserById(userId);
-  if (!user) throw new Error('User not found');
+  if (amount <= 0) {
+    throw new Error('Amount must be positive');
+  }
 
-  const balance = user.coinBalance ?? 0;
-  const newBalance = balance + amount;
-  await updateCoinBalance(userId, newBalance);
+  const result = await adjustBalanceAtomic(userId, amount);
+  if (!result.success) {
+    throw new Error('Failed to credit coins');
+  }
 
   const tx: Record<string, unknown> = {
     id: randomUUID(),
     userId,
     type,
     amount,
-    balanceAfter: newBalance,
+    balanceAfter: result.newBalance,
     description,
     createdAt: new Date().toISOString(),
   };
@@ -143,15 +155,8 @@ export async function addCoins(
     };
   }
 
-  if (isDevMode()) {
-    devStore.addTransaction(tx);
-  } else {
-    const { getFirestore } = await import('../config/firebase.js');
-    const db = getFirestore();
-    await db.collection('coin_transactions').doc(String(tx.id)).set(tx);
-  }
-
-  return newBalance;
+  await writeTransaction(tx);
+  return result.newBalance;
 }
 
 export async function getTransactions(userId: string, limit = 50) {

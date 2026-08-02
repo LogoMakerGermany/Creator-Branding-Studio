@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Dna, Image, Film, Bot, Cloud, Store, Sparkles } from 'lucide-react';
+import { Dna, Image, Film, Bot, Cloud, FolderKanban, Sparkles } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
@@ -29,9 +29,9 @@ export function DashboardV2Page() {
     queryFn: async () => (await api.files.list()).files.slice(0, 4),
   });
 
-  const marketplaceQuery = useQuery({
-    queryKey: ['dashboard-marketplace'],
-    queryFn: async () => (await api.marketplace.list()).items.slice(0, 3),
+  const projectsQuery = useQuery({
+    queryKey: ['dashboard-projects'],
+    queryFn: async () => (await api.projects.list()).projects.slice(0, 3),
   });
 
   const dnaProgress = activeDna
@@ -143,25 +143,24 @@ export function DashboardV2Page() {
 
         <section>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-display text-lg font-semibold text-white">Marketplace</h2>
-            <Link to="/marketplace" className="text-sm text-[var(--ucbs-accent-cyan)] hover:underline">Shop öffnen</Link>
+            <h2 className="font-display text-lg font-semibold text-white">Meine Projekte</h2>
+            <Link to="/projects" className="text-sm text-[var(--ucbs-accent-cyan)] hover:underline">
+              Alle anzeigen
+            </Link>
           </div>
-          {marketplaceQuery.isLoading ? (
+          {projectsQuery.isLoading ? (
             <Skeleton className="h-32" />
-          ) : marketplaceQuery.data?.length ? (
+          ) : projectsQuery.data?.length ? (
             <div className="space-y-2">
-              {marketplaceQuery.data.map((item) => (
-                <Link key={item.id} to="/marketplace">
+              {projectsQuery.data.map((project) => (
+                <Link key={project.id} to="/projects">
                   <GlassCard accent="purple" className="!p-4">
                     <div className="flex items-center gap-3">
-                      {item.previewUrl && (
-                        <img src={item.previewUrl} alt="" className="h-12 w-12 rounded-lg object-cover" />
-                      )}
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-white">{item.title}</p>
-                        <p className="text-xs text-zinc-500">{item.priceCoins} Coins</p>
+                        <p className="truncate text-sm font-medium text-white">{project.name}</p>
+                        <p className="text-xs text-zinc-500">{project.type} · {project.status}</p>
                       </div>
-                      <Store className="h-4 w-4 text-zinc-500" />
+                      <FolderKanban className="h-4 w-4 text-zinc-500" />
                     </div>
                   </GlassCard>
                 </Link>
@@ -169,7 +168,7 @@ export function DashboardV2Page() {
             </div>
           ) : (
             <GlassCard accent="none" hover={false}>
-              <p className="text-sm text-zinc-500">Keine Empfehlungen — entdecke den Marketplace.</p>
+              <p className="text-sm text-zinc-500">Noch keine Projekte — starte im Branding Studio.</p>
             </GlassCard>
           )}
         </section>

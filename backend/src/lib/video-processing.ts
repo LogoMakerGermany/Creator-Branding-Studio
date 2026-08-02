@@ -84,7 +84,7 @@ export async function clipVideoSegment(
   sourceUrl: string,
   start: number,
   end: number,
-  options?: { vertical?: boolean }
+  options?: { vertical?: boolean; scaleFilter?: string }
 ): Promise<Buffer> {
   const duration = Math.max(1, end - start);
   return withTempDir(async (dir) => {
@@ -92,9 +92,11 @@ export async function clipVideoSegment(
     const output = join(dir, 'clip.mp4');
     await writeFile(input, await fetchVideoBuffer(sourceUrl));
 
-    const vf = options?.vertical
-      ? 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920'
-      : undefined;
+    const vf =
+      options?.scaleFilter ??
+      (options?.vertical
+        ? 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920'
+        : undefined);
 
     const args = [
       '-y',

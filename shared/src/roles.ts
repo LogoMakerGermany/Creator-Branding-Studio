@@ -1,14 +1,38 @@
 export enum UserRole {
   SUPER_ADMIN = 'super_admin',
   ADMIN = 'admin',
+  /** Product role: normal customer (replaces CREATOR for new signups) */
+  USER = 'user',
+  /** Product role: closed beta tester with promotional credit */
+  TESTER = 'tester',
+  /** Optional support staff */
+  SUPPORT = 'support',
   AGENCY_OWNER = 'agency_owner',
   AGENCY_MANAGER = 'agency_manager',
   AGENCY_EMPLOYEE = 'agency_employee',
   TEAM_LEADER = 'team_leader',
   TEAM_MEMBER = 'team_member',
+  /** @deprecated Prefer USER — kept for existing profiles */
   CREATOR = 'creator',
   CLIENT = 'client',
   GUEST = 'guest',
+}
+
+/** Core product roles used for registration and admin tooling. */
+export type ProductRole = UserRole.USER | UserRole.TESTER | UserRole.ADMIN | UserRole.SUPPORT;
+
+export function isAdminRole(role: UserRole): boolean {
+  return role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN;
+}
+
+export function isTesterRole(role: UserRole): boolean {
+  return role === UserRole.TESTER;
+}
+
+/** Normalize legacy CREATOR to USER for product-facing checks. */
+export function normalizeProductRole(role: UserRole): UserRole {
+  if (role === UserRole.CREATOR) return UserRole.USER;
+  return role;
 }
 
 export interface RolePermissions {
@@ -20,6 +44,10 @@ export enum Permission {
   // User
   MANAGE_USERS = 'manage_users',
   VIEW_USERS = 'view_users',
+  MANAGE_INVITES = 'manage_invites',
+  MANAGE_PRICING = 'manage_pricing',
+  MANAGE_SYSTEM = 'manage_system',
+  VIEW_ADMIN = 'view_admin',
 
   // Creator DNA
   CREATE_DNA = 'create_dna',
@@ -81,11 +109,55 @@ export enum Permission {
   USE_LIVE_STREAMING = 'use_live_streaming',
 }
 
+const CREATOR_PERMISSIONS: Permission[] = [
+  Permission.CREATE_DNA,
+  Permission.EDIT_DNA,
+  Permission.VIEW_DNA,
+  Permission.USE_LOGO_STUDIO,
+  Permission.USE_BANNER_STUDIO,
+  Permission.USE_FACECAM_STUDIO,
+  Permission.USE_OVERLAY_STUDIO,
+  Permission.USE_STICKER_STUDIO,
+  Permission.USE_LAYOUT_STUDIO,
+  Permission.USE_VIDEO_STUDIO,
+  Permission.USE_VTUBER_STUDIO,
+  Permission.USE_AI_ASSISTANT,
+  Permission.USE_AI_IMAGE,
+  Permission.USE_AI_VIDEO,
+  Permission.USE_AI_MUSIC,
+  Permission.USE_AI_VOICE,
+  Permission.MANAGE_TEAM,
+  Permission.MANAGE_TEAM_DNA,
+  Permission.MANAGE_AGENCY,
+  Permission.MANAGE_CLIENTS,
+  Permission.MANAGE_PROJECTS,
+  Permission.SELL_MARKETPLACE,
+  Permission.BUY_MARKETPLACE,
+  Permission.PURCHASE_COINS,
+  Permission.MANAGE_WHITE_LABEL,
+  Permission.MANAGE_SOCIAL,
+  Permission.MANAGE_CALENDAR,
+  Permission.USE_TEAM_CHAT,
+  Permission.UPLOAD_FILES,
+  Permission.MANAGE_FILES,
+  Permission.ACCESS_CLIENT_PORTAL,
+  Permission.USE_MOBILE_APP,
+  Permission.USE_LIVE_STREAMING,
+];
+
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   [UserRole.SUPER_ADMIN]: Object.values(Permission),
   [UserRole.ADMIN]: Object.values(Permission).filter(
     (p) => p !== Permission.MANAGE_WHITE_LABEL
   ),
+  [UserRole.USER]: [...CREATOR_PERMISSIONS],
+  [UserRole.TESTER]: [...CREATOR_PERMISSIONS],
+  [UserRole.SUPPORT]: [
+    Permission.VIEW_USERS,
+    Permission.VIEW_ADMIN,
+    Permission.VIEW_DNA,
+    Permission.MANAGE_PROJECTS,
+  ],
   [UserRole.AGENCY_OWNER]: [
     Permission.VIEW_USERS,
     Permission.CREATE_DNA,
@@ -231,41 +303,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     Permission.USE_MOBILE_APP,
     Permission.USE_LIVE_STREAMING,
   ],
-  [UserRole.CREATOR]: [
-    Permission.CREATE_DNA,
-    Permission.EDIT_DNA,
-    Permission.VIEW_DNA,
-    Permission.USE_LOGO_STUDIO,
-    Permission.USE_BANNER_STUDIO,
-    Permission.USE_FACECAM_STUDIO,
-    Permission.USE_OVERLAY_STUDIO,
-    Permission.USE_STICKER_STUDIO,
-    Permission.USE_LAYOUT_STUDIO,
-    Permission.USE_VIDEO_STUDIO,
-    Permission.USE_VTUBER_STUDIO,
-    Permission.USE_AI_ASSISTANT,
-    Permission.USE_AI_IMAGE,
-    Permission.USE_AI_VIDEO,
-    Permission.USE_AI_MUSIC,
-    Permission.USE_AI_VOICE,
-    Permission.MANAGE_TEAM,
-    Permission.MANAGE_TEAM_DNA,
-    Permission.MANAGE_AGENCY,
-    Permission.MANAGE_CLIENTS,
-    Permission.MANAGE_PROJECTS,
-    Permission.SELL_MARKETPLACE,
-    Permission.BUY_MARKETPLACE,
-    Permission.PURCHASE_COINS,
-    Permission.MANAGE_WHITE_LABEL,
-    Permission.MANAGE_SOCIAL,
-    Permission.MANAGE_CALENDAR,
-    Permission.USE_TEAM_CHAT,
-    Permission.UPLOAD_FILES,
-    Permission.MANAGE_FILES,
-    Permission.ACCESS_CLIENT_PORTAL,
-    Permission.USE_MOBILE_APP,
-    Permission.USE_LIVE_STREAMING,
-  ],
+  [UserRole.CREATOR]: [...CREATOR_PERMISSIONS],
   [UserRole.CLIENT]: [
     Permission.VIEW_DNA,
     Permission.ACCESS_CLIENT_PORTAL,

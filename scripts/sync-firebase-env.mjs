@@ -49,6 +49,17 @@ const frontendProd = path.join(root, 'frontend', '.env.production');
 writeFileSync(frontendProd, lines.join('\n'), 'utf8');
 console.log(`Wrote ${frontendProd}`);
 
+const devLines = [
+  '# Lokale Entwicklung — Vite lädt .env.local automatisch',
+  '# VITE_API_URL leer = Vite-Proxy auf localhost:3001',
+  ...lines.slice(0, 7),
+  'VITE_API_URL=',
+  '',
+];
+const frontendLocal = path.join(root, 'frontend', '.env.local');
+writeFileSync(frontendLocal, devLines.join('\n'), 'utf8');
+console.log(`Wrote ${frontendLocal}`);
+
 const railwayPath = path.join(root, 'backend', '.env.railway');
 if (existsSync(railwayPath)) {
   let content = readFileSync(railwayPath, 'utf8');

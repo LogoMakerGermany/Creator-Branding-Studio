@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { CreatorDNA } from '@ucbs/shared';
 import { dsGet, dsSet, dsList, dsListWhere } from '../lib/data-store.js';
-import { createDna, getDnaById } from './dna.service.js';
+import { createLinkedDna, getDnaById } from './dna.service.js';
 
 export interface Agency {
   id: string;
@@ -111,15 +111,18 @@ export async function createAgencyDna(
     }
   }
 
-  const dna = await createDna({
-    userId,
-    name: `${agency.name} Agentur DNA`,
-    styleDirection: style as CreatorDNA['styleDirection'],
-    primaryColors: baseColors.slice(0, 2).length ? baseColors.slice(0, 2) : ['#7C3AED', '#1E1B4B'],
-    secondaryColors: baseColors.slice(2, 4).length ? baseColors.slice(2, 4) : ['#A78BFA', '#312E81'],
-    accentColors: baseColors.slice(4, 6).length ? baseColors.slice(4, 6) : ['#F5F3FF'],
-    targetPlatforms: ['instagram', 'youtube', 'tiktok', 'discord'],
-  });
+  const dna = await createLinkedDna(
+    {
+      userId,
+      name: `${agency.name} Agentur DNA`,
+      styleDirection: style as CreatorDNA['styleDirection'],
+      primaryColors: baseColors.slice(0, 2).length ? baseColors.slice(0, 2) : ['#7C3AED', '#1E1B4B'],
+      secondaryColors: baseColors.slice(2, 4).length ? baseColors.slice(2, 4) : ['#A78BFA', '#312E81'],
+      accentColors: baseColors.slice(4, 6).length ? baseColors.slice(4, 6) : ['#F5F3FF'],
+      targetPlatforms: ['instagram', 'youtube', 'tiktok', 'discord'],
+    },
+    'agency'
+  );
 
   agency.dnaId = dna.id;
   agency.updatedAt = new Date().toISOString();

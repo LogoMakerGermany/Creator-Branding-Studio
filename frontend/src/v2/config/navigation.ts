@@ -4,11 +4,9 @@ import {
   Palette,
   Film,
   Bot,
-  Users,
-  Share2,
   FolderKanban,
-  Store,
   Settings,
+  Coins,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -19,16 +17,14 @@ export interface NavItem {
   description?: string;
 }
 
-/** Primary sidebar navigation — V2.0 */
+/** Primary sidebar — core creator product only (marketplace/agency/social deferred). */
 export const PRIMARY_NAV: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', path: '/dashboard', icon: Home },
   { id: 'branding', label: 'Branding Studio', path: '/branding-studio', icon: Palette },
   { id: 'video', label: 'Video Studio', path: '/video-studio', icon: Film },
   { id: 'ai-creator', label: 'AI Creator', path: '/ai-creator', icon: Bot },
-  { id: 'teams', label: 'Teams', path: '/teams', icon: Users },
-  { id: 'social', label: 'Social Media', path: '/social-media', icon: Share2 },
-  { id: 'projects', label: 'Projekte', path: '/projects', icon: FolderKanban },
-  { id: 'marketplace', label: 'Marketplace', path: '/marketplace', icon: Store },
+  { id: 'projects', label: 'Meine Projekte', path: '/projects', icon: FolderKanban },
+  { id: 'coins', label: 'Guthaben', path: '/coins', icon: Coins },
   { id: 'settings', label: 'Einstellungen', path: '/settings', icon: Settings },
 ];
 
@@ -50,40 +46,37 @@ export const BRANDING_MODULES: HubModule[] = [
   { id: 'intro', title: 'Intro & Outro', description: 'Starting Soon, Ending Screen', path: '/intro-outro', accent: 'green' },
   { id: 'sticker', title: 'Sticker & Emotes', description: 'Emotes, Badges, Sticker', path: '/sticker-studio', accent: 'cyan' },
   { id: 'pack', title: 'Branding Pack', description: 'Komplettes Markenpaket', path: '/branding-generator', accent: 'purple' },
-  { id: 'vtuber', title: 'Avatar & Mascot', description: 'VTuber & Maskottchen', path: '/vtuber-studio', accent: 'green' },
 ];
 
 export const AI_CREATOR_MODULES: HubModule[] = [
   { id: 'assistant', title: 'KI Assistent', description: 'Strategie & Branding-Beratung', path: '/ai-assistant', accent: 'cyan' },
+  { id: 'prompts', title: 'Prompt Studio', description: 'Strukturierte Generierungs-Prompts', path: '/prompt-studio', accent: 'purple' },
   { id: 'image', title: 'KI Bild', description: 'Logos, Banner, Assets', path: '/ai-image', accent: 'purple' },
-  { id: 'video', title: 'KI Video', description: 'Clips & Animationen', path: '/ai-video', accent: 'green' },
-  { id: 'voice', title: 'KI Stimme', description: 'Voice-Overs & Skripte', path: '/ai-voice', accent: 'cyan' },
+  { id: 'video', title: 'Animation / KI Video', description: 'Bild-zu-Video Animationen', path: '/ai-video', accent: 'green' },
   { id: 'changes', title: 'Änderungswünsche', description: 'Versionen & Anpassungen', path: '/change-request', accent: 'purple' },
 ];
 
+/** Deferred from core nav — keep exports for orphan pages / future phases. */
 export const TEAMS_MODULES: HubModule[] = [
-  { id: 'team-dna', title: 'Team DNA', description: 'Gemeinsame Markenidentität', path: '/team-dna', accent: 'cyan' },
-  { id: 'team-chat', title: 'Team Chat', description: 'Interne Kommunikation', path: '/team-chat', accent: 'purple' },
+  { id: 'team-dna', title: 'Team DNA', description: 'Gemeinsame Markenidentität', path: '/team-dna', accent: 'cyan', tags: ['Später'] },
+  { id: 'team-chat', title: 'Team Chat', description: 'Interne Kommunikation', path: '/team-chat', accent: 'purple', tags: ['Später'] },
 ];
 
 export const PROJECTS_MODULES: HubModule[] = [
+  { id: 'manage', title: 'Projektverwaltung', description: 'Projekte, Papierkorb & Export', path: '/projects', accent: 'cyan' },
   { id: 'files', title: 'Datei Cloud', description: 'Alle Assets & Exporte', path: '/file-cloud', accent: 'cyan' },
-  { id: 'calendar', title: 'Content Kalender', description: 'Posts & Streams planen', path: '/content-calendar', accent: 'purple' },
   { id: 'dna', title: 'Creator DNA', description: 'Markenidentität verwalten', path: '/creator-dna', accent: 'green' },
 ];
 
 export const SETTINGS_LINKS: HubModule[] = [
   { id: 'dna', title: 'Creator DNA', description: 'Farben, Stil, Plattformen', path: '/creator-dna', accent: 'cyan' },
-  { id: 'coins', title: 'Coins & Premium', description: 'Guthaben & Zahlungen', path: '/coins', accent: 'purple' },
-  { id: 'magik-assistant', title: 'MAGIK AI Assistant', description: 'Persönlicher Logo-Begleiter (Demnächst)', path: '/settings/magik-assistant', accent: 'purple', tags: ['Demnächst'] },
-  { id: 'mobile', title: 'Mobile App', description: 'PWA & Installation', path: '/mobile-app', accent: 'green' },
+  { id: 'coins', title: 'Guthaben & Zahlung', description: 'Euro-Guthaben, Quotes & Stripe', path: '/coins', accent: 'purple' },
 ];
 
 export const AI_PROMPT_SUGGESTIONS = [
   'Cyberpunk Neon Logo für Twitch',
   'Anime Stream Overlay',
   'Call of Duty Clan Banner',
-  'Fortnite Emote Pack',
   'Fantasy Wolf Mascot',
   'Esports Team Identity',
   'Minimal Kick Banner',

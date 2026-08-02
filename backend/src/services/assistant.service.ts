@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { isDevMode, isProduction } from '../config/env.js';
+import { isDevMode, isProduction, getOpenAiApiKey } from '../config/env.js';
 import { dsSet, dsDelete, dsList } from '../lib/data-store.js';
 import { ServiceError } from '../lib/errors.js';
 import { getActiveDna } from './dna.service.js';
@@ -81,7 +81,7 @@ async function generateAssistantReply(
     ? `Creator DNA: "${dna.name}", Stil: ${dna.styleDirection}, Farben: ${dna.primaryColors.join(', ')}`
     : 'Keine Creator DNA vorhanden.';
 
-  if (process.env.OPENAI_API_KEY) {
+  if (getOpenAiApiKey()) {
     try {
       const history = messages.slice(-12).map((m) => ({
         role: m.role,
@@ -91,7 +91,7 @@ async function generateAssistantReply(
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          Authorization: `Bearer ${getOpenAiApiKey()}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

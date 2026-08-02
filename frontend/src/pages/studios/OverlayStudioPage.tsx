@@ -20,6 +20,8 @@ const OVERLAY_TYPES = [
   { id: 'panel', label: 'Panel' },
   { id: 'starting-soon', label: 'Starting Soon' },
   { id: 'brb', label: 'BRB' },
+  { id: 'offline', label: 'Offline' },
+  { id: 'ending', label: 'Ending' },
   { id: 'full-scene', label: 'Full Scene' },
 ] as const;
 
@@ -47,7 +49,11 @@ export function OverlayStudioPage() {
     setError(null);
     try {
       const res = await api.studio.generate('overlay', form);
-      if (res.imageUrl) setImageUrl(res.imageUrl);
+      if (res.status === 'failed' || !res.imageUrl) {
+        setError(res.error || 'Generierung fehlgeschlagen');
+        return;
+      }
+      setImageUrl(res.imageUrl);
       if (res.exports) setExports(res.exports);
       setProvider(res.provider ?? null);
       await refreshUser();

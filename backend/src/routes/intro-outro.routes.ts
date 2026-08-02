@@ -6,8 +6,8 @@ import { requirePermission } from '../middleware/rbac.js';
 import { asyncHandler, sendSuccess, AppError } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { getActiveDna } from '../services/dna.service.js';
-import { deductCoins } from '../services/coins.service.js';
 import { listMediaJobs, runMediaJob } from '../services/media.service.js';
+import { withCoinCharge, withCoinChargePack } from '../lib/billable-job.js';
 
 export const introOutroRoutes = Router();
 introOutroRoutes.use(authenticate, requirePermission(Permission.USE_VIDEO_STUDIO));
@@ -35,20 +35,19 @@ introOutroRoutes.post(
     const activeDna = await getActiveDna(req.user!.uid);
     if (!activeDna) throw new AppError(400, 'NO_DNA', 'Creator DNA erforderlich');
 
-    const coinResult = await deductCoins(
+    const { job, coinsSpent, newBalance } = await withCoinCharge(
       req.user!.uid,
       CoinSpendCategory.VIDEO_EDIT,
-      `${body.type} Generierung`
+      `${body.type} Generierung`,
+      () =>
+        runMediaJob(req.user!.uid, body.type, activeDna, {
+          customPrompt: body.prompt,
+          title: body.title,
+          duration: body.type === 'intro' || body.type === 'outro' ? 10 : 15,
+        })
     );
-    if (!coinResult.success) throw new AppError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
 
-    const job = await runMediaJob(req.user!.uid, body.type, activeDna, {
-      customPrompt: body.prompt,
-      title: body.title,
-      duration: body.type === 'intro' || body.type === 'outro' ? 10 : 15,
-    });
-
-    sendSuccess(res, { job, coinsSpent: coinResult.cost, newBalance: coinResult.newBalance }, 201);
+    sendSuccess(res, { job, coinsSpent, newBalance }, 201);
   })
 );
 
@@ -58,14 +57,15 @@ introOutroRoutes.post(
     const activeDna = await getActiveDna(req.user!.uid);
     if (!activeDna) throw new AppError(400, 'NO_DNA', 'Creator DNA erforderlich');
 
-    const coinResult = await deductCoins(req.user!.uid, CoinSpendCategory.BRANDING_PACK, 'Intro/Outro Paket');
-    if (!coinResult.success) throw new AppError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
-
     const types = ['intro', 'outro', 'stream-start', 'stream-end'] as const;
-    const jobs = await Promise.all(
-      types.map((type) => runMediaJob(req.user!.uid, type, activeDna, { duration: 10 }))
+    const { jobs, coinsSpent, newBalance } = await withCoinChargePack(
+      req.user!.uid,
+      CoinSpendCategory.BRANDING_PACK,
+      'Intro/Outro Paket',
+      () =>
+        Promise.all(types.map((type) => runMediaJob(req.user!.uid, type, activeDna, { duration: 10 })))
     );
 
-    sendSuccess(res, { jobs, coinsSpent: coinResult.cost, newBalance: coinResult.newBalance }, 201);
+    sendSuccess(res, { jobs, coinsSpent, newBalance }, 201);
   })
 );

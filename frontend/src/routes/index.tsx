@@ -26,6 +26,7 @@ import { MobileAppPage } from '@/pages/mobile/MobileAppPage';
 import { FileCloudPage } from '@/pages/files/FileCloudPage';
 import { ModulePage } from '@/pages/modules/ModulePage';
 import { CoinsPage } from '@/pages/coins/CoinsPage';
+import { PromptStudioPage } from '@/pages/prompt-studio/PromptStudioPage';
 import { UltimateCreatorPage, ExportCenterPage } from '@/pages/ultimate';
 import { MagikAssistantSettingsPage } from '@/pages/settings/MagikAssistantSettingsPage';
 import { CREATOR_MODULES } from '@ucbs/shared';
@@ -34,7 +35,6 @@ import { Skeleton } from '@/v2/components/Skeleton';
 const DashboardV2Page = lazy(() => import('@/v2/pages/DashboardV2Page').then((m) => ({ default: m.DashboardV2Page })));
 const BrandingStudioHubPage = lazy(() => import('@/v2/pages/BrandingStudioHubPage').then((m) => ({ default: m.BrandingStudioHubPage })));
 const AICreatorHubPage = lazy(() => import('@/v2/pages/AICreatorHubPage').then((m) => ({ default: m.AICreatorHubPage })));
-const TeamsHubPage = lazy(() => import('@/v2/pages/TeamsHubPage').then((m) => ({ default: m.TeamsHubPage })));
 const ProjectsHubPage = lazy(() => import('@/v2/pages/ProjectsHubPage').then((m) => ({ default: m.ProjectsHubPage })));
 const SettingsHubPage = lazy(() => import('@/v2/pages/SettingsHubPage').then((m) => ({ default: m.SettingsHubPage })));
 
@@ -76,6 +76,7 @@ const IMPLEMENTED_PATHS = new Set([
   '/mobile-app',
   '/file-cloud',
   '/settings/magik-assistant',
+  '/prompt-studio',
 ]);
 
 const IMPLEMENTED_ROUTES: Record<string, ReactNode> = {
@@ -90,6 +91,7 @@ const IMPLEMENTED_ROUTES: Record<string, ReactNode> = {
   '/layout-studio': <LayoutStudioPage />,
   '/change-request': <ChangeRequestPage />,
   '/ai-assistant': <AIAssistantPage />,
+  '/prompt-studio': <PromptStudioPage />,
   '/team-dna': <TeamDNAPage />,
   '/video-studio': <VideoStudioPage />,
   '/intro-outro': <IntroOutroPage />,
@@ -131,13 +133,21 @@ export function AppRoutes() {
         <Route path="/dashboard" element={<Lazy><DashboardV2Page /></Lazy>} />
         <Route path="/branding-studio" element={<Lazy><BrandingStudioHubPage /></Lazy>} />
         <Route path="/ai-creator" element={<Lazy><AICreatorHubPage /></Lazy>} />
-        <Route path="/teams" element={<Lazy><TeamsHubPage /></Lazy>} />
+        <Route path="/teams" element={<Navigate to="/dashboard" replace />} />
         <Route path="/projects" element={<Lazy><ProjectsHubPage /></Lazy>} />
         <Route path="/settings" element={<Lazy><SettingsHubPage /></Lazy>} />
         <Route path="/ultimate-creator" element={<UltimateCreatorPage />} />
         <Route path="/export-center" element={<ExportCenterPage />} />
-        <Route path="/settings/magik-assistant" element={<MagikAssistantSettingsPage />} />
+        <Route path="/settings/magik-assistant" element={<Navigate to="/settings" replace />} />
         <Route path="/ai-music" element={<Navigate to="/ai-creator" replace />} />
+        <Route path="/ai-voice" element={<Navigate to="/ai-creator" replace />} />
+        <Route path="/marketplace" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/social-media" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/team-chat" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/team-dna" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/vtuber-studio" element={<Navigate to="/branding-studio" replace />} />
+        <Route path="/mobile-app" element={<Navigate to="/settings" replace />} />
+        <Route path="/content-calendar" element={<Navigate to="/projects" replace />} />
         <Route path="/coins" element={<CoinsPage />} />
         {CREATOR_MODULES.filter((m) => m.id !== 'dashboard' && m.id !== 'coins' && m.id !== 'ai-music').map((mod) => (
           <Route

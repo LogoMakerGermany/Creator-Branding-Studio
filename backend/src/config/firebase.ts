@@ -1,7 +1,18 @@
 import admin from 'firebase-admin';
-import { isDevAuthEnabled, isDevMode, isFirebaseAdminConfigured, isProduction } from './env.js';
+import {
+  isDevAuthEnabled,
+  isDevMode,
+  isFirebaseAdminConfigured,
+  isProduction,
+  getFirebaseAdminCredentials,
+} from './env.js';
 
 let initialized = false;
+let firebaseReady = false;
+
+export function isFirebaseReady(): boolean {
+  return firebaseReady;
+}
 
 export function initializeFirebase(): void {
   if (initialized) return;
@@ -9,38 +20,44 @@ export function initializeFirebase(): void {
   if (isDevMode()) {
     console.log('[Firebase] Dev-Modus – Firestore deaktiviert, lokaler Store aktiv');
     initialized = true;
+    firebaseReady = true;
     return;
   }
 
   if (!isFirebaseAdminConfigured()) {
     if (isProduction()) {
-      console.error('[Firebase] Admin credentials missing in production — auth/storage APIs unavailable until configured');
+      console.error(
+        '[Firebase] Admin credentials missing in production — FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY required'
+      );
       initialized = true;
+      firebaseReady = false;
       return;
     }
     console.warn('[Firebase] Credentials fehlen — lokaler Dev-Store aktiv (nur Entwicklung)');
     initialized = true;
+    firebaseReady = true;
     return;
   }
 
   try {
-    const projectId = process.env.FIREBASE_PROJECT_ID!;
-    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL!;
-    const privateKey = process.env.FIREBASE_PRIVATE_KEY!.replace(/\\n/g, '\n');
+    const creds = getFirebaseAdminCredentials();
 
     admin.initializeApp({
       credential: admin.credential.cert({
-        projectId,
-        clientEmail,
-        privateKey,
+        projectId: creds.projectId,
+        clientEmail: creds.clientEmail,
+        privateKey: creds.privateKey,
       }),
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+      storageBucket: creds.storageBucket,
+      ...(creds.databaseURL ? { databaseURL: creds.databaseURL } : {}),
     });
 
     initialized = true;
+    firebaseReady = true;
     console.log('[Firebase] Admin SDK initialisiert');
   } catch (err) {
     initialized = true;
+    firebaseReady = false;
     console.error('[Firebase] Admin SDK initialization failed:', err);
   }
 }
@@ -72,22 +89,22 @@ export function getStorage(): admin.storage.Storage {
 export async function verifyIdToken(token: string): Promise<admin.auth.DecodedIdToken> {
   initializeFirebase();
 
-  if (isDevAuthEnabled() && (isDevMode() || !admin.apps.length)) {
-    if (token.startsWith('dev_')) {
-      const uid = token.replace('dev_', '');
-      return {
-        uid,
-        email: `${uid}@dev.local`,
-        aud: 'dev',
-        auth_time: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + 3600,
-        firebase: { identities: {}, sign_in_provider: 'dev' },
-        iat: Math.floor(Date.now() / 1000),
-        iss: 'dev',
-        sub: uid,
-      } as admin.auth.DecodedIdToken;
+  if (token.startsWith('dev_')) {
+    if (!isDevAuthEnabled()) {
+      throw new Error('Dev tokens not allowed');
     }
-    throw new Error('Invalid dev token');
+    const uid = token.replace('dev_', '');
+    return {
+      uid,
+      email: `${uid}@dev.local`,
+      aud: 'dev',
+      auth_time: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      firebase: { identities: {}, sign_in_provider: 'dev' },
+      iat: Math.floor(Date.now() / 1000),
+      iss: 'dev',
+      sub: uid,
+    } as admin.auth.DecodedIdToken;
   }
 
   if (!admin.apps.length) {

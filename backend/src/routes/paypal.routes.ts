@@ -54,8 +54,6 @@ async function creditFromPayPalOrder(
     paymentId: orderId,
     userId: order.userId,
     packageId: order.packageId,
-    coins: order.coins,
-    bonusCoins: order.bonusCoins,
     amountCents: order.amountCents,
   });
 }

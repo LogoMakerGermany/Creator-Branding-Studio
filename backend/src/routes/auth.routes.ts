@@ -1,34 +1,71 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Permission, CoinSpendCategory } from '@ucbs/shared';
-import { authenticate } from '../middleware/auth.js';
+import { Permission, CoinSpendCategory, UserRole } from '@ucbs/shared';
+import { authenticate, authenticateAllowUnprovisioned } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { asyncHandler, sendSuccess, AppError } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { getOrCreateUser, getUserById, updateUser } from '../services/user.service.js';
 import { getActiveDna } from '../services/dna.service.js';
-import { deductCoins } from '../services/coins.service.js';
+import { deductCoins, addCoins, getCoinBalance } from '../services/coins.service.js';
 import { buildBrandingModulePrompt, getJobsByUser, runGenerationJob } from '../services/ai.service.js';
 import { listLayouts } from '../services/layout.service.js';
 import { listUserFiles } from '../services/file-cloud.service.js';
+import { getRegistrationMode } from '../services/system-settings.service.js';
+import { redeemInviteCode, validateInviteCode } from '../services/invite.service.js';
 import { randomUUID } from 'node:crypto';
 import { isProduction, isDevAuthEnabled } from '../config/env.js';
 
 export const authRoutes = Router();
 
+authRoutes.get(
+  '/registration-status',
+  asyncHandler(async (_req, res) => {
+    const mode = await getRegistrationMode();
+    sendSuccess(res, {
+      registrationMode: mode,
+      registrationOpen: mode !== 'closed',
+      inviteRequired: mode === 'invite_only',
+    });
+  })
+);
+
+authRoutes.post(
+  '/validate-invite',
+  asyncHandler(async (req, res) => {
+    const schema = z.object({
+      code: z.string().min(1).max(64),
+      email: z.string().email().optional(),
+    });
+    const body = schema.parse(req.body);
+    const result = await validateInviteCode(body.code, body.email);
+    sendSuccess(res, result);
+  })
+);
+
 authRoutes.post(
   '/register',
   asyncHandler(async (_req, res) => {
-    sendSuccess(res, { message: 'Nutze Firebase Auth – Token an /auth/me senden' });
+    const mode = await getRegistrationMode();
+    sendSuccess(res, {
+      message:
+        mode === 'closed'
+          ? 'Registrierung ist derzeit geschlossen'
+          : mode === 'invite_only'
+            ? 'Registrierung nur mit Einladungscode — Firebase Auth + POST /auth/sync'
+            : 'Nutze Firebase Auth – Token und optional inviteCode an /auth/sync senden',
+      registrationMode: mode,
+    });
   })
 );
 
 authRoutes.post(
   '/sync',
-  authenticate,
+  authenticateAllowUnprovisioned,
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const schema = z.object({
       displayName: z.string().min(1).max(100).optional(),
+      inviteCode: z.string().min(1).max(64).optional(),
       authProvider: z
         .enum([
           'google',
@@ -43,13 +80,45 @@ authRoutes.post(
         .optional(),
     });
     const body = schema.parse(req.body);
+    const token = req.authToken!;
+    const email = token.email;
+    const uid = token.uid;
 
-    const user = await getOrCreateUser(
-      req.user!.uid,
-      req.user!.email,
-      body.displayName || req.user!.displayName,
-      body.authProvider
-    );
+    const existing = await getUserById(uid);
+    if (existing) {
+      const user = await getOrCreateUser(uid, email, body.displayName || existing.displayName, {
+        authProvider: body.authProvider,
+      });
+      sendSuccess(res, { user });
+      return;
+    }
+
+    const mode = await getRegistrationMode();
+    if (mode === 'closed') {
+      throw new AppError(403, 'ACCESS_DENIED', 'Registrierung ist derzeit geschlossen');
+    }
+
+    let role = UserRole.USER;
+    let inviteCodeId: string | undefined;
+
+    if (mode === 'invite_only') {
+      if (!body.inviteCode) {
+        throw new AppError(
+          403,
+          'ACCESS_DENIED',
+          'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich'
+        );
+      }
+      const redeemed = await redeemInviteCode(body.inviteCode, email);
+      role = redeemed.grantRole === 'tester' ? UserRole.TESTER : UserRole.USER;
+      inviteCodeId = redeemed.invite.id;
+    }
+
+    const user = await getOrCreateUser(uid, email, body.displayName || token.name, {
+      authProvider: body.authProvider,
+      role,
+      inviteCodeId,
+    });
 
     sendSuccess(res, { user }, 201);
   })
@@ -150,6 +219,7 @@ brandingRoutes.post(
       'overlay',
       'stream-start',
       'stream-end',
+      'offline',
       'panel',
       'alert',
     ] as const;
@@ -157,7 +227,7 @@ brandingRoutes.post(
     const jobs = await Promise.all(
       packModules.map(async (module) => {
         const prompt = buildBrandingModulePrompt(activeDna, module);
-        const hd = ['profile-pic', 'banner', 'overlay', 'stream-start', 'stream-end'].includes(module);
+        const hd = ['profile-pic', 'banner', 'overlay', 'stream-start', 'stream-end', 'offline'].includes(module);
         const size = module === 'banner' ? '1792x1024' : moduleImageSizeForPack(module);
         return runGenerationJob(req.user!.uid, module, activeDna, prompt, { size, hd });
       })
@@ -165,8 +235,20 @@ brandingRoutes.post(
 
     const failed = jobs.filter((j) => j.status === 'failed');
     if (failed.length === jobs.length) {
-      throw new AppError(503, 'AI_GENERATION_FAILED', 'Branding-Paket konnte nicht generiert werden');
+      await addCoins(
+        req.user!.uid,
+        coinResult.cost,
+        'Branding-Paket — Rückerstattung (Generierung fehlgeschlagen)',
+        'refund'
+      );
+      throw new AppError(
+        503,
+        'AI_GENERATION_FAILED',
+        'Branding-Paket konnte nicht generiert werden — Coins wurden erstattet'
+      );
     }
+
+    const newBalance = await getCoinBalance(req.user!.uid);
 
     sendSuccess(
       res,
@@ -177,7 +259,7 @@ brandingRoutes.post(
         jobs,
         failedCount: failed.length,
         coinsSpent: coinResult.cost,
-        newBalance: coinResult.newBalance,
+        newBalance,
       },
       201
     );
@@ -185,7 +267,7 @@ brandingRoutes.post(
 );
 
 function moduleImageSizeForPack(module: string): '1024x1024' | '1792x1024' | '1024x1792' {
-  if (['banner', 'stream-start', 'stream-end', 'panel', 'overlay'].includes(module)) {
+  if (['banner', 'stream-start', 'stream-end', 'offline', 'panel', 'overlay'].includes(module)) {
     return '1792x1024';
   }
   return '1024x1024';

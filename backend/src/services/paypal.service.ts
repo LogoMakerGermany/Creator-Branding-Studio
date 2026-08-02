@@ -1,22 +1,17 @@
-import { getPrimaryFrontendUrl, isProduction } from '../config/env.js';
+import {
+  getPrimaryFrontendUrl,
+  isProduction,
+  isPayPalConfigured,
+  getPayPalMode,
+  isPayPalLiveMode,
+  getPayPalClientId,
+  getPayPalClientSecret,
+  getPayPalWebhookId,
+} from '../config/env.js';
 import { COIN_PACKAGES } from './coins.service.js';
 import { getPackageById } from './payment-credit.service.js';
 
-export function isPayPalConfigured(): boolean {
-  return Boolean(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET);
-}
-
-export function getPayPalMode(): 'live' | 'sandbox' | 'disabled' {
-  if (!isPayPalConfigured()) return 'disabled';
-  const mode = process.env.PAYPAL_MODE?.toLowerCase();
-  if (mode === 'live') return 'live';
-  if (mode === 'sandbox') return 'sandbox';
-  return isProduction() ? 'sandbox' : 'sandbox';
-}
-
-export function isPayPalLiveMode(): boolean {
-  return getPayPalMode() === 'live';
-}
+export { isPayPalConfigured, getPayPalMode, isPayPalLiveMode };
 
 function getPayPalApiBase(): string {
   return getPayPalMode() === 'live'
@@ -31,8 +26,8 @@ async function getAccessToken(): Promise<string> {
     return cachedToken.token;
   }
 
-  const clientId = process.env.PAYPAL_CLIENT_ID!;
-  const clientSecret = process.env.PAYPAL_CLIENT_SECRET!;
+  const clientId = getPayPalClientId()!;
+  const clientSecret = getPayPalClientSecret()!;
   const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
   const res = await fetch(`${getPayPalApiBase()}/v1/oauth2/token`, {
@@ -209,7 +204,7 @@ export async function verifyPayPalWebhookEvent(
   headers: Record<string, string | string[] | undefined>,
   event: unknown
 ): Promise<boolean> {
-  const webhookId = process.env.PAYPAL_WEBHOOK_ID?.trim();
+  const webhookId = getPayPalWebhookId();
   if (!webhookId) {
     if (isProduction()) {
       console.error('[PayPal] PAYPAL_WEBHOOK_ID fehlt — Webhook abgelehnt');

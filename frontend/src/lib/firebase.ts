@@ -9,6 +9,8 @@ import {
   getRedirectResult,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail,
   signOut,
   onAuthStateChanged,
   type Auth,
@@ -141,7 +143,24 @@ export async function registerWithEmail(email: string, password: string): Promis
   const a = getFirebaseAuth();
   if (!a) throw new Error('Firebase nicht konfiguriert');
   const result = await createUserWithEmailAndPassword(a, email, password);
+  try {
+    await sendEmailVerification(result.user);
+  } catch (err) {
+    console.warn('[Auth] E-Mail-Verifizierung konnte nicht gesendet werden:', err);
+  }
   return result.user;
+}
+
+export async function resetPassword(email: string): Promise<void> {
+  const a = getFirebaseAuth();
+  if (!a) throw new Error('Firebase nicht konfiguriert');
+  await sendPasswordResetEmail(a, email);
+}
+
+export async function resendEmailVerification(): Promise<void> {
+  const a = getFirebaseAuth();
+  if (!a?.currentUser) throw new Error('Nicht angemeldet');
+  await sendEmailVerification(a.currentUser);
 }
 
 export async function logoutFirebase(): Promise<void> {

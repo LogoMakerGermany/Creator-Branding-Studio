@@ -6,7 +6,12 @@ import type {
   StickerGenerationOptions,
   StudioModuleKey,
   StudioProjectSummary,
+  CreatorDNA,
+  DNAAnalysis,
+  DNAVersion,
 } from '@ucbs/shared';
+
+export type { CreatorDNA, DNAAnalysis, DNAVersion };
 
 type StudioGenerateOptions =
   | LogoGenerationOptions
@@ -89,10 +94,21 @@ export const api = {
         body: JSON.stringify({ email, displayName }),
       }),
     me: () => request<{ user: UserProfile; activeDna: CreatorDNA | null }>('/api/v1/auth/me'),
-    sync: (displayName?: string, authProvider?: string) =>
+    registrationStatus: () =>
+      request<{
+        registrationMode: 'closed' | 'invite_only' | 'public';
+        registrationOpen: boolean;
+        inviteRequired: boolean;
+      }>('/api/v1/auth/registration-status'),
+    validateInvite: (code: string, email?: string) =>
+      request<{ valid: boolean; grantRole?: 'user' | 'tester'; message?: string }>(
+        '/api/v1/auth/validate-invite',
+        { method: 'POST', body: JSON.stringify({ code, email }) }
+      ),
+    sync: (displayName?: string, authProvider?: string, inviteCode?: string) =>
       request<{ user: UserProfile }>('/api/v1/auth/sync', {
         method: 'POST',
-        body: JSON.stringify({ displayName, authProvider }),
+        body: JSON.stringify({ displayName, authProvider, inviteCode }),
       }),
     completeOnboarding: () =>
       request('/api/v1/auth/onboarding/complete', { method: 'POST' }),
@@ -107,6 +123,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    update: (id: string, body: Partial<CreateDnaBody>) =>
+      request<{ dna: CreatorDNA }>(`/api/v1/dna/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
     analyze: (colors: string[], styleHint?: string, imageDataUrl?: string) =>
       request<{ analysis: DNAAnalysis }>('/api/v1/dna/analyze', {
         method: 'POST',
@@ -114,6 +135,121 @@ export const api = {
       }),
     activate: (id: string) =>
       request<{ dna: CreatorDNA }>(`/api/v1/dna/${id}/activate`, { method: 'POST' }),
+    versions: (id: string) =>
+      request<{ versions: DNAVersion[] }>(`/api/v1/dna/${id}/versions`),
+  },
+  prompts: {
+    list: () =>
+      request<{
+        sets: {
+          id: string;
+          title: string;
+          purpose: string;
+          createdAt: string;
+          providers: { provider: string; label: string; prompt: string; notes: string }[];
+        }[];
+      }>('/api/v1/prompts'),
+    generate: (body: { title: string; purpose: string; topic?: string; save?: boolean }) =>
+      request<{
+        set?: { id: string };
+        providers: { provider: string; label: string; prompt: string; notes: string }[];
+      }>('/api/v1/prompts/generate', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    delete: (id: string) => request<{ deleted: boolean }>(`/api/v1/prompts/${id}`, { method: 'DELETE' }),
+  },
+  projects: {
+    list: () => request<{ projects: import('@ucbs/shared').Project[] }>('/api/v1/projects'),
+    trash: () => request<{ projects: import('@ucbs/shared').Project[] }>('/api/v1/projects/trash'),
+    create: (body: { name: string; description?: string; type: import('@ucbs/shared').ProjectType }) =>
+      request<{ project: import('@ucbs/shared').Project }>('/api/v1/projects', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    remove: (id: string) =>
+      request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}`, { method: 'DELETE' }),
+    restore: (id: string) =>
+      request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}/restore`, {
+        method: 'POST',
+      }),
+    purge: (id: string) =>
+      request<{ deleted: boolean }>(`/api/v1/projects/${id}/purge`, { method: 'DELETE' }),
+    export: (id: string) =>
+      request<{
+        project: import('@ucbs/shared').Project;
+        assets: import('@ucbs/shared').ProjectAsset[];
+        exportUrl: string;
+        fileCount: number;
+        exportedAt: string;
+      }>(`/api/v1/projects/${id}/export`),
+    import: (body: { zipDataUrl: string; importDna?: boolean; importCloud?: boolean }) =>
+      request<{
+        project: import('@ucbs/shared').Project;
+        dnaImported: boolean;
+        assetsImported: number;
+        cloudFilesImported: number;
+        checks: { step: string; ok: boolean; message: string }[];
+        importedAt: string;
+      }>('/api/v1/projects/import', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+  },
+  pricing: {
+    components: () =>
+      request<{
+        components: {
+          code: string;
+          category: string;
+          displayName: string;
+          description: string;
+          priceCents: number;
+          pricingVersion: string;
+        }[];
+      }>('/api/v1/pricing/components'),
+    quote: (body: { componentCodes: string[]; quantities?: Record<string, number> }) =>
+      request<{
+        quoteId: string;
+        lineItems: {
+          code: string;
+          displayName: string;
+          quantity: number;
+          unitPriceCents: number;
+          totalCents: number;
+        }[];
+        subtotalCents: number;
+        discountCents: number;
+        totalCents: number;
+        currency: string;
+        pricingVersion: string;
+        expiresAt: string;
+      }>('/api/v1/pricing/quote', { method: 'POST', body: JSON.stringify(body) }),
+    payWithBalance: (quoteId: string) =>
+      request<{ paymentStatus: string; balance: { balanceCents: number } }>(
+        '/api/v1/pricing/pay-with-balance',
+        { method: 'POST', body: JSON.stringify({ quoteId }) }
+      ),
+    checkout: (quoteId: string) =>
+      request<{ checkoutUrl: string; sessionId: string }>('/api/v1/pricing/checkout', {
+        method: 'POST',
+        body: JSON.stringify({ quoteId }),
+      }),
+  },
+  balance: {
+    get: () =>
+      request<{ balance: { balanceCents: number; promotionalCents: number } }>('/api/v1/balance'),
+    ledger: () =>
+      request<{
+        entries: {
+          id: string;
+          type: string;
+          amountCents: number;
+          balanceAfterCents: number;
+          description: string;
+          createdAt: string;
+        }[];
+      }>('/api/v1/balance/ledger'),
   },
   coins: {
     balance: () => request<{ balance: number }>('/api/v1/coins/balance'),
@@ -347,19 +483,19 @@ export const api = {
   video: {
     list: () => request<{ projects: VideoProject[]; jobs: MediaJob[] }>('/api/v1/video'),
     get: (id: string) => request<{ project: VideoProject }>(`/api/v1/video/${id}`),
-    create: (title: string, duration?: number) =>
+    create: (title: string, duration?: number, format?: string) =>
       request<{ project: VideoProject }>('/api/v1/video', {
         method: 'POST',
-        body: JSON.stringify({ title, duration }),
+        body: JSON.stringify({ title, duration, format }),
       }),
     detectHighlights: (id: string) =>
       request<{ project: VideoProject }>(`/api/v1/video/${id}/highlights`, { method: 'POST' }),
     generateSubtitles: (id: string) =>
       request<{ project: VideoProject }>(`/api/v1/video/${id}/subtitles`, { method: 'POST' }),
-    createShort: (id: string, highlightIndex?: number) =>
+    createShort: (id: string, highlightIndex?: number, format?: string) =>
       request<{ job: MediaJob; coinsSpent: number; newBalance: number }>(`/api/v1/video/${id}/shorts`, {
         method: 'POST',
-        body: JSON.stringify({ highlightIndex }),
+        body: JSON.stringify({ highlightIndex, format }),
       }),
     uploadSource: (id: string, dataUrl: string, duration?: number) =>
       request<{ project: VideoProject }>(`/api/v1/video/${id}/source`, {
@@ -562,27 +698,24 @@ export interface UserProfile {
   onboardingCompleted: boolean;
 }
 
-export interface CreatorDNA {
-  id: string;
-  userId: string;
+export interface CreateDnaBody {
   name: string;
-  primaryColors: string[];
-  secondaryColors: string[];
-  accentColors: string[];
-  styleDirection: string;
-  isActive: boolean;
-  aiAnalysis?: DNAAnalysis;
-  brandingRules: { id: string; rule: string; category: string; priority: string }[];
-  platformOptimization: { platform: string; aspectRatios: string[]; optimizations: string[] }[];
-  version: number;
-  createdAt: string;
-}
-
-export interface DNAAnalysis {
-  colorPalette: { hex: string; name: string; usage: string }[];
-  detectedStyle: string;
-  confidence: number;
-  suggestions: string[];
+  clanName?: string;
+  mascot?: string;
+  styleDirection?: string;
+  primaryColors?: string[];
+  secondaryColors?: string[];
+  accentColors?: string[];
+  targetPlatforms?: string[];
+  favoriteGenres?: string[];
+  gamingStyle?: string;
+  brandingStyle?: string;
+  promptStyle?: string;
+  visualLanguage?: string;
+  animations?: string[];
+  personalGuidelines?: string;
+  fonts?: { name: string; role: 'primary' | 'secondary' | 'accent'; source: 'google' | 'custom' | 'system'; url?: string }[];
+  sourceAssets?: { id: string; type: 'logo' | 'profile' | 'banner' | 'reference'; url: string; analyzedAt?: string }[];
 }
 
 export interface CoinPackage {
@@ -604,15 +737,6 @@ export interface CoinTransaction {
   stripePaymentIntentId?: string;
   paypalOrderId?: string;
   metadata?: Record<string, unknown>;
-}
-
-export interface CreateDnaBody {
-  name: string;
-  styleDirection?: string;
-  primaryColors?: string[];
-  secondaryColors?: string[];
-  accentColors?: string[];
-  targetPlatforms?: string[];
 }
 
 export interface LogoVariantResult {
@@ -808,6 +932,7 @@ export interface VideoProject {
   sourceUrl?: string;
   duration: number;
   dnaId?: string;
+  format?: string;
   subtitles: SubtitleEntry[];
   highlights: HighlightSegment[];
   shorts: MediaJob[];

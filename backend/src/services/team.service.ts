@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { CreatorDNA } from '@ucbs/shared';
 import { dsGet, dsSet, dsList, dsListWhere } from '../lib/data-store.js';
-import { createDna, getDnaById } from './dna.service.js';
+import { createLinkedDna, getDnaById } from './dna.service.js';
 
 export interface Team {
   id: string;
@@ -103,15 +103,18 @@ export async function createTeamDna(
     }
   }
 
-  const dna = await createDna({
-    userId,
-    name: `${team.name} Team DNA`,
-    styleDirection: style as CreatorDNA['styleDirection'],
-    primaryColors: baseColors.slice(0, 2),
-    secondaryColors: baseColors.slice(2, 4),
-    accentColors: baseColors.slice(4, 6),
-    targetPlatforms: ['twitch', 'youtube', 'discord'],
-  });
+  const dna = await createLinkedDna(
+    {
+      userId,
+      name: `${team.name} Team DNA`,
+      styleDirection: style as CreatorDNA['styleDirection'],
+      primaryColors: baseColors.slice(0, 2),
+      secondaryColors: baseColors.slice(2, 4),
+      accentColors: baseColors.slice(4, 6),
+      targetPlatforms: ['twitch', 'youtube', 'discord'],
+    },
+    'team'
+  );
 
   team.dnaId = dna.id;
   team.updatedAt = new Date().toISOString();

@@ -1,4 +1,5 @@
 import type { CreatorDNA, DNAAnalysis, StyleDirection } from '@ucbs/shared';
+import { getOpenAiApiKey } from '../config/env.js';
 import { ServiceError } from '../lib/errors.js';
 
 const STYLE_VALUES: StyleDirection[] = [
@@ -18,7 +19,7 @@ export async function analyzeImageWithVision(
   imageDataUrl: string,
   styleHint?: StyleDirection
 ): Promise<DNAAnalysis> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = getOpenAiApiKey();
   if (!apiKey) {
     throw new ServiceError(
       503,
@@ -88,10 +89,11 @@ export async function analyzeImageWithVision(
     confidence: Math.min(1, Math.max(0, parsed.confidence ?? 0.8)),
     suggestions: parsed.suggestions.slice(0, 5),
     analyzedAt: new Date().toISOString(),
+    source: 'vision',
   };
 }
 
-/** Color-only fallback when no image is provided (uses extracted hex values). */
+/** Color-only extraction — not a substitute for Vision analysis. */
 export function analyzeColorsHeuristic(
   colors: string[],
   styleHint?: StyleDirection
@@ -107,13 +109,14 @@ export function analyzeColorsHeuristic(
   return {
     colorPalette: palette,
     detectedStyle,
-    confidence: colors.length > 0 ? 0.75 : 0.5,
+    confidence: Math.min(0.55, 0.3 + colors.length * 0.05),
     suggestions: [
-      'Verwende die Primärfarbe für Logo und Akzente',
-      'Sekundärfarben eignen sich für Banner-Hintergründe',
-      'Halte Kontrast für Stream-Overlays hoch',
+      'Lade ein Referenzbild hoch für eine vollständige KI-Vision-Analyse',
+      'Primärfarbe für Logo und CTAs festlegen',
+      'Kontrast für Stream-Overlays prüfen',
     ],
     analyzedAt: new Date().toISOString(),
+    source: 'colors',
   };
 }
 

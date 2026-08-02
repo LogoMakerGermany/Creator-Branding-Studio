@@ -154,7 +154,7 @@ export interface FacecamGenerationOptions {
 
 export interface OverlayGenerationOptions {
   style?: string;
-  overlayType?: 'hud' | 'alert' | 'panel' | 'starting-soon' | 'brb' | 'full-scene';
+  overlayType?: 'hud' | 'alert' | 'panel' | 'starting-soon' | 'brb' | 'offline' | 'ending' | 'full-scene';
   transparentBackground?: boolean;
   animated?: boolean;
 }

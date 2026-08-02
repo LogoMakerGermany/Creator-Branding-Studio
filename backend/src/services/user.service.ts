@@ -1,4 +1,5 @@
 import { UserRole, SubscriptionTier } from '@ucbs/shared';
+import { getDefaultFreeCoins } from '../config/env.js';
 import { devStore, isDevMode } from '../lib/dev-store.js';
 import { getFirestore } from '../config/firebase.js';
 
@@ -10,14 +11,17 @@ export interface UserProfile {
   role: UserRole;
   authProviders: string[];
   coinBalance: number;
+  /** Euro balance mirror (cents) — source of truth is balance_ledger */
+  balanceCents?: number;
   subscriptionTier: SubscriptionTier;
   locale: string;
   onboardingCompleted: boolean;
+  inviteCodeId?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-const DEFAULT_COINS = parseInt(process.env.DEFAULT_FREE_COINS || '50', 10);
+const DEFAULT_COINS = getDefaultFreeCoins();
 
 function normalizeCoinBalance(raw: Record<string, unknown>): number {
   const fromBalance = raw.coinBalance;
@@ -33,24 +37,39 @@ function normalizeCoinBalance(raw: Record<string, unknown>): number {
   return DEFAULT_COINS;
 }
 
+function normalizeRole(raw: unknown): UserRole {
+  if (raw === UserRole.CREATOR || raw === 'creator') return UserRole.USER;
+  if (typeof raw === 'string' && Object.values(UserRole).includes(raw as UserRole)) {
+    return raw as UserRole;
+  }
+  return UserRole.USER;
+}
+
 function normalizeUserProfile(uid: string, data: Record<string, unknown>): UserProfile {
   const coinBalance = normalizeCoinBalance(data);
   return {
     id: uid,
     ...data,
+    role: normalizeRole(data.role),
     coinBalance,
   } as UserProfile;
 }
 
-function createDefaultUser(uid: string, email: string, displayName?: string): UserProfile {
+function createDefaultUser(
+  uid: string,
+  email: string,
+  displayName?: string,
+  role: UserRole = UserRole.USER
+): UserProfile {
   const now = new Date().toISOString();
   return {
     id: uid,
     email,
     displayName: displayName || email.split('@')[0],
-    role: UserRole.CREATOR,
+    role,
     authProviders: [],
     coinBalance: DEFAULT_COINS,
+    balanceCents: 0,
     subscriptionTier: SubscriptionTier.FREE,
     locale: 'de',
     onboardingCompleted: false,
@@ -59,12 +78,23 @@ function createDefaultUser(uid: string, email: string, displayName?: string): Us
   };
 }
 
+export interface CreateUserOptions {
+  authProvider?: string;
+  role?: UserRole;
+  inviteCodeId?: string;
+}
+
 export async function getOrCreateUser(
   uid: string,
   email: string,
   displayName?: string,
-  authProvider?: string
+  authProviderOrOptions?: string | CreateUserOptions
 ): Promise<UserProfile> {
+  const options: CreateUserOptions =
+    typeof authProviderOrOptions === 'string'
+      ? { authProvider: authProviderOrOptions }
+      : authProviderOrOptions || {};
+
   if (isDevMode()) {
     const existing = devStore.getUser(uid);
     if (existing) {
@@ -74,21 +104,26 @@ export async function getOrCreateUser(
       }
       return user;
     }
-    const user = createDefaultUser(uid, email, displayName);
-    if (authProvider) {
-      user.authProviders = [authProvider];
+    const user = createDefaultUser(uid, email, displayName, options.role || UserRole.USER);
+    if (options.authProvider) {
+      user.authProviders = [options.authProvider];
+    }
+    if (options.inviteCodeId) {
+      user.inviteCodeId = options.inviteCodeId;
     }
     devStore.saveUser(uid, user as unknown as Record<string, unknown>);
 
-    devStore.addTransaction({
-      id: `tx_${Date.now()}`,
-      userId: uid,
-      type: 'bonus',
-      amount: DEFAULT_COINS,
-      balanceAfter: DEFAULT_COINS,
-      description: 'Willkommensbonus',
-      createdAt: user.createdAt,
-    });
+    if (DEFAULT_COINS > 0) {
+      devStore.addTransaction({
+        id: `tx_${Date.now()}`,
+        userId: uid,
+        type: 'bonus',
+        amount: DEFAULT_COINS,
+        balanceAfter: DEFAULT_COINS,
+        description: 'Willkommensbonus',
+        createdAt: user.createdAt,
+      });
+    }
 
     return user;
   }
@@ -102,33 +137,47 @@ export async function getOrCreateUser(
     if (user.coinBalance !== doc.data()?.coinBalance) {
       await ref.update({ coinBalance: user.coinBalance, updatedAt: new Date().toISOString() });
     }
-    if (authProvider && !user.authProviders.includes(authProvider)) {
-      const authProviders = [...user.authProviders, authProvider];
+    if (options.authProvider && !user.authProviders.includes(options.authProvider)) {
+      const authProviders = [...user.authProviders, options.authProvider];
       await ref.update({ authProviders, updatedAt: new Date().toISOString() });
       user.authProviders = authProviders;
     }
     return user;
   }
 
-  const user = createDefaultUser(uid, email, displayName);
-  if (authProvider) {
-    user.authProviders = [authProvider];
+  const user = createDefaultUser(uid, email, displayName, options.role || UserRole.USER);
+  if (options.authProvider) {
+    user.authProviders = [options.authProvider];
+  }
+  if (options.inviteCodeId) {
+    user.inviteCodeId = options.inviteCodeId;
   }
   await ref.set(user);
 
-  const { randomUUID } = await import('node:crypto');
-  const welcomeTxId = randomUUID();
-  await db.collection('coin_transactions').doc(welcomeTxId).set({
-    id: welcomeTxId,
-    userId: uid,
-    type: 'bonus',
-    amount: DEFAULT_COINS,
-    balanceAfter: DEFAULT_COINS,
-    description: 'Willkommensbonus',
-    createdAt: user.createdAt,
-  });
+  if (DEFAULT_COINS > 0) {
+    const { randomUUID } = await import('node:crypto');
+    const welcomeTxId = randomUUID();
+    await db.collection('coin_transactions').doc(welcomeTxId).set({
+      id: welcomeTxId,
+      userId: uid,
+      type: 'bonus',
+      amount: DEFAULT_COINS,
+      balanceAfter: DEFAULT_COINS,
+      description: 'Willkommensbonus',
+      createdAt: user.createdAt,
+    });
+  }
 
   return user;
+}
+
+export async function userExists(uid: string): Promise<boolean> {
+  if (isDevMode()) {
+    return Boolean(devStore.getUser(uid));
+  }
+  const db = getFirestore();
+  const doc = await db.collection('users').doc(uid).get();
+  return doc.exists;
 }
 
 export async function getUserById(uid: string): Promise<UserProfile | null> {
@@ -163,14 +212,15 @@ export async function updateUser(
   return (await getUserById(uid))!;
 }
 
-export async function updateCoinBalance(
-  uid: string,
-  newBalance: number
-): Promise<void> {
+export async function updateCoinBalance(uid: string, newBalance: number): Promise<void> {
   if (isDevMode()) {
     const user = await getUserById(uid);
     if (!user) throw new Error('User not found');
-    devStore.saveUser(uid, { ...user, coinBalance: newBalance, updatedAt: new Date().toISOString() });
+    devStore.saveUser(uid, {
+      ...user,
+      coinBalance: newBalance,
+      updatedAt: new Date().toISOString(),
+    });
     return;
   }
 
@@ -179,4 +229,8 @@ export async function updateCoinBalance(
     coinBalance: newBalance,
     updatedAt: new Date().toISOString(),
   });
+}
+
+export async function setUserRole(uid: string, role: UserRole): Promise<UserProfile> {
+  return updateUser(uid, { role });
 }

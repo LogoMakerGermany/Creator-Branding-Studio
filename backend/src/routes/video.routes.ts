@@ -6,7 +6,7 @@ import { requirePermission } from '../middleware/rbac.js';
 import { asyncHandler, sendSuccess, AppError } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { getActiveDna } from '../services/dna.service.js';
-import { deductCoins } from '../services/coins.service.js';
+import { withCoinCharge } from '../lib/billable-job.js';
 import {
   listVideoProjects,
   getVideoProject,
@@ -44,6 +44,9 @@ videoRoutes.get(
 const createSchema = z.object({
   title: z.string().min(1).max(200),
   duration: z.number().min(1).max(7200).default(300),
+  format: z
+    .enum(['youtube', 'tiktok', 'shorts', 'trailer', 'ad', 'instagram', 'custom'])
+    .default('shorts'),
 });
 
 videoRoutes.post(
@@ -51,10 +54,13 @@ videoRoutes.post(
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const body = createSchema.parse(req.body);
     const activeDna = await getActiveDna(req.user!.uid);
-    const project = await createVideoProject(req.user!.uid, body.title, body.duration);
-    if (activeDna) {
-      project.dnaId = activeDna.id;
-    }
+    const project = await createVideoProject(
+      req.user!.uid,
+      body.title,
+      body.duration,
+      body.format,
+      activeDna?.id
+    );
     sendSuccess(res, { project }, 201);
   })
 );
@@ -94,17 +100,29 @@ videoRoutes.post(
     const activeDna = await getActiveDna(req.user!.uid);
     if (!activeDna) throw new AppError(400, 'NO_DNA', 'Creator DNA erforderlich');
 
-    const coinResult = await deductCoins(req.user!.uid, CoinSpendCategory.VIDEO_EDIT, 'Short erstellen');
-    if (!coinResult.success) throw new AppError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
+    const body = z
+      .object({
+        highlightIndex: z.number().int().min(0).default(0),
+        format: z
+          .enum(['youtube', 'tiktok', 'shorts', 'trailer', 'ad', 'instagram', 'custom'])
+          .optional(),
+      })
+      .parse(req.body);
 
-    const highlightIndex = Number(req.body.highlightIndex ?? 0);
-    const job = await createShortFromHighlight(
-      String(req.params.id),
+    const { job, coinsSpent, newBalance } = await withCoinCharge(
       req.user!.uid,
-      highlightIndex,
-      activeDna
+      CoinSpendCategory.VIDEO_EDIT,
+      `Clip (${body.format ?? 'shorts'}) erstellen`,
+      () =>
+        createShortFromHighlight(
+          String(req.params.id),
+          req.user!.uid,
+          body.highlightIndex,
+          activeDna,
+          body.format
+        )
     );
-    sendSuccess(res, { job, coinsSpent: coinResult.cost, newBalance: coinResult.newBalance }, 201);
+    sendSuccess(res, { job, coinsSpent, newBalance }, 201);
   })
 );
 

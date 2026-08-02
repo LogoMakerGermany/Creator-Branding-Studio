@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
+import { shouldServeStatic as configShouldServeStatic } from '../config/env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,7 +24,7 @@ export function getFrontendDistPath(): string {
 }
 
 export function shouldServeStatic(): boolean {
-  return process.env.SERVE_STATIC === 'true';
+  return configShouldServeStatic();
 }
 
 export function attachStaticFrontend(app: Express): void {

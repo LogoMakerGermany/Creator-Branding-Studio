@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import type { CreatorDNA } from '@ucbs/shared';
+import type { CreatorDNA, VideoFormatId } from '@ucbs/shared';
+import { buildDnaPromptContext, getVideoFormatPreset, ffmpegScaleFilter } from '@ucbs/shared';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
 import { uploadAssetFromDataUrl, uploadAssetFromUrl } from '../lib/firebase-storage.js';
 import { buildPromptFromDNA, generateImage } from './ai.service.js';
@@ -17,7 +17,8 @@ import {
   convertMp4ToWebm,
   inferMusicMetadata,
 } from '../lib/video-processing.js';
-
+import { getElevenLabsVoiceId } from '../config/env.js';
+import { randomUUID } from 'node:crypto';
 const COLLECTION = 'mediaJobs';
 const VIDEO_COLLECTION = 'videoProjects';
 
@@ -77,6 +78,7 @@ export interface VideoProject {
   sourceUrl?: string;
   duration: number;
   dnaId?: string;
+  format?: VideoFormatId;
   subtitles: SubtitleEntry[];
   highlights: HighlightSegment[];
   shorts: MediaJob[];
@@ -116,7 +118,9 @@ export async function getVideoProject(id: string, userId: string): Promise<Video
 export async function createVideoProject(
   userId: string,
   title: string,
-  duration: number
+  duration: number,
+  format: VideoFormatId = 'shorts',
+  dnaId?: string
 ): Promise<VideoProject> {
   const now = new Date().toISOString();
   const project: VideoProject = {
@@ -124,6 +128,8 @@ export async function createVideoProject(
     userId,
     title,
     duration,
+    format,
+    dnaId,
     subtitles: [],
     highlights: [],
     shorts: [],
@@ -254,7 +260,8 @@ export async function createShortFromHighlight(
   projectId: string,
   userId: string,
   highlightIndex: number,
-  _dna: CreatorDNA
+  dna: CreatorDNA,
+  formatOverride?: VideoFormatId
 ): Promise<MediaJob> {
   const project = await getVideoProject(projectId, userId);
   if (!project) throw new Error('Projekt nicht gefunden');
@@ -262,30 +269,49 @@ export async function createShortFromHighlight(
   const highlight = project.highlights[highlightIndex];
   if (!highlight) throw new Error('Highlight nicht gefunden');
 
+  const format = getVideoFormatPreset(formatOverride ?? project.format ?? 'shorts');
+  const clipEnd = Math.min(highlight.end, highlight.start + format.maxDurationSec);
+  const dnaCtx = buildDnaPromptContext(dna);
+  const title = `${dna.name} · ${format.label} · ${highlight.label}`;
+
   const job: MediaJob = {
     id: randomUUID(),
     userId,
     type: 'short',
     status: 'processing',
-    prompt: `Clip: ${highlight.label}`,
-    title: `Short: ${highlight.label}`,
-    duration: highlight.end - highlight.start,
-    dnaId: _dna.id,
-    metadata: { projectId, highlightIndex, start: highlight.start, end: highlight.end, clipped: true },
+    prompt: `${format.label} clip (${format.aspectRatio}). Highlight: ${highlight.label}. ${dnaCtx}`,
+    title,
+    duration: clipEnd - highlight.start,
+    dnaId: dna.id,
+    metadata: {
+      projectId,
+      highlightIndex,
+      start: highlight.start,
+      end: clipEnd,
+      clipped: true,
+      format: format.id,
+      aspectRatio: format.aspectRatio,
+      width: format.width,
+      height: format.height,
+      styleDirection: dna.styleDirection,
+      platforms: dna.platformOptimization.map((p) => p.platform),
+    },
     createdAt: new Date().toISOString(),
   };
   await saveMediaJob(job);
 
   try {
-    const clipBuffer = await clipVideoSegment(project.sourceUrl, highlight.start, highlight.end, {
-      vertical: true,
+    const scaleFilter = ffmpegScaleFilter(format);
+    const clipBuffer = await clipVideoSegment(project.sourceUrl, highlight.start, clipEnd, {
+      vertical: format.vertical,
+      scaleFilter,
     });
     job.videoUrl = await uploadAssetFromDataUrl(
       userId,
       `data:video/mp4;base64,${clipBuffer.toString('base64')}`,
-      { folder: 'videos', fileName: `${job.id}.mp4` }
+      { folder: 'videos', fileName: `${job.id}-${format.id}.mp4` }
     );
-    job.provider = 'ffmpeg-clip';
+    job.provider = `ffmpeg-${format.id}`;
     job.thumbnailUrl = job.videoUrl;
     job.status = 'completed';
     job.completedAt = new Date().toISOString();
@@ -313,19 +339,20 @@ export async function runMediaJob(
     metadata?: Record<string, unknown>;
   }
 ): Promise<MediaJob> {
+  const dnaCtx = buildDnaPromptContext(dna);
   const prompts: Record<string, string> = {
-    intro: `Epic stream intro animation, ${dna.styleDirection} style, logo reveal, dynamic`,
-    outro: `Stream outro/end screen, ${dna.styleDirection}, subscribe reminder, branded`,
-    'stream-start': `Starting soon screen, ${dna.styleDirection} gaming stream`,
-    'stream-end': `Stream ending screen, thank you message, ${dna.styleDirection}`,
-    'vtuber-character': `VTuber anime character full body, ${dna.styleDirection}, mascot design`,
-    'vtuber-emote': `VTuber emote expression pack style, ${dna.styleDirection}, cute chibi`,
-    'vtuber-avatar': `VTuber avatar portrait, anime style, ${dna.styleDirection}`,
-    'ai-video': `Social media promotional video thumbnail, ${dna.styleDirection}`,
-    short: `Vertical 9:16 short video thumbnail, ${dna.styleDirection}, dynamic`,
-    'video-edit': `Video edit preview, ${dna.styleDirection}`,
-    'ai-music': `Background music for ${dna.styleDirection} stream`,
-    'ai-voice': `Stream intro voiceover script`,
+    intro: `Epic stream intro animation for ${dna.name}, ${dna.styleDirection} style, logo reveal, dynamic. ${dnaCtx}`,
+    outro: `Stream outro/end screen for ${dna.name}, ${dna.styleDirection}, subscribe reminder, branded. ${dnaCtx}`,
+    'stream-start': `Starting soon screen for ${dna.name}, ${dna.styleDirection} gaming stream. ${dnaCtx}`,
+    'stream-end': `Stream ending thank you screen for ${dna.name}, ${dna.styleDirection}. ${dnaCtx}`,
+    'vtuber-character': `VTuber anime character full body${dna.mascot ? ` inspired by ${dna.mascot}` : ''}, ${dna.styleDirection}. ${dnaCtx}`,
+    'vtuber-emote': `VTuber emote expression pack style, ${dna.styleDirection}, cute chibi. ${dnaCtx}`,
+    'vtuber-avatar': `VTuber avatar portrait, anime style, ${dna.styleDirection}. ${dnaCtx}`,
+    'ai-video': `Social media promotional video, ${dna.styleDirection}. ${dnaCtx}`,
+    short: `Vertical 9:16 short video, ${dna.styleDirection}, dynamic. ${dnaCtx}`,
+    'video-edit': `Video edit preview, ${dna.styleDirection}. ${dnaCtx}`,
+    'ai-music': `Background music for ${dna.styleDirection} stream. ${dnaCtx}`,
+    'ai-voice': `Stream intro voiceover for ${dna.name}. ${dnaCtx}`,
   };
 
   const job: MediaJob = {
@@ -371,7 +398,7 @@ export async function runMediaJob(
       job.metadata = {
         ...job.metadata,
         transcript: script,
-        voice: process.env.ELEVENLABS_VOICE_ID || 'Creator Pro',
+        voice: getElevenLabsVoiceId(),
       };
       job.status = 'completed';
     } else if (

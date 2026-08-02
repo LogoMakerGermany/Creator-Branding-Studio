@@ -1,8 +1,9 @@
 import type { CreatorDNA, StudioExportUrls } from '@ucbs/shared';
-import { CoinSpendCategory } from '@ucbs/shared';
+import { CoinSpendCategory, buildDnaPromptContext } from '@ucbs/shared';
 import { randomUUID } from 'node:crypto';
+import { getOpenAiApiKey, getReplicateApiToken } from '../config/env.js';
 import { getActiveDna } from './dna.service.js';
-import { deductCoins } from './coins.service.js';
+import { deductCoins, addCoins, getCoinBalance } from './coins.service.js';
 import { requireImageProvider } from '../lib/media-providers.js';
 import { buildSvgExportFromImage } from '../lib/studio-export.js';
 import {
@@ -31,7 +32,6 @@ import {
   appendCcdToPrompt,
 } from './creator-dna-engine/index.js';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
-
 import { ServiceError } from '../lib/errors.js';
 import { saveGeneratedAsset } from './file-cloud.service.js';
 
@@ -72,10 +72,7 @@ export interface GenerateImageOptions {
 }
 
 export function buildPromptFromDNA(dna: CreatorDNA, module: string, customPrompt?: string): string {
-  const colors = [...dna.primaryColors, ...dna.secondaryColors, ...dna.accentColors]
-    .filter(Boolean)
-    .slice(0, 4)
-    .join(', ');
+  const dnaCtx = buildDnaPromptContext(dna);
 
   const modulePrompts: Record<string, string> = {
     logo: `Professional ${dna.styleDirection} logo design, bold icon, clean vector style`,
@@ -85,18 +82,19 @@ export function buildPromptFromDNA(dna: CreatorDNA, module: string, customPrompt
     overlay: `${dna.styleDirection} stream overlay graphic, HUD elements, transparent-friendly`,
     sticker: `${dna.styleDirection} creator sticker/emote, bold multicolor, transparent background`,
     'stream-start': `${dna.styleDirection} stream starting soon screen, full screen graphic`,
-    'stream-end': `${dna.styleDirection} stream ending screen, thank you graphic, offline screen`,
+    'stream-end': `${dna.styleDirection} stream ending screen, thank you graphic`,
+    offline: `${dna.styleDirection} stream offline screen, clear offline status`,
     panel: `${dna.styleDirection} stream info panel, schedule or about panel design`,
     alert: `${dna.styleDirection} stream alert box design, notification popup style`,
     'ai-image': `${dna.styleDirection} creator branding artwork, high quality digital art`,
   };
 
   const base = customPrompt || modulePrompts[module] || modulePrompts['ai-image'];
-  return `${base}. Color palette: ${colors || 'purple, dark blue'}. Style: ${dna.styleDirection}. High quality, professional creator branding, no text, no watermarks.`;
+  return `${base}. ${dnaCtx} High quality, professional creator branding, no watermarks.`;
 }
 
 function moduleImageSize(module: string): GenerateImageOptions['size'] {
-  if (['banner', 'stream-start', 'stream-end', 'panel', 'overlay'].includes(module)) {
+  if (['banner', 'stream-start', 'stream-end', 'offline', 'panel', 'overlay'].includes(module)) {
     return '1792x1024';
   }
   return '1024x1024';
@@ -109,7 +107,7 @@ export async function generateImage(
   const size = options.size ?? (options.module === 'banner' ? '1792x1024' : '1024x1024');
   const quality = options.hd ? 'hd' : 'standard';
 
-  if (process.env.OPENAI_API_KEY) {
+  if (getOpenAiApiKey()) {
     try {
       const url = await generateWithOpenAI(prompt, size, quality);
       return { imageUrl: url, provider: 'openai', exports: buildExports(url, options.module) };
@@ -118,7 +116,7 @@ export async function generateImage(
     }
   }
 
-  if (process.env.REPLICATE_API_TOKEN) {
+  if (getReplicateApiToken()) {
     try {
       const url = await generateWithReplicate(prompt);
       return { imageUrl: url, provider: 'replicate', exports: buildExports(url, options.module) };
@@ -147,7 +145,7 @@ async function generateWithOpenAI(
   const res = await fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${getOpenAiApiKey()}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -169,10 +167,11 @@ async function generateWithOpenAI(
 }
 
 async function generateWithReplicate(prompt: string): Promise<string> {
+  const token = getReplicateApiToken()!;
   const createRes = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.REPLICATE_API_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       Prefer: 'wait=60',
     },
@@ -196,7 +195,7 @@ async function generateWithReplicate(prompt: string): Promise<string> {
   while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && attempts < 60) {
     await new Promise((r) => setTimeout(r, 2000));
     const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, {
-      headers: { Authorization: `Bearer ${process.env.REPLICATE_API_TOKEN}` },
+      headers: { Authorization: `Bearer ${token}` },
     });
     prediction = await pollRes.json();
     attempts++;
@@ -292,7 +291,7 @@ export async function runGenerationJob(
 
   try {
     const size = genOptions?.size ?? moduleImageSize(module);
-    const { imageUrl, provider, exports } = await generateImage({
+    const { imageUrl, provider, exports: rawExports } = await generateImage({
       module: module as GenerateImageOptions['module'],
       dna,
       customPrompt,
@@ -300,12 +299,20 @@ export async function runGenerationJob(
       hd: genOptions?.hd,
     });
 
+    const persisted = await saveGeneratedAsset(userId, module, imageUrl);
+    const durableUrl = persisted?.downloadUrl || imageUrl;
+
     job.status = 'completed';
-    job.imageUrl = imageUrl;
+    job.imageUrl = durableUrl;
     job.provider = provider;
-    job.exports = exports;
+    job.exports = {
+      png: durableUrl,
+      hd: durableUrl,
+      svg: buildSvgExportFromImage(durableUrl, module),
+    };
     job.completedAt = new Date().toISOString();
-    await saveGeneratedAsset(userId, module, imageUrl);
+    // rawExports kept only as fallback reference — durable URLs are authoritative
+    void rawExports;
   } catch (err) {
     job.status = 'failed';
     job.error = err instanceof Error ? err.message : 'Generation failed';
@@ -380,12 +387,30 @@ export async function generateMagikLogoPair(
   }
 
   const result = await runMagikLogoJobs(userId, studioOptions, activeDna);
+  const anySuccess = result.jobs.some((j) => j.status === 'completed' && j.imageUrl);
+
+  if (!anySuccess) {
+    await addCoins(
+      userId,
+      coinResult.cost,
+      `${moduleLabel} MAGIK — Rückerstattung (Generierung fehlgeschlagen)`,
+      'refund'
+    );
+    const errors = result.jobs.map((j) => j.error).filter(Boolean).join('; ');
+    throw new ServiceError(
+      503,
+      'AI_GENERATION_FAILED',
+      errors || 'Logo-Generierung fehlgeschlagen — Coins wurden erstattet'
+    );
+  }
+
+  const balance = await getCoinBalance(userId);
 
   return {
     jobs: result.jobs,
     prompts: result.prompts,
     coinsSpent: coinResult.cost,
-    newBalance: coinResult.newBalance,
+    newBalance: balance,
   };
 }
 
@@ -411,9 +436,25 @@ export async function generateStudioAsset(
   const enrichedPrompt = appendCcdToPrompt(prompt, characterDna);
   const job = await runGenerationJob(userId, module, activeDna, enrichedPrompt, { size, hd });
 
+  if (job.status !== 'completed' || !job.imageUrl) {
+    await addCoins(
+      userId,
+      coinResult.cost,
+      `${moduleLabel} — Rückerstattung (Generierung fehlgeschlagen)`,
+      'refund'
+    );
+    throw new ServiceError(
+      503,
+      'AI_GENERATION_FAILED',
+      job.error || `${moduleLabel}-Generierung fehlgeschlagen — Coins wurden erstattet`
+    );
+  }
+
+  const balance = await getCoinBalance(userId);
+
   return {
     job,
     coinsSpent: coinResult.cost,
-    newBalance: coinResult.newBalance,
+    newBalance: balance,
   };
 }

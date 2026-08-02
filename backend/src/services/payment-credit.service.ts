@@ -1,10 +1,8 @@
 import { AppError } from '../middleware/errorHandler.js';
 import { addCoins, COIN_PACKAGES } from './coins.service.js';
 import {
-  isPayPalOrderProcessed,
-  markPayPalOrderProcessed,
-  isStripeSessionProcessed,
-  markStripeSessionProcessed,
+  claimStripeSession,
+  claimPayPalOrder,
 } from './session-store.service.js';
 
 export function getPackageById(packageId: string) {
@@ -18,57 +16,68 @@ export interface CreditResult {
   duplicate?: boolean;
 }
 
+/**
+ * Credits coins from a verified payment.
+ * Package table is authoritative for coin amounts — metadata amounts are ignored.
+ * Payment id is claimed atomically to prevent double-credit races.
+ */
 export async function creditCoinsFromPackagePurchase(params: {
   provider: 'stripe' | 'paypal';
   paymentId: string;
   userId: string;
   packageId: string;
-  coins: number;
-  bonusCoins: number;
   amountCents?: number;
 }): Promise<CreditResult> {
-  const { provider, paymentId, userId, packageId, coins, bonusCoins, amountCents } = params;
-
-  const isProcessed =
-    provider === 'stripe'
-      ? await isStripeSessionProcessed(paymentId)
-      : await isPayPalOrderProcessed(paymentId);
-
-  if (isProcessed) {
-    return { credited: false, totalCoins: 0, duplicate: true };
-  }
+  const { provider, paymentId, userId, packageId, amountCents } = params;
 
   const pkg = getPackageById(packageId);
-  if (pkg && amountCents != null && amountCents < pkg.priceCents) {
+  if (!pkg) {
+    throw new AppError(400, 'INVALID_PACKAGE', `Unbekanntes Coin-Paket: ${packageId}`);
+  }
+
+  if (amountCents != null && amountCents < pkg.priceCents) {
     throw new AppError(400, 'AMOUNT_MISMATCH', 'Zahlungsbetrag stimmt nicht mit Paket überein');
   }
 
-  if (!userId || coins <= 0) {
+  if (!userId) {
     return { credited: false, totalCoins: 0 };
   }
 
-  const totalCoins = coins + bonusCoins;
-  const newBalance = await addCoins(
-    userId,
-    totalCoins,
-    `${packageId} Paket (${totalCoins} Coins)`,
-    'purchase',
-    {
-      provider,
-      packageId,
-      stripeSessionId: provider === 'stripe' ? paymentId : undefined,
-      paypalOrderId: provider === 'paypal' ? paymentId : undefined,
-    }
-  );
-
+  const totalCoins = pkg.coins + pkg.bonusCoins;
   const meta = { userId, packageId, coins: totalCoins };
-  if (provider === 'stripe') {
-    await markStripeSessionProcessed(paymentId, meta);
-    console.log(`[Stripe] Credited ${totalCoins} coins for session ${paymentId.slice(0, 12)}…`);
-  } else {
-    await markPayPalOrderProcessed(paymentId, meta);
-    console.log(`[PayPal] Credited ${totalCoins} coins for order ${paymentId.slice(0, 12)}…`);
+
+  const claimed =
+    provider === 'stripe'
+      ? await claimStripeSession(paymentId, meta)
+      : await claimPayPalOrder(paymentId, meta);
+
+  if (!claimed) {
+    return { credited: false, totalCoins: 0, duplicate: true };
   }
 
-  return { credited: true, totalCoins, newBalance };
+  try {
+    const newBalance = await addCoins(
+      userId,
+      totalCoins,
+      `${packageId} Paket (${totalCoins} Coins)`,
+      'purchase',
+      {
+        provider,
+        packageId,
+        stripeSessionId: provider === 'stripe' ? paymentId : undefined,
+        paypalOrderId: provider === 'paypal' ? paymentId : undefined,
+      }
+    );
+
+    if (provider === 'stripe') {
+      console.log(`[Stripe] Credited ${totalCoins} coins for session ${paymentId.slice(0, 12)}…`);
+    } else {
+      console.log(`[PayPal] Credited ${totalCoins} coins for order ${paymentId.slice(0, 12)}…`);
+    }
+
+    return { credited: true, totalCoins, newBalance };
+  } catch (err) {
+    console.error(`[Payment] Credit failed after claim for ${paymentId}:`, err);
+    throw err;
+  }
 }

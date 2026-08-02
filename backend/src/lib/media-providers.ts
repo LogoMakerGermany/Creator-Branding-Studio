@@ -1,11 +1,20 @@
-import { isProduction } from '../config/env.js';
+import {
+  isProduction,
+  getElevenLabsApiKey,
+  getElevenLabsVoiceId,
+  getReplicateApiToken,
+  getSunoApiKey,
+  getRunwayApiKey,
+  getReplicateVideoModel,
+  hasImageAiProvider,
+} from '../config/env.js';
 import { ServiceError } from './errors.js';
 
 export async function generateSpeech(
   text: string,
   options?: { voiceId?: string }
 ): Promise<{ audioUrl: string; provider: string }> {
-  const apiKey = process.env.ELEVENLABS_API_KEY;
+  const apiKey = getElevenLabsApiKey();
   if (!apiKey) {
     if (isProduction()) {
       throw new ServiceError(503, 'AI_NOT_CONFIGURED', 'ElevenLabs API Key fehlt (ELEVENLABS_API_KEY)');
@@ -13,7 +22,7 @@ export async function generateSpeech(
     throw new Error('ELEVENLABS_API_KEY nicht konfiguriert');
   }
 
-  const voiceId = options?.voiceId || process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
+  const voiceId = options?.voiceId || getElevenLabsVoiceId();
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
     method: 'POST',
     headers: {
@@ -40,7 +49,7 @@ export async function generateMusic(
   prompt: string,
   options?: { duration?: number; title?: string }
 ): Promise<{ audioUrl: string; provider: string; duration: number }> {
-  if (process.env.REPLICATE_API_TOKEN) {
+  if (getReplicateApiToken()) {
     try {
       return await generateMusicWithReplicate(prompt, options?.duration ?? 30);
     } catch (err) {
@@ -48,7 +57,7 @@ export async function generateMusic(
     }
   }
 
-  if (process.env.SUNO_API_KEY) {
+  if (getSunoApiKey()) {
     return generateMusicWithSuno(prompt, options);
   }
 
@@ -67,10 +76,11 @@ async function generateMusicWithReplicate(
   prompt: string,
   duration: number
 ): Promise<{ audioUrl: string; provider: string; duration: number }> {
+  const token = getReplicateApiToken()!;
   const createRes = await fetch('https://api.replicate.com/v1/models/meta/musicgen/predictions', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.REPLICATE_API_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       Prefer: 'wait=120',
     },
@@ -98,7 +108,7 @@ async function generateMusicWithReplicate(
   while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && attempts < 90) {
     await new Promise((r) => setTimeout(r, 2000));
     const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, {
-      headers: { Authorization: `Bearer ${process.env.REPLICATE_API_TOKEN}` },
+      headers: { Authorization: `Bearer ${token}` },
     });
     prediction = await pollRes.json();
     attempts++;
@@ -118,7 +128,7 @@ async function generateMusicWithSuno(
   const res = await fetch('https://api.sunoapi.org/api/v1/generate', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.SUNO_API_KEY}`,
+      Authorization: `Bearer ${getSunoApiKey()}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -148,7 +158,8 @@ async function generateMusicWithSuno(
 export async function generateVideoThumbnail(
   prompt: string
 ): Promise<{ imageUrl: string; provider: string }> {
-  if (!process.env.REPLICATE_API_TOKEN) {
+  const token = getReplicateApiToken();
+  if (!token) {
     if (isProduction()) {
       throw new ServiceError(503, 'AI_NOT_CONFIGURED', 'REPLICATE_API_TOKEN fehlt für Video-Thumbnails');
     }
@@ -158,7 +169,7 @@ export async function generateVideoThumbnail(
   const createRes = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.REPLICATE_API_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       Prefer: 'wait=90',
     },
@@ -191,7 +202,7 @@ export async function generateVideoThumbnail(
 }
 
 export function requireImageProvider(): void {
-  if (!process.env.OPENAI_API_KEY && !process.env.REPLICATE_API_TOKEN) {
+  if (!hasImageAiProvider()) {
     throw new ServiceError(
       503,
       'AI_NOT_CONFIGURED',
@@ -206,7 +217,7 @@ export async function generateVideo(
   prompt: string,
   options?: { aspectRatio?: VideoAspectRatio; duration?: number }
 ): Promise<{ videoUrl: string; provider: string }> {
-  if (process.env.RUNWAY_API_KEY) {
+  if (getRunwayApiKey()) {
     try {
       return await generateVideoWithRunway(prompt, options);
     } catch (err) {
@@ -214,7 +225,7 @@ export async function generateVideo(
     }
   }
 
-  if (process.env.REPLICATE_API_TOKEN) {
+  if (getReplicateApiToken()) {
     try {
       return await generateVideoWithReplicate(prompt, options);
     } catch (err) {
@@ -237,13 +248,14 @@ async function generateVideoWithReplicate(
   prompt: string,
   options?: { aspectRatio?: VideoAspectRatio; duration?: number }
 ): Promise<{ videoUrl: string; provider: string }> {
-  const model = process.env.REPLICATE_VIDEO_MODEL || 'minimax/video-01';
+  const token = getReplicateApiToken()!;
+  const model = getReplicateVideoModel();
   const aspectRatio = options?.aspectRatio === '9:16' ? '9:16' : '16:9';
 
   const createRes = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.REPLICATE_API_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       Prefer: 'wait=180',
     },
@@ -271,7 +283,7 @@ async function generateVideoWithReplicate(
   while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && attempts < 120) {
     await new Promise((r) => setTimeout(r, 3000));
     const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, {
-      headers: { Authorization: `Bearer ${process.env.REPLICATE_API_TOKEN}` },
+      headers: { Authorization: `Bearer ${token}` },
     });
     prediction = await pollRes.json();
     attempts++;
@@ -294,13 +306,14 @@ async function generateVideoWithRunway(
   prompt: string,
   options?: { aspectRatio?: VideoAspectRatio; duration?: number }
 ): Promise<{ videoUrl: string; provider: string }> {
+  const apiKey = getRunwayApiKey()!;
   const ratio = options?.aspectRatio === '9:16' ? '720:1280' : '1280:720';
   const duration = Math.min(Math.max(options?.duration ?? 5, 5), 10);
 
   const createRes = await fetch('https://api.dev.runwayml.com/v1/text_to_video', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.RUNWAY_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       'X-Runway-Version': '2024-11-06',
     },
@@ -323,7 +336,7 @@ async function generateVideoWithRunway(
     await new Promise((r) => setTimeout(r, 3000));
     const pollRes = await fetch(`https://api.dev.runwayml.com/v1/tasks/${task.id}`, {
       headers: {
-        Authorization: `Bearer ${process.env.RUNWAY_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
         'X-Runway-Version': '2024-11-06',
       },
     });

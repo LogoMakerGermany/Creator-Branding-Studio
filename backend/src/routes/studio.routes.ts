@@ -127,7 +127,7 @@ function createStudioRoutes(config: StudioRouteConfig) {
 
   const overlaySchema = z.object({
     style: z.string().max(40).optional(),
-    overlayType: z.enum(['hud', 'alert', 'panel', 'starting-soon', 'brb', 'full-scene']).optional(),
+    overlayType: z.enum(['hud', 'alert', 'panel', 'starting-soon', 'brb', 'offline', 'ending', 'full-scene']).optional(),
     transparentBackground: z.boolean().optional(),
     animated: z.boolean().optional(),
   });

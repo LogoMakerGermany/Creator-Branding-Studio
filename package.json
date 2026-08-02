@@ -18,6 +18,7 @@
     "start:static": "node backend/dist/index.js",
     "deploy:firebase": "node scripts/sync-firebase-env.mjs && npm run build:prod && npx firebase-tools deploy --only hosting,firestore:rules,firestore:indexes,storage",
     "sync:firebase-env": "node scripts/sync-firebase-env.mjs",
+    "setup:local": "node scripts/setup-local-dev.mjs",
     "deploy:check": "node scripts/predeploy-check.mjs",
     "railway:login": "railway login",
     "railway:link": "railway link",

@@ -39,6 +39,10 @@ import { magikRoutes } from './magik.routes.js';
 import { magikAiRoutes } from './magik-ai.routes.js';
 import { ccdRoutes } from './ccd.routes.js';
 import { ultimateCreatorRoutes } from './ultimate-creator.routes.js';
+import { promptStudioRoutes } from './prompt-studio.routes.js';
+import { projectRoutes } from './project.routes.js';
+import { adminRoutes } from './admin.routes.js';
+import { pricingRoutes, balanceRoutes } from './pricing.routes.js';
 
 export const apiRouter = Router();
 
@@ -48,6 +52,11 @@ apiRouter.use('/magik-ai', magikAiRoutes);
 apiRouter.use('/ccd', ccdRoutes);
 apiRouter.use('/ultimate-creator', ultimateCreatorRoutes);
 apiRouter.use('/config', configRoutes);
+apiRouter.use('/prompts', promptStudioRoutes);
+apiRouter.use('/projects', projectRoutes);
+apiRouter.use('/admin', adminRoutes);
+apiRouter.use('/pricing', pricingRoutes);
+apiRouter.use('/balance', balanceRoutes);
 
 apiRouter.use('/auth', authRoutes);
 apiRouter.use('/dna', dnaRoutes);

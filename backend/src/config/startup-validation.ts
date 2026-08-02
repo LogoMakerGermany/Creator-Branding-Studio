@@ -1,81 +1,37 @@
 import {
   isProduction,
-  isFirebaseAdminConfigured,
-  isDevAuthBypassExplicit,
-  getFrontendUrls,
-  isStripeConfigured,
-  getAiProviderStatus,
+  collectProductionConfigIssues,
 } from './env.js';
-import { isPayPalConfigured, getPayPalMode } from '../services/paypal.service.js';
-import { requiresPublicClientConfig, isPublicClientConfigReady } from '../services/client-config.service.js';
 
 /**
  * Fail fast in production if secrets or security settings are misconfigured.
- * All server secrets must live in Railway (or local backend/.env), never in the frontend.
+ * All server secrets must live in Railway Variables — never in the frontend or git.
+ * Returns true when configuration is valid (or when not in production).
  */
-export function validateProductionConfig(): void {
+export function validateProductionConfig(): boolean {
   if (!isProduction()) {
-    return;
+    return true;
   }
 
-  const errors: string[] = [];
+  const issues = collectProductionConfigIssues();
 
-  if (isDevAuthBypassExplicit()) {
-    errors.push('DEV_AUTH_BYPASS must not be enabled in production');
+  if (issues.length === 0) {
+    return true;
   }
 
-  if (!isFirebaseAdminConfigured()) {
-    errors.push('Firebase Admin credentials (FIREBASE_*) are required in production');
+  console.error('[Config] Production configuration incomplete — refusing to start:');
+  for (const issue of issues) {
+    console.error(`  - ${issue.variable}: ${issue.message}`);
   }
+  console.error(
+    '[Config] Set these as Railway Project Variables (same names for local development).'
+  );
+  return false;
+}
 
-  if (getFrontendUrls().length === 0) {
-    errors.push('FRONTEND_URL or FRONTEND_URLS must be set in production');
-  }
-
-  const required = ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY'];
-  for (const key of required) {
-    if (!process.env[key]?.trim()) {
-      errors.push(`${key} is missing`);
-    }
-  }
-
-  if (!isStripeConfigured()) {
-    errors.push('STRIPE_SECRET_KEY is required in production');
-  }
-
-  if (!process.env.STRIPE_WEBHOOK_SECRET?.trim()) {
-    errors.push('STRIPE_WEBHOOK_SECRET is required in production');
-  }
-
-  if (isPayPalConfigured()) {
-    if (getPayPalMode() !== 'live') {
-      errors.push('PAYPAL_MODE must be "live" when PayPal is configured in production');
-    }
-    if (!process.env.PAYPAL_WEBHOOK_ID?.trim()) {
-      errors.push('PAYPAL_WEBHOOK_ID is required when PayPal is configured in production');
-    }
-  }
-
-  const ai = getAiProviderStatus();
-  if (!ai.openai && !ai.replicate) {
-    errors.push('At least one image AI provider is required (OPENAI_API_KEY or REPLICATE_API_TOKEN)');
-  }
-
-  if (!process.env.FIREBASE_STORAGE_BUCKET?.trim()) {
-    errors.push('FIREBASE_STORAGE_BUCKET is required in production');
-  }
-
-  if (requiresPublicClientConfig() && !isPublicClientConfigReady()) {
-    errors.push(
-      'PUBLIC_FIREBASE_API_KEY and PUBLIC_FIREBASE_PROJECT_ID are required when SERVE_STATIC=true (Railway all-in-one)'
-    );
-  }
-
-  if (errors.length > 0) {
-    console.error('[Security] Production config issues (server keeps running for /health):');
-    for (const err of errors) {
-      console.error(`  - ${err}`);
-    }
-    console.error('[Security] Configure secrets in Railway Variables only — never in frontend or git.');
+/** Validate and exit the process if production config is invalid. */
+export function assertProductionConfigOrExit(): void {
+  if (!validateProductionConfig()) {
+    process.exit(1);
   }
 }

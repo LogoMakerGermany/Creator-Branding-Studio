@@ -4,7 +4,7 @@ export function formatAuthError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
 
   if (message === 'Failed to fetch' || code === 'NETWORK_ERROR') {
-    return 'Verbindung zum Server fehlgeschlagen. Bitte Seite neu laden und erneut anmelden.';
+    return 'Backend nicht erreichbar. Starte im Projektordner: npm run dev';
   }
 
   switch (code) {
