@@ -12,15 +12,23 @@ build/
 .env
 .env.local
 .env.*.local
+frontend/.env.local
 frontend/.env.production
+backend/.env
 backend/.env.railway
 *.pem
 
-# Firebase
+# Firebase / Service Account secrets (never commit)
 .firebase/
 firebase-debug.log
 firestore-debug.log
 ui-debug.log
+*firebase-adminsdk*.json
+*serviceAccount*.json
+serviceAccountKey.json
+*-credentials.json
+**/secrets/
+
 
 # IDE
 .vscode/*
