@@ -27,7 +27,7 @@ magikAiRoutes.get(
     sendSuccess(res, {
       phase: MAGIK_AI_PHASE,
       enabled: MAGIK_AI_ASSISTANT_ENABLED,
-      message: 'MAGIK AI Assistant — Vorbereitungsphase. Aktivierung in Phase 2.',
+      message: 'Konversation läuft über NEXTER. MAGIK bleibt die Logo-Prompt-Engine.',
     });
   })
 );

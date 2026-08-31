@@ -178,7 +178,11 @@ export async function purchaseItem(
   const already = await dsListWhere(PURCHASES_COLLECTION, { buyerId, itemId });
   if (already.length > 0) throw new ServiceError(400, 'PURCHASE_FAILED', 'Bereits gekauft');
 
-  const coinResult = await deductAmount(buyerId, item.priceCoins, `Marketplace: ${item.title}`);
+  const coinResult = await deductAmount(buyerId, item.priceCoins, `Marketplace: ${item.title}`, {
+    idempotencyKey: `marketplace:${buyerId}:${itemId}`,
+    sourceType: 'marketplace',
+    sourceId: itemId,
+  });
   if (!coinResult.success) throw new ServiceError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
 
   const purchase: MarketplacePurchase = {

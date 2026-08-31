@@ -10,6 +10,7 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',
   'image/webp',
   'image/gif',
+  'image/svg+xml',
   'application/pdf',
   'video/mp4',
   'application/json',

@@ -11,10 +11,10 @@ import { randomUUID } from 'node:crypto';
 import { dsDelete, dsGet, dsListWhere, dsSet } from '../lib/data-store.js';
 import { ServiceError } from '../lib/errors.js';
 import { parseAndValidateProjectZipDataUrl } from '../lib/upload-validation.js';
-import { buildZipArchive, getZipEntry, listZipEntries, parseZipArchive } from '../lib/zip-store.js';
+import { getZipEntry, listZipEntries, parseZipArchive } from '../lib/zip-store.js';
 import { uploadAssetFromDataUrl } from '../lib/firebase-storage.js';
 import { getDnaById, upsertDna } from './dna.service.js';
-import { listUserFiles, saveUserFile, type FileCategory } from './file-cloud.service.js';
+import { saveUserFile, type FileCategory } from './file-cloud.service.js';
 
 const COLLECTION = 'projects';
 
@@ -77,6 +77,18 @@ export async function createProject(userId: string, input: ProjectWriteInput): P
   return project;
 }
 
+export async function duplicateProject(id: string, userId: string): Promise<Project> {
+  const existing = await getProject(id, userId);
+  if (!existing || existing.deletedAt) throw new Error('Projekt nicht gefunden');
+  return createProject(userId, {
+    name: `${existing.name} (Kopie)`,
+    description: existing.description,
+    type: existing.type,
+    dnaId: existing.dnaId,
+    status: 'draft',
+  });
+}
+
 export async function updateProject(
   id: string,
   userId: string,
@@ -135,143 +147,6 @@ export async function purgeProject(id: string, userId: string): Promise<boolean>
   return true;
 }
 
-async function fetchAssetBuffer(url: string): Promise<Buffer | null> {
-  try {
-    if (url.startsWith('data:')) {
-      const base64 = url.split(',')[1];
-      if (!base64) return null;
-      return Buffer.from(base64, 'base64');
-    }
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    return Buffer.from(await res.arrayBuffer());
-  } catch {
-    return null;
-  }
-}
-
-function extensionFromUrl(url: string, fallback = 'bin'): string {
-  if (url.startsWith('data:image/png')) return 'png';
-  if (url.startsWith('data:image/jpeg')) return 'jpg';
-  if (url.startsWith('data:image/svg')) return 'svg';
-  if (url.startsWith('data:video/mp4')) return 'mp4';
-  try {
-    const pathname = new URL(url).pathname;
-    const match = pathname.match(/\.([a-z0-9]+)$/i);
-    return match?.[1] ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-/**
- * Builds a ZIP with project manifest, DNA snapshot, project assets and recent cloud files.
- * Uploads the archive to storage and returns a durable download URL.
- */
-export async function exportProjectZip(
-  id: string,
-  userId: string
-): Promise<{
-  project: Project;
-  exportUrl: string;
-  assets: ProjectAsset[];
-  fileCount: number;
-  exportedAt: string;
-}> {
-  const project = await getProject(id, userId);
-  if (!project) throw new Error('Projekt nicht gefunden');
-
-  const exportedAt = new Date().toISOString();
-  const entries: { name: string; data: Buffer }[] = [];
-
-  let dnaSnapshot: unknown = null;
-  if (project.dnaId) {
-    dnaSnapshot = await getDnaById(project.dnaId, userId);
-  }
-
-  const cloudFiles = await listUserFiles(userId);
-  const recentFiles = cloudFiles.slice(0, 40);
-
-  const manifest = {
-    exportedAt,
-    project,
-    dna: dnaSnapshot,
-    assets: project.assets,
-    includedCloudFiles: recentFiles.map((f) => ({
-      id: f.id,
-      name: f.name,
-      category: f.category,
-      downloadUrl: f.downloadUrl,
-    })),
-  };
-
-  entries.push({
-    name: 'manifest.json',
-    data: Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'),
-  });
-
-  let fileCount = 1;
-
-  for (let i = 0; i < project.assets.length; i++) {
-    const asset = project.assets[i];
-    if (!asset.url) continue;
-    const buf = await fetchAssetBuffer(asset.url);
-    if (!buf) continue;
-    const ext = extensionFromUrl(asset.url, 'bin');
-    const safeName = (asset.name || `asset-${i + 1}`).replace(/[^\w.-]+/g, '_');
-    entries.push({
-      name: `assets/${String(i + 1).padStart(2, '0')}-${safeName}.${ext}`,
-      data: buf,
-    });
-    fileCount++;
-  }
-
-  if (dnaSnapshot && typeof dnaSnapshot === 'object' && dnaSnapshot !== null) {
-    const dna = dnaSnapshot as { sourceAssets?: { url?: string; type?: string }[] };
-    const sources = dna.sourceAssets ?? [];
-    for (let i = 0; i < sources.length; i++) {
-      const src = sources[i];
-      if (!src.url) continue;
-      const buf = await fetchAssetBuffer(src.url);
-      if (!buf) continue;
-      const ext = extensionFromUrl(src.url, 'png');
-      entries.push({
-        name: `dna/${src.type || 'reference'}-${i + 1}.${ext}`,
-        data: buf,
-      });
-      fileCount++;
-    }
-  }
-
-  for (const file of recentFiles) {
-    if (!file.downloadUrl) continue;
-    const buf = await fetchAssetBuffer(file.downloadUrl);
-    if (!buf) continue;
-    const ext = extensionFromUrl(file.downloadUrl, file.mimeType.includes('video') ? 'mp4' : 'png');
-    const safe = file.name.replace(/[^\w.-]+/g, '_');
-    entries.push({
-      name: `cloud/${file.category}/${safe}.${ext}`,
-      data: buf,
-    });
-    fileCount++;
-  }
-
-  const zipBuffer = buildZipArchive(entries);
-  const dataUrl = `data:application/zip;base64,${zipBuffer.toString('base64')}`;
-  const exportUrl = await uploadAssetFromDataUrl(userId, dataUrl, {
-    folder: 'project-exports',
-    fileName: `${project.id}-${Date.now()}.zip`,
-  });
-
-  return {
-    project,
-    exportUrl,
-    assets: project.assets,
-    fileCount,
-    exportedAt,
-  };
-}
-
 /** JSON-only fallback without binary assets. */
 export async function exportProjectManifest(
   id: string,
@@ -296,6 +171,11 @@ const PROJECT_TYPES: ProjectType[] = [
   'overlay',
   'full_package',
   'custom',
+  'streamset',
+  'mockup',
+  'shorts',
+  'social',
+  'text',
 ];
 
 const FILE_CATEGORIES = new Set<FileCategory>([

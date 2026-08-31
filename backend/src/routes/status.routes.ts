@@ -13,6 +13,7 @@ import {
   getRegistrationModeEnv,
   areGenerationsEnabled,
   arePaymentsEnabled,
+  isResendConfigured,
 } from '../config/env.js';
 import { shouldServeStatic } from '../middleware/static.js';
 import { asyncHandler, sendSuccess } from '../middleware/errorHandler.js';
@@ -40,8 +41,9 @@ statusRoutes.get(
             ? 'admin'
             : 'dev-store',
       },
-      stripe: { configured: isStripeConfigured(), mode: getStripeMode() },
-      paypal: { configured: isPayPalConfigured(), mode: getPayPalMode() },
+      stripe: { configured: isStripeConfigured(), liveChecked: false, available: null, mode: getStripeMode() },
+      paypal: { configured: isPayPalConfigured(), liveChecked: false, available: null, mode: getPayPalMode() },
+      resend: { configured: isResendConfigured(), liveChecked: false, available: null },
       rtmp: getRtmpConfig(),
       ai: getAiProviderStatus(),
       registration: {

@@ -5,12 +5,17 @@ import type {
   DNAVersion,
   FontConfig,
   BrandingRule,
+  DnaCharacter,
+  DnaTypography,
+  DnaAtmosphere,
+  DnaOutputPrefs,
 } from '@ucbs/shared';
-import { DNA_PLATFORMS } from '@ucbs/shared';
+import { DNA_PLATFORMS, applyDnaLocks, mergeAnalysisIntoDna, pickDnaForRequest } from '@ucbs/shared';
 import { devStore, isDevMode } from '../lib/dev-store.js';
 import { getFirestore } from '../config/firebase.js';
 import { randomUUID } from 'node:crypto';
 import { analyzeCreatorAssets } from './dna-analysis.service.js';
+import { getCharacterDna, saveCharacterDna } from './creator-dna-engine/ccd-storage.service.js';
 
 function generateId(): string {
   return randomUUID();
@@ -37,6 +42,17 @@ export function normalizeDna(raw: CreatorDNA): CreatorDNA {
     aiAnalysis: raw.aiAnalysis
       ? { ...raw.aiAnalysis, source: raw.aiAnalysis.source ?? 'colors' }
       : undefined,
+    locks: raw.locks ?? {},
+    lightingStyle: raw.lightingStyle,
+    dimension: raw.dimension,
+    projectId: raw.projectId,
+    slogan: raw.slogan ?? '',
+    usagePurpose: raw.usagePurpose ?? '',
+    backgroundColors: raw.backgroundColors ?? [],
+    character: raw.character ?? { present: Boolean(raw.mascot) },
+    typography: raw.typography,
+    atmosphere: raw.atmosphere,
+    outputPrefs: raw.outputPrefs,
     designLanguage: raw.designLanguage ?? {
       mood: [],
       keywords: [],
@@ -55,7 +71,9 @@ export function normalizeDna(raw: CreatorDNA): CreatorDNA {
 
 export async function listDnaByUser(userId: string): Promise<CreatorDNA[]> {
   if (isDevMode()) {
-    return (devStore.getDnaByUser(userId) as unknown as CreatorDNA[]).map(normalizeDna);
+    return Promise.all(
+      (devStore.getDnaByUser(userId) as unknown as CreatorDNA[]).map((d) => hydrateDnaCharacter(normalizeDna(d)))
+    );
   }
 
   const db = getFirestore();
@@ -65,20 +83,22 @@ export async function listDnaByUser(userId: string): Promise<CreatorDNA[]> {
     .orderBy('createdAt', 'desc')
     .get();
 
-  return snap.docs.map((doc) => normalizeDna({ id: doc.id, ...doc.data() } as CreatorDNA));
+  return Promise.all(
+    snap.docs.map((doc) => hydrateDnaCharacter(normalizeDna({ id: doc.id, ...doc.data() } as CreatorDNA)))
+  );
 }
 
 export async function getDnaById(id: string, userId: string): Promise<CreatorDNA | null> {
   if (isDevMode()) {
     const dna = devStore.getDna(id);
     if (!dna || dna.userId !== userId) return null;
-    return normalizeDna(dna as unknown as CreatorDNA);
+    return hydrateDnaCharacter(normalizeDna(dna as unknown as CreatorDNA));
   }
 
   const db = getFirestore();
   const doc = await db.collection('creator_dna').doc(id).get();
   if (!doc.exists || doc.data()?.userId !== userId) return null;
-  return normalizeDna({ id: doc.id, ...doc.data() } as CreatorDNA);
+  return hydrateDnaCharacter(normalizeDna({ id: doc.id, ...doc.data() } as CreatorDNA));
 }
 
 export async function getActiveDna(userId: string): Promise<CreatorDNA | null> {
@@ -96,6 +116,7 @@ export interface DnaWriteInput {
   primaryColors?: string[];
   secondaryColors?: string[];
   accentColors?: string[];
+  backgroundColors?: string[];
   targetPlatforms?: string[];
   favoriteGenres?: string[];
   gamingStyle?: string;
@@ -110,6 +131,102 @@ export interface DnaWriteInput {
   sourceAssets?: CreatorDNA['sourceAssets'];
   targetAudience?: CreatorDNA['targetAudience'];
   designLanguage?: CreatorDNA['designLanguage'];
+  locks?: CreatorDNA['locks'];
+  lightingStyle?: string;
+  dimension?: '2d' | '3d';
+  projectId?: string;
+  slogan?: string;
+  usagePurpose?: string;
+  character?: DnaCharacter;
+  typography?: DnaTypography;
+  atmosphere?: DnaAtmosphere;
+  outputPrefs?: DnaOutputPrefs;
+}
+
+function characterFromCcd(ccd: Awaited<ReturnType<typeof getCharacterDna>>, existing?: DnaCharacter): DnaCharacter {
+  if (!ccd) return existing ?? { present: false };
+  return {
+    present: true,
+    type: existing?.type ?? ccd.figure,
+    description: existing?.description || ccd.figure,
+    clothing: existing?.clothing || ccd.visual.armor || ccd.visual.clothing,
+    hair: existing?.hair || ccd.visual.hair,
+    face: existing?.face || ccd.visual.mask || ccd.visual.helmet || ccd.visual.expression,
+    accessories: existing?.accessories || ccd.visual.jewelry,
+    traits: existing?.traits?.length
+      ? existing.traits
+      : [ccd.figure, ccd.subFigure, ccd.personality].filter((v): v is string => Boolean(v)),
+    ccdCharacterId: ccd.id,
+  };
+}
+
+/** Prefer Creator DNA character; fill from CCD sidecar without deleting CCD. */
+export async function hydrateDnaCharacter(dna: CreatorDNA): Promise<CreatorDNA> {
+  const hasCharacter =
+    Boolean(dna.character?.description) ||
+    Boolean(dna.character?.present) ||
+    Boolean(dna.mascot);
+  if (hasCharacter && dna.character?.ccdCharacterId) return dna;
+  try {
+    const ccd = await getCharacterDna(dna.userId);
+    if (!ccd) return dna;
+    if (dna.character?.description || dna.mascot) {
+      return {
+        ...dna,
+        character: {
+          ...(dna.character ?? { present: Boolean(dna.mascot) }),
+          ccdCharacterId: dna.character?.ccdCharacterId ?? ccd.id,
+        },
+      };
+    }
+    return { ...dna, character: characterFromCcd(ccd, dna.character), mascot: dna.mascot || ccd.figure };
+  } catch {
+    return dna;
+  }
+}
+
+async function syncCharacterSidecar(dna: CreatorDNA): Promise<void> {
+  if (!dna.character?.present && !dna.mascot) return;
+  try {
+    const existing = await getCharacterDna(dna.userId);
+    const now = new Date().toISOString();
+    await saveCharacterDna({
+      id: existing?.id ?? dna.character?.ccdCharacterId ?? dna.id,
+      userId: dna.userId,
+      creatorDnaId: dna.id,
+      creatorName: dna.name,
+      clanName: dna.clanName,
+      figure: dna.character?.description || dna.mascot || existing?.figure || dna.name,
+      subFigure: dna.character?.type || existing?.subFigure,
+      personality: existing?.personality ?? 'heroic',
+      style: dna.styleDirection,
+      visual: {
+        ...(existing?.visual ?? {}),
+        clothing: dna.character?.clothing ?? existing?.visual.clothing,
+        armor: dna.character?.clothing ?? existing?.visual.armor,
+        hair: dna.character?.hair ?? existing?.visual.hair,
+        mask: dna.character?.face ?? existing?.visual.mask,
+        jewelry: dna.character?.accessories ?? existing?.visual.jewelry,
+      },
+      colors: existing?.colors ?? {
+        primary: dna.primaryColors,
+        secondary: dna.secondaryColors,
+        accent: dna.accentColors,
+        glow: [],
+        metal: [],
+        lighting: dna.atmosphere?.lighting ? [dna.atmosphere.lighting] : [],
+      },
+      effects: existing?.effects ?? [],
+      pose: existing?.pose ?? 'heroic',
+      environment: existing?.environment ?? 'abstract',
+      generationCount: existing?.generationCount ?? 0,
+      version: existing ? existing.version + 1 : 1,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    });
+  } catch {
+    /* sidecar must not fail DNA writes */
+  }
 }
 
 function buildBrandingRules(input: DnaWriteInput): BrandingRule[] {
@@ -220,6 +337,19 @@ function buildDnaDocument(
       },
     sourceAssets: input.sourceAssets ?? existing?.sourceAssets ?? [],
     aiAnalysis: input.aiAnalysis ?? existing?.aiAnalysis,
+    locks: input.locks ?? existing?.locks ?? {},
+    lightingStyle: input.lightingStyle ?? existing?.lightingStyle ?? input.aiAnalysis?.lightingStyle,
+    dimension: input.dimension ?? existing?.dimension ?? input.aiAnalysis?.dimension,
+    projectId: input.projectId ?? existing?.projectId,
+    slogan: input.slogan ?? existing?.slogan ?? '',
+    usagePurpose: input.usagePurpose ?? existing?.usagePurpose ?? '',
+    backgroundColors: input.backgroundColors ?? existing?.backgroundColors ?? [],
+    character: input.character ?? existing?.character ?? { present: Boolean(input.mascot ?? existing?.mascot) },
+    typography: input.typography ?? existing?.typography,
+    atmosphere: input.atmosphere ?? existing?.atmosphere ?? (input.lightingStyle || existing?.lightingStyle
+      ? { lighting: input.lightingStyle ?? existing?.lightingStyle }
+      : undefined),
+    outputPrefs: input.outputPrefs ?? existing?.outputPrefs,
     version: existing ? existing.version + 1 : 1,
     isActive: type === 'creator',
     createdAt: existing?.createdAt ?? now,
@@ -247,6 +377,33 @@ async function saveVersionSnapshot(dna: CreatorDNA, changeDescription?: string):
   await db.collection('dna_versions').doc(version.id).set(version);
 }
 
+async function persistDnaDocument(dna: CreatorDNA, userId: string): Promise<void> {
+  const all = await listDnaByUser(userId);
+
+  if (isDevMode()) {
+    for (const d of all) {
+      if (d.id !== dna.id) {
+        devStore.saveDna(d.id, { ...d, isActive: false });
+      }
+    }
+    devStore.saveDna(dna.id, dna as unknown as Record<string, unknown>);
+    return;
+  }
+
+  const db = getFirestore();
+  const batch = db.batch();
+  for (const d of all) {
+    if (d.id !== dna.id) {
+      batch.update(db.collection('creator_dna').doc(d.id), {
+        isActive: false,
+        updatedAt: dna.updatedAt,
+      });
+    }
+  }
+  batch.set(db.collection('creator_dna').doc(dna.id), dna);
+  await batch.commit();
+}
+
 /**
  * Exactly one personal Creator DNA per user (type: creator).
  * Creates if none exists; otherwise updates the existing personal DNA.
@@ -269,6 +426,7 @@ export async function upsertDna(input: DnaWriteInput): Promise<CreatorDNA> {
     }
     devStore.saveDna(id, dna as unknown as Record<string, unknown>);
     await saveVersionSnapshot(dna, 'DNA erstellt');
+    await syncCharacterSidecar(dna);
     return dna;
   }
 
@@ -286,6 +444,7 @@ export async function upsertDna(input: DnaWriteInput): Promise<CreatorDNA> {
   batch.set(db.collection('creator_dna').doc(id), dna);
   await batch.commit();
   await saveVersionSnapshot(dna, 'DNA erstellt');
+  await syncCharacterSidecar(dna);
   return dna;
 }
 
@@ -321,8 +480,7 @@ export async function updateDna(
   const existing = await getDnaById(id, userId);
   if (!existing) throw new Error('DNA not found');
 
-  const merged: DnaWriteInput = {
-    userId,
+  const proposed: Partial<CreatorDNA> = {
     name: input.name ?? existing.name,
     clanName: input.clanName ?? existing.clanName,
     mascot: input.mascot ?? existing.mascot,
@@ -330,8 +488,7 @@ export async function updateDna(
     primaryColors: input.primaryColors ?? existing.primaryColors,
     secondaryColors: input.secondaryColors ?? existing.secondaryColors,
     accentColors: input.accentColors ?? existing.accentColors,
-    targetPlatforms:
-      input.targetPlatforms ?? existing.platformOptimization.map((p) => p.platform),
+    backgroundColors: input.backgroundColors ?? existing.backgroundColors,
     favoriteGenres: input.favoriteGenres ?? existing.favoriteGenres,
     gamingStyle: input.gamingStyle ?? existing.gamingStyle,
     brandingStyle: input.brandingStyle ?? existing.brandingStyle,
@@ -345,37 +502,61 @@ export async function updateDna(
     sourceAssets: input.sourceAssets ?? existing.sourceAssets,
     targetAudience: input.targetAudience ?? existing.targetAudience,
     designLanguage: input.designLanguage ?? existing.designLanguage,
+    locks: input.locks ?? existing.locks,
+    lightingStyle: input.lightingStyle ?? existing.lightingStyle,
+    dimension: input.dimension ?? existing.dimension,
+    projectId: input.projectId ?? existing.projectId,
+    slogan: input.slogan ?? existing.slogan,
+    usagePurpose: input.usagePurpose ?? existing.usagePurpose,
+    character: input.character ?? existing.character,
+    typography: input.typography ?? existing.typography,
+    atmosphere: input.atmosphere ?? existing.atmosphere,
+    outputPrefs: input.outputPrefs ?? existing.outputPrefs,
+  };
+
+  const locked = applyDnaLocks(existing, proposed);
+
+  const merged: DnaWriteInput = {
+    userId,
+    name: locked.name ?? existing.name,
+    clanName: locked.clanName ?? existing.clanName,
+    mascot: locked.mascot ?? existing.mascot,
+    styleDirection: locked.styleDirection ?? existing.styleDirection,
+    primaryColors: locked.primaryColors ?? existing.primaryColors,
+    secondaryColors: locked.secondaryColors ?? existing.secondaryColors,
+    accentColors: locked.accentColors ?? existing.accentColors,
+    backgroundColors: locked.backgroundColors ?? existing.backgroundColors,
+    targetPlatforms:
+      input.targetPlatforms ?? existing.platformOptimization.map((p) => p.platform),
+    favoriteGenres: locked.favoriteGenres ?? existing.favoriteGenres,
+    gamingStyle: locked.gamingStyle ?? existing.gamingStyle,
+    brandingStyle: locked.brandingStyle ?? existing.brandingStyle,
+    promptStyle: locked.promptStyle ?? existing.promptStyle,
+    visualLanguage: locked.visualLanguage ?? existing.visualLanguage,
+    animations: locked.animations ?? existing.animations,
+    personalGuidelines: locked.personalGuidelines ?? existing.personalGuidelines,
+    fonts: locked.fonts ?? existing.fonts,
+    brandingRules: locked.brandingRules ?? existing.brandingRules,
+    aiAnalysis: locked.aiAnalysis ?? existing.aiAnalysis,
+    sourceAssets: locked.sourceAssets ?? existing.sourceAssets,
+    targetAudience: locked.targetAudience ?? existing.targetAudience,
+    designLanguage: locked.designLanguage ?? existing.designLanguage,
+    locks: locked.locks ?? existing.locks,
+    lightingStyle: locked.lightingStyle ?? existing.lightingStyle,
+    dimension: locked.dimension ?? existing.dimension,
+    projectId: locked.projectId ?? existing.projectId,
+    slogan: locked.slogan ?? existing.slogan,
+    usagePurpose: locked.usagePurpose ?? existing.usagePurpose,
+    character: locked.character ?? existing.character,
+    typography: locked.typography ?? existing.typography,
+    atmosphere: locked.atmosphere ?? existing.atmosphere,
+    outputPrefs: locked.outputPrefs ?? existing.outputPrefs,
   };
 
   const dna = buildDnaDocument(id, merged, existing);
-
-  // Deactivate any other DNAs — enforce single active DNA
-  const all = await listDnaByUser(userId);
-
-  if (isDevMode()) {
-    for (const d of all) {
-      if (d.id !== id) {
-        devStore.saveDna(d.id, { ...d, isActive: false });
-      }
-    }
-    devStore.saveDna(id, dna as unknown as Record<string, unknown>);
-    await saveVersionSnapshot(dna, changeDescription);
-    return dna;
-  }
-
-  const db = getFirestore();
-  const batch = db.batch();
-  for (const d of all) {
-    if (d.id !== id) {
-      batch.update(db.collection('creator_dna').doc(d.id), {
-        isActive: false,
-        updatedAt: dna.updatedAt,
-      });
-    }
-  }
-  batch.set(db.collection('creator_dna').doc(id), dna);
-  await batch.commit();
+  await persistDnaDocument(dna, userId);
   await saveVersionSnapshot(dna, changeDescription);
+  await syncCharacterSidecar(dna);
   return dna;
 }
 
@@ -384,7 +565,10 @@ export async function listDnaVersions(dnaId: string, userId: string): Promise<DN
   if (!dna) return [];
 
   if (isDevMode()) {
-    return [];
+    return Object.values(devStore.getDnaList())
+      .filter((row) => row.dnaId === dnaId)
+      .map((row) => row as unknown as DNAVersion)
+      .sort((a, b) => b.version - a.version);
   }
 
   const db = getFirestore();
@@ -422,6 +606,92 @@ export async function activateDna(id: string, userId: string): Promise<CreatorDN
   }
   await batch.commit();
   return { ...dna, isActive: true };
+}
+
+export async function restoreDnaVersion(
+  dnaId: string,
+  versionId: string,
+  userId: string
+): Promise<CreatorDNA> {
+  const current = await getDnaById(dnaId, userId);
+  if (!current) throw new Error('DNA not found');
+
+  const versions = await listDnaVersions(dnaId, userId);
+  const found = versions.find((v) => v.id === versionId);
+  if (!found?.snapshot) throw new Error('Version not found');
+
+  const snap = normalizeDna(found.snapshot);
+  if (snap.userId !== userId) throw new Error('DNA not found');
+
+  const restored: CreatorDNA = {
+    ...snap,
+    id: dnaId,
+    userId,
+    version: current.version + 1,
+    isActive: true,
+    createdAt: current.createdAt,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await persistDnaDocument(restored, userId);
+  await saveVersionSnapshot(restored, `Wiederhergestellt aus Version ${found.version}`);
+  await syncCharacterSidecar(restored);
+  return restored;
+}
+
+export async function resolveDnaForRequest(
+  userId: string,
+  projectId?: string
+): Promise<{ dna: CreatorDNA | null; source: 'project' | 'active' | 'none'; projectName?: string }> {
+  let project: { ownerId: string; dnaId?: string; name?: string } | null = null;
+  if (projectId) {
+    const { getProject } = await import('./project.service.js');
+    const row = await getProject(projectId, userId);
+    if (row) project = { ownerId: row.ownerId, dnaId: row.dnaId, name: row.name };
+  }
+
+  const projectDna =
+    project?.dnaId && project.ownerId === userId ? await getDnaById(project.dnaId, userId) : null;
+  const activeDna = await getActiveDna(userId);
+  const picked = pickDnaForRequest({ userId, project, projectDna, activeDna });
+  return { ...picked, projectName: project?.name };
+}
+
+export async function applyAnalysisToDna(
+  dnaId: string,
+  userId: string,
+  analysis: DNAAnalysis
+): Promise<CreatorDNA> {
+  const existing = await getDnaById(dnaId, userId);
+  if (!existing) throw new Error('DNA not found');
+  const hexes = analysis.colorPalette.map((c) => c.hex).filter(Boolean);
+  const primary = analysis.colorPalette.filter((c) => c.usage === 'primary').map((c) => c.hex);
+  const secondary = analysis.colorPalette.filter((c) => c.usage === 'secondary').map((c) => c.hex);
+  const accent = analysis.colorPalette.filter((c) => c.usage === 'accent').map((c) => c.hex);
+  const patch = mergeAnalysisIntoDna(existing, {
+    styleDirection: analysis.detectedStyle,
+    ...(hexes.length
+      ? {
+          primaryColors: primary.length ? primary : hexes.slice(0, 2),
+          secondaryColors: secondary.length ? secondary : hexes.slice(2, 4),
+          accentColors: accent.length ? accent : hexes.slice(4, 6),
+        }
+      : {}),
+    mascot: analysis.character,
+    character: analysis.characterStructured ?? (analysis.character
+      ? { present: true, description: analysis.character, traits: analysis.recurringTraits }
+      : undefined),
+    typography: analysis.typography ?? (analysis.typographyStyle
+      ? { character: analysis.typographyStyle }
+      : undefined),
+    lightingStyle: analysis.lightingStyle,
+    dimension: analysis.dimension,
+    atmosphere: analysis.atmosphere ?? (analysis.lightingStyle
+      ? { lighting: analysis.lightingStyle }
+      : undefined),
+    aiAnalysis: analysis,
+  });
+  return updateDna(dnaId, userId, { userId, name: existing.name, ...patch }, 'Logo-Analyse übernommen');
 }
 
 export async function analyzeAssets(

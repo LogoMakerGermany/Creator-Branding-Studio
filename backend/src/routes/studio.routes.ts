@@ -81,6 +81,7 @@ function createStudioRoutes(config: StudioRouteConfig) {
       logoBackground: z.string().max(30).optional(),
       logoBackgroundUploadName: z.string().max(200).optional(),
       logoBackgroundUpload: z.string().max(7_000_000).optional(),
+      projectId: z.string().min(1).max(80).optional(),
     })
     .passthrough()
     .superRefine((data, ctx) => {
@@ -116,6 +117,7 @@ function createStudioRoutes(config: StudioRouteConfig) {
     title: z.string().max(80).optional(),
     subtitle: z.string().max(120).optional(),
     style: z.string().max(40).optional(),
+    projectId: z.string().min(1).max(80).optional(),
   });
 
   const facecamSchema = z.object({
@@ -123,6 +125,7 @@ function createStudioRoutes(config: StudioRouteConfig) {
     shape: z.enum(['rectangle', 'circle', 'hexagon']).optional(),
     animated: z.boolean().optional(),
     transparentBackground: z.boolean().optional(),
+    projectId: z.string().min(1).max(80).optional(),
   });
 
   const overlaySchema = z.object({
@@ -130,6 +133,7 @@ function createStudioRoutes(config: StudioRouteConfig) {
     overlayType: z.enum(['hud', 'alert', 'panel', 'starting-soon', 'brb', 'offline', 'ending', 'full-scene']).optional(),
     transparentBackground: z.boolean().optional(),
     animated: z.boolean().optional(),
+    projectId: z.string().min(1).max(80).optional(),
   });
 
   const stickerSchema = z.object({
@@ -138,18 +142,21 @@ function createStudioRoutes(config: StudioRouteConfig) {
     multicolor: z.boolean().optional(),
     shape: z.enum(['circle', 'square', 'die-cut']).optional(),
     transparentBackground: z.boolean().optional(),
+    projectId: z.string().min(1).max(80).optional(),
   });
 
   router.post(
     '/generate',
     asyncHandler(async (req: AuthenticatedRequest, res) => {
       if (moduleKey === 'logo') {
-        const logoOptions = logoSchema.parse(req.body);
+        const logoParsed = logoSchema.parse(req.body);
+        const { projectId: logoProjectId, ...logoOptions } = logoParsed;
         const result = await generateMagikLogoPair(
           req.user!.uid,
           coinCategory,
           moduleName,
-          logoOptions as import('@ucbs/shared').LogoGenerationOptions
+          logoOptions as import('@ucbs/shared').LogoGenerationOptions,
+          { projectId: logoProjectId }
         );
         const [jobA, jobB] = result.jobs;
         sendSuccess(
@@ -201,12 +208,15 @@ function createStudioRoutes(config: StudioRouteConfig) {
               ? overlaySchema.parse(req.body)
               : stickerSchema.parse(req.body);
 
+      const { projectId: studioProjectId, ...opts } = studioOptions as typeof studioOptions & { projectId?: string };
+
       const result = await generateStudioAsset(
         req.user!.uid,
         moduleKey,
         coinCategory,
         moduleName,
-        studioOptions
+        opts,
+        { projectId: studioProjectId }
       );
 
       sendSuccess(

@@ -17,12 +17,17 @@ export interface UserProfile {
   locale: string;
   onboardingCompleted: boolean;
   inviteCodeId?: string;
+  disabled?: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
 const DEFAULT_COINS = getDefaultFreeCoins();
 
+/**
+ * Existing documents without coinBalance must not receive a silent welcome grant.
+ * Missing field → 0, never DEFAULT_FREE_COINS.
+ */
 function normalizeCoinBalance(raw: Record<string, unknown>): number {
   const fromBalance = raw.coinBalance;
   if (typeof fromBalance === 'number' && Number.isFinite(fromBalance)) {
@@ -34,7 +39,7 @@ function normalizeCoinBalance(raw: Record<string, unknown>): number {
     return Math.max(0, Math.floor(legacyCoins));
   }
 
-  return DEFAULT_COINS;
+  return 0;
 }
 
 function normalizeRole(raw: unknown): UserRole {
@@ -98,11 +103,7 @@ export async function getOrCreateUser(
   if (isDevMode()) {
     const existing = devStore.getUser(uid);
     if (existing) {
-      const user = normalizeUserProfile(uid, existing);
-      if (user.coinBalance !== existing.coinBalance) {
-        devStore.saveUser(uid, user as unknown as Record<string, unknown>);
-      }
-      return user;
+      return normalizeUserProfile(uid, existing);
     }
     const user = createDefaultUser(uid, email, displayName, options.role || UserRole.USER);
     if (options.authProvider) {
@@ -114,13 +115,10 @@ export async function getOrCreateUser(
     devStore.saveUser(uid, user as unknown as Record<string, unknown>);
 
     if (DEFAULT_COINS > 0) {
-      devStore.addTransaction({
-        id: `tx_${Date.now()}`,
+      const { writeWelcomeLedgerOnly } = await import('./coins.service.js');
+      await writeWelcomeLedgerOnly({
         userId: uid,
-        type: 'bonus',
         amount: DEFAULT_COINS,
-        balanceAfter: DEFAULT_COINS,
-        description: 'Willkommensbonus',
         createdAt: user.createdAt,
       });
     }
@@ -134,9 +132,6 @@ export async function getOrCreateUser(
 
   if (doc.exists) {
     const user = normalizeUserProfile(uid, doc.data() as Record<string, unknown>);
-    if (user.coinBalance !== doc.data()?.coinBalance) {
-      await ref.update({ coinBalance: user.coinBalance, updatedAt: new Date().toISOString() });
-    }
     if (options.authProvider && !user.authProviders.includes(options.authProvider)) {
       const authProviders = [...user.authProviders, options.authProvider];
       await ref.update({ authProviders, updatedAt: new Date().toISOString() });
@@ -155,15 +150,10 @@ export async function getOrCreateUser(
   await ref.set(user);
 
   if (DEFAULT_COINS > 0) {
-    const { randomUUID } = await import('node:crypto');
-    const welcomeTxId = randomUUID();
-    await db.collection('coin_transactions').doc(welcomeTxId).set({
-      id: welcomeTxId,
+    const { writeWelcomeLedgerOnly } = await import('./coins.service.js');
+    await writeWelcomeLedgerOnly({
       userId: uid,
-      type: 'bonus',
       amount: DEFAULT_COINS,
-      balanceAfter: DEFAULT_COINS,
-      description: 'Willkommensbonus',
       createdAt: user.createdAt,
     });
   }
@@ -233,4 +223,31 @@ export async function updateCoinBalance(uid: string, newBalance: number): Promis
 
 export async function setUserRole(uid: string, role: UserRole): Promise<UserProfile> {
   return updateUser(uid, { role });
+}
+
+export async function listUsers(): Promise<UserProfile[]> {
+  if (isDevMode()) {
+    return Object.entries(devStore.getUsers()).map(([id, raw]) =>
+      normalizeUserProfile(id, raw as Record<string, unknown>)
+    );
+  }
+  const db = getFirestore();
+  const snap = await db.collection('users').limit(200).get();
+  return snap.docs.map((doc) => normalizeUserProfile(doc.id, doc.data() as Record<string, unknown>));
+}
+
+export async function searchUsers(query: string): Promise<UserProfile[]> {
+  const q = query.trim().toLowerCase();
+  const all = await listUsers();
+  if (!q) return all.slice(0, 50);
+  return all.filter(
+    (u) =>
+      u.email.toLowerCase().includes(q) ||
+      u.displayName.toLowerCase().includes(q) ||
+      u.id.toLowerCase().includes(q)
+  );
+}
+
+export async function setUserDisabled(uid: string, disabled: boolean): Promise<UserProfile> {
+  return updateUser(uid, { disabled });
 }

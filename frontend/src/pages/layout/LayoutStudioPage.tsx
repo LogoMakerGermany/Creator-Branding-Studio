@@ -319,6 +319,7 @@ export function LayoutStudioPage() {
           mimeType: file.type || 'image/png',
           category: 'overlay',
           dataUrl,
+          rightsConfirmed: true,
         });
         updateElement(id, { imageUrl: res.file.downloadUrl ?? dataUrl });
       } catch {

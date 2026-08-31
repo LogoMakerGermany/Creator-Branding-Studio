@@ -2,6 +2,8 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import type { CreateInviteCodeInput, InviteCode } from '@ucbs/shared';
 import { dsDelete, dsGet, dsList, dsSet } from '../lib/data-store.js';
 import { ServiceError } from '../lib/errors.js';
+import { isDevMode } from '../config/env.js';
+import { inviteLockKey, withDevLock } from '../lib/dev-mutex.js';
 
 const COLLECTION = 'invite_codes';
 
@@ -76,46 +78,99 @@ export interface RedeemInviteResult {
 }
 
 /**
- * Validate and consume one use of an invite code.
- * Throws ServiceError with German messages on failure.
+ * Validate and consume one use of an invite code atomically.
  */
 export async function redeemInviteCode(
   code: string,
-  email: string
+  email: string,
+  userId?: string
 ): Promise<RedeemInviteResult> {
   const invite = await getInviteByCode(code);
   if (!invite || !invite.isActive) {
     throw new ServiceError(403, 'ACCESS_DENIED', 'Ungültiger oder inaktiver Einladungscode');
   }
 
-  if (invite.expiresAt && new Date(invite.expiresAt).getTime() < Date.now()) {
-    throw new ServiceError(403, 'ACCESS_DENIED', 'Einladungscode ist abgelaufen');
-  }
+  const apply = async (current: InviteCode): Promise<RedeemInviteResult> => {
+    if (!current.isActive) {
+      throw new ServiceError(403, 'ACCESS_DENIED', 'Ungültiger oder inaktiver Einladungscode');
+    }
+    if (current.expiresAt && new Date(current.expiresAt).getTime() < Date.now()) {
+      throw new ServiceError(403, 'ACCESS_DENIED', 'Einladungscode ist abgelaufen');
+    }
+    if (current.currentUses >= current.maximumUses) {
+      throw new ServiceError(403, 'ACCESS_DENIED', 'Einladungscode wurde bereits zu oft verwendet');
+    }
+    if (current.assignedEmail && current.assignedEmail.toLowerCase() !== email.toLowerCase()) {
+      throw new ServiceError(
+        403,
+        'ACCESS_DENIED',
+        'Dieser Einladungscode ist einer anderen E-Mail-Adresse zugeordnet'
+      );
+    }
 
-  if (invite.currentUses >= invite.maximumUses) {
-    throw new ServiceError(403, 'ACCESS_DENIED', 'Einladungscode wurde bereits zu oft verwendet');
-  }
+    const usedBy = [...(current.usedBy ?? [])];
+    if (userId) {
+      usedBy.push({ userId, usedAt: new Date().toISOString() });
+    }
 
-  if (invite.assignedEmail && invite.assignedEmail.toLowerCase() !== email.toLowerCase()) {
-    throw new ServiceError(
-      403,
-      'ACCESS_DENIED',
-      'Dieser Einladungscode ist einer anderen E-Mail-Adresse zugeordnet'
-    );
-  }
-
-  const updated: InviteCode = {
-    ...invite,
-    currentUses: invite.currentUses + 1,
-    updatedAt: new Date().toISOString(),
-    isActive: invite.currentUses + 1 < invite.maximumUses ? invite.isActive : false,
+    const updated: InviteCode = {
+      ...current,
+      currentUses: current.currentUses + 1,
+      usedBy,
+      updatedAt: new Date().toISOString(),
+      isActive: current.currentUses + 1 < current.maximumUses ? current.isActive : false,
+    };
+    await dsSet(COLLECTION, updated.id, updated as unknown as Record<string, unknown>);
+    return { invite: updated, grantRole: current.grantRole || 'tester' };
   };
-  await dsSet(COLLECTION, invite.id, updated as unknown as Record<string, unknown>);
 
-  return {
-    invite: updated,
-    grantRole: invite.grantRole || 'tester',
-  };
+  if (isDevMode()) {
+    return withDevLock(inviteLockKey(invite.id), async () => {
+      const fresh = (await dsGet(COLLECTION, invite.id)) as unknown as InviteCode | null;
+      if (!fresh) {
+        throw new ServiceError(403, 'ACCESS_DENIED', 'Ungültiger oder inaktiver Einladungscode');
+      }
+      return apply(fresh);
+    });
+  }
+
+  const { getFirestore } = await import('../config/firebase.js');
+  const db = getFirestore();
+  const ref = db.collection(COLLECTION).doc(invite.id);
+  return db.runTransaction(async (t) => {
+    const snap = await t.get(ref);
+    if (!snap.exists) {
+      throw new ServiceError(403, 'ACCESS_DENIED', 'Ungültiger oder inaktiver Einladungscode');
+    }
+    const current = { id: snap.id, ...snap.data() } as InviteCode;
+    if (!current.isActive) {
+      throw new ServiceError(403, 'ACCESS_DENIED', 'Ungültiger oder inaktiver Einladungscode');
+    }
+    if (current.expiresAt && new Date(current.expiresAt).getTime() < Date.now()) {
+      throw new ServiceError(403, 'ACCESS_DENIED', 'Einladungscode ist abgelaufen');
+    }
+    if (current.currentUses >= current.maximumUses) {
+      throw new ServiceError(403, 'ACCESS_DENIED', 'Einladungscode wurde bereits zu oft verwendet');
+    }
+    if (current.assignedEmail && current.assignedEmail.toLowerCase() !== email.toLowerCase()) {
+      throw new ServiceError(
+        403,
+        'ACCESS_DENIED',
+        'Dieser Einladungscode ist einer anderen E-Mail-Adresse zugeordnet'
+      );
+    }
+    const usedBy = [...(current.usedBy ?? [])];
+    if (userId) usedBy.push({ userId, usedAt: new Date().toISOString() });
+    const updated: InviteCode = {
+      ...current,
+      currentUses: current.currentUses + 1,
+      usedBy,
+      updatedAt: new Date().toISOString(),
+      isActive: current.currentUses + 1 < current.maximumUses ? current.isActive : false,
+    };
+    t.set(ref, updated);
+    return { invite: updated, grantRole: current.grantRole || 'tester' };
+  });
 }
 
 export async function validateInviteCode(

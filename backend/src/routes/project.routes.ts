@@ -16,9 +16,11 @@ import {
   softDeleteProject,
   restoreProject,
   purgeProject,
-  exportProjectZip,
   importProjectZip,
+  duplicateProject,
 } from '../services/project.service.js';
+import { exportProjectZip } from '../services/project-export.service.js';
+import { getProjectOverview } from '../services/project-overview.service.js';
 
 export const projectRoutes = Router();
 projectRoutes.use(authenticate, requirePermission(Permission.MANAGE_PROJECTS));
@@ -32,6 +34,11 @@ const projectType = z.enum([
   'overlay',
   'full_package',
   'custom',
+  'streamset',
+  'mockup',
+  'shorts',
+  'social',
+  'text',
 ]);
 
 projectRoutes.get(
@@ -88,13 +95,14 @@ projectRoutes.post(
         name: z.string().min(1).max(120),
         description: z.string().max(1000).optional(),
         type: projectType.default('custom'),
+        dnaId: z.string().min(1).max(80).optional(),
       })
       .parse(req.body);
 
     const dna = await getActiveDna(req.user!.uid);
     const project = await createProject(req.user!.uid, {
       ...body,
-      dnaId: dna?.id,
+      dnaId: body.dnaId ?? dna?.id,
     });
     sendSuccess(res, { project }, 201);
   })
@@ -109,6 +117,19 @@ projectRoutes.get(
   })
 );
 
+projectRoutes.get(
+  '/:id/overview',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    try {
+      const overview = await getProjectOverview(String(req.params.id), req.user!.uid);
+      sendSuccess(res, overview);
+    } catch (err) {
+      if (err instanceof ServiceError) throw new AppError(err.statusCode, err.code, err.message);
+      throw new AppError(404, 'NOT_FOUND', err instanceof Error ? err.message : 'Projekt nicht gefunden');
+    }
+  })
+);
+
 projectRoutes.patch(
   '/:id',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
@@ -120,6 +141,7 @@ projectRoutes.patch(
         status: z
           .enum(['draft', 'in_progress', 'review', 'revision', 'completed', 'archived'])
           .optional(),
+        dnaId: z.string().min(1).max(80).optional(),
       })
       .parse(req.body);
 
@@ -162,6 +184,18 @@ projectRoutes.delete(
     const ok = await purgeProject(String(req.params.id), req.user!.uid);
     if (!ok) throw new AppError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
     sendSuccess(res, { deleted: true });
+  })
+);
+
+projectRoutes.post(
+  '/:id/duplicate',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    try {
+      const project = await duplicateProject(String(req.params.id), req.user!.uid);
+      sendSuccess(res, { project }, 201);
+    } catch (err) {
+      throw new AppError(404, 'NOT_FOUND', err instanceof Error ? err.message : 'Projekt nicht gefunden');
+    }
   })
 );
 

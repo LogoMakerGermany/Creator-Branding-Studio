@@ -2,7 +2,7 @@ import { CoinSpendCategory } from '@ucbs/shared';
 import type { CreatorDNA, UltimateCreatorWizardInput, UltimateCreatorProject } from '@ucbs/shared';
 import { wizardToLogoOptions, ULTIMATE_PACK_V1 } from '@ucbs/shared';
 import { getActiveDna } from '../dna.service.js';
-import { deductCoins } from '../coins.service.js';
+import { withCoinChargePack } from '../../lib/billable-job.js';
 import { runMagikLogoJobs, runGenerationJob } from '../ai.service.js';
 import {
   buildBrandingPackPrompt,
@@ -52,76 +52,78 @@ export async function runUltimateCreatorPack(userId: string, wizard: UltimateCre
     throw new ServiceError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
   }
 
-  const coinResult = await deductCoins(
+  let captured: { project: UltimateCreatorProject; logoJobs: Awaited<ReturnType<typeof runMagikLogoJobs>>['jobs'] } | undefined;
+
+  const billed = await withCoinChargePack(
     userId,
     CoinSpendCategory.ULTIMATE_CREATOR_PACK,
-    'Ultimate Creator Pack (60 Sekunden)'
+    'Ultimate Creator Pack (60 Sekunden)',
+    async () => {
+      let project = await createUltimateProject(userId, wizard, activeDna.id);
+      project.status = 'generating';
+      await saveUltimateProject(project);
+
+      const logoOpts = wizardToLogoOptions(wizard);
+      const logoResult = await runMagikLogoJobs(userId, logoOpts, activeDna);
+      const [logoJobA] = logoResult.jobs;
+
+      project.logoJobIds = logoResult.jobs.map((j) => j.id);
+      project.logoImageUrl = logoJobA.imageUrl;
+      project.previewThumbnail = logoJobA.imageUrl;
+
+      project.assets = project.assets.map((a) => {
+        if (a.key !== 'logo') return a;
+        return {
+          ...a,
+          jobId: logoJobA.id,
+          imageUrl: logoJobA.imageUrl,
+          status: logoJobA.status === 'completed' ? 'completed' : logoJobA.status === 'failed' ? 'failed' : 'pending',
+        };
+      });
+
+      const packKeys = ULTIMATE_PACK_V1.filter((p) => p.key !== 'logo');
+
+      for (const pack of packKeys) {
+        const prompt = promptForPackKey(activeDna, pack.key, wizard);
+        const size = sizeForPackKey(pack.key);
+        const hd = true;
+        const job = await runGenerationJob(userId, pack.module, activeDna, prompt, { size, hd });
+
+        project.assets = project.assets.map((a) =>
+          a.key === pack.key
+            ? {
+                ...a,
+                jobId: job.id,
+                imageUrl: job.imageUrl,
+                status: job.status === 'completed' ? 'completed' : job.status === 'failed' ? 'failed' : 'pending',
+              }
+            : a
+        );
+      }
+
+      const failed = project.assets.filter((a) => a.status === 'failed').length;
+      const completed = project.assets.filter((a) => a.status === 'completed').length;
+      project.status = failed === project.assets.length ? 'partial' : failed > 0 ? 'partial' : 'ready';
+      if (completed > 0) project.version += 1;
+
+      project.aiHistory.push({
+        id: `pack-${Date.now()}`,
+        intent: 'ultimate-creator-pack',
+        summary: `Ultimate Creator Pack: ${completed}/${project.assets.length} Assets`,
+        createdAt: new Date().toISOString(),
+      });
+
+      await saveUltimateProject(project);
+      captured = { project, logoJobs: logoResult.jobs };
+      return project.assets.map((a) => ({ status: a.status === 'completed' ? 'completed' : a.status === 'failed' ? 'failed' : 'failed' }));
+    }
   );
-  if (!coinResult.success) {
-    throw new ServiceError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
-  }
-
-  let project = await createUltimateProject(userId, wizard, activeDna.id);
-  project.status = 'generating';
-  await saveUltimateProject(project);
-
-  const logoOpts = wizardToLogoOptions(wizard);
-  const logoResult = await runMagikLogoJobs(userId, logoOpts, activeDna);
-  const [logoJobA] = logoResult.jobs;
-
-  project.logoJobIds = logoResult.jobs.map((j) => j.id);
-  project.logoImageUrl = logoJobA.imageUrl;
-  project.previewThumbnail = logoJobA.imageUrl;
-
-  project.assets = project.assets.map((a) => {
-    if (a.key !== 'logo') return a;
-    return {
-      ...a,
-      jobId: logoJobA.id,
-      imageUrl: logoJobA.imageUrl,
-      status: logoJobA.status === 'completed' ? 'completed' : logoJobA.status === 'failed' ? 'failed' : 'pending',
-    };
-  });
-
-  const packKeys = ULTIMATE_PACK_V1.filter((p) => p.key !== 'logo');
-
-  for (const pack of packKeys) {
-    const prompt = promptForPackKey(activeDna, pack.key, wizard);
-    const size = sizeForPackKey(pack.key);
-    const hd = true;
-    const job = await runGenerationJob(userId, pack.module, activeDna, prompt, { size, hd });
-
-    project.assets = project.assets.map((a) =>
-      a.key === pack.key
-        ? {
-            ...a,
-            jobId: job.id,
-            imageUrl: job.imageUrl,
-            status: job.status === 'completed' ? 'completed' : job.status === 'failed' ? 'failed' : 'pending',
-          }
-        : a
-    );
-  }
-
-  const failed = project.assets.filter((a) => a.status === 'failed').length;
-  const completed = project.assets.filter((a) => a.status === 'completed').length;
-  project.status = failed === project.assets.length ? 'partial' : failed > 0 ? 'partial' : 'ready';
-  if (completed > 0) project.version += 1;
-
-  project.aiHistory.push({
-    id: `pack-${Date.now()}`,
-    intent: 'ultimate-creator-pack',
-    summary: `Ultimate Creator Pack: ${completed}/${project.assets.length} Assets`,
-    createdAt: new Date().toISOString(),
-  });
-
-  await saveUltimateProject(project);
 
   return {
-    project,
-    logoJobs: logoResult.jobs,
-    coinsSpent: coinResult.cost,
-    newBalance: coinResult.newBalance,
+    project: captured!.project,
+    logoJobs: captured!.logoJobs,
+    coinsSpent: billed.coinsSpent,
+    newBalance: billed.newBalance,
   };
 }
 

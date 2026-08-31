@@ -7,4 +7,8 @@ export class ServiceError extends Error {
     super(message);
     this.name = 'ServiceError';
   }
+
+  override toString(): string {
+    return `${this.name} [${this.code}]: ${this.message}`;
+  }
 }

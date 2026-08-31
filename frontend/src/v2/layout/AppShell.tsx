@@ -7,10 +7,16 @@ import { PageTransition } from '@/v2/components/PageTransition';
 import { useUiStore } from '@/v2/store/ui-store';
 import { PwaInstallBanner } from '@/components/pwa/PwaInstallBanner';
 import { MagikAssistantShell } from '@/components/magik';
+import { NexterPanel } from '@/components/nexter';
+import { useNexterStore } from '@/v2/store/nexter-store';
 
 export function AppShell() {
   const location = useLocation();
   const { mobileNavOpen, setMobileNavOpen } = useUiStore();
+  const panelOpen = useNexterStore((s) => s.panelOpen);
+  const studioPage = /studio|nexter|creator-dna|social|text-studio|animation|shorts|streamset|mockup/.test(
+    location.pathname
+  );
 
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--ucbs-bg)]">
@@ -34,6 +40,11 @@ export function AppShell() {
           </AnimatePresence>
         </main>
       </div>
+      {!studioPage && panelOpen && (
+        <div className="hidden w-[300px] shrink-0 border-l border-white/5 p-3 xl:block">
+          <NexterPanel compact className="h-full" />
+        </div>
+      )}
       <MagikAssistantShell />
     </div>
   );

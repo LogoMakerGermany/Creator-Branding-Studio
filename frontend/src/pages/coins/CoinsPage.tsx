@@ -353,7 +353,9 @@ export function CoinsPage() {
 
       </div>
 
-
+      {(user?.coinBalance ?? 0) === 0 && (
+        <p className="mb-6 text-sm text-zinc-500">Noch keine Coins — Paket kaufen oder als Tester das Admin-Testguthaben abwarten.</p>
+      )}
 
       {(stripeAvailable || paypalAvailable) && (
 

@@ -111,12 +111,21 @@ export async function getSignedDownloadUrl(
 
 /** Parse gs path or users/... path from a prior signed/public URL when possible. */
 export function extractStoragePathFromUrl(url: string): string | null {
+  if (!url || url.startsWith('data:')) return null;
   if (url.startsWith('users/')) return url.split('?')[0]!;
   const match = url.match(/\/o\/([^?]+)/);
   if (match?.[1]) return decodeURIComponent(match[1]);
   const gcs = url.match(/storage\.googleapis\.com\/[^/]+\/(.+?)(?:\?|$)/);
   if (gcs?.[1]) return decodeURIComponent(gcs[1]);
   return null;
+}
+
+/** Only `users/{userId}/...` without `..` is a safe owned object. */
+export function isOwnedStoragePath(userId: string, storagePath: string): boolean {
+  const prefix = `users/${userId}/`;
+  if (!storagePath.startsWith(prefix)) return false;
+  if (storagePath.includes('..') || storagePath.includes('\\') || storagePath.includes('\0')) return false;
+  return true;
 }
 
 export async function deleteStorageObject(storagePath: string): Promise<void> {

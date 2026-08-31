@@ -70,10 +70,10 @@ const moduleExtras: Record<string, ModulePageConfig> = {
     features: ['Voiceovers', 'Ansagen', 'Stream Intros', 'Werbetexte'],
   },
   'social-media': {
-    features: ['TikTok', 'Twitch', 'YouTube', 'Instagram', 'Planung & Analyse'],
+    features: ['Content-Pakete', 'Plattformvarianten', 'Interne Planung', 'Kein Live-Publishing'],
   },
   'content-calendar': {
-    features: ['Posts', 'Videos', 'Livestreams', 'Kampagnen'],
+    features: ['Interner Planer', 'Termine', 'Plattform-Ziel', 'Kein Auto-Publish'],
   },
   'team-chat': {
     features: ['Chats', 'Dateien', 'Aufgaben', 'Kommentare'],

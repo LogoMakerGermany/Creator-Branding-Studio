@@ -1,5 +1,6 @@
 import { Outlet, Link } from 'react-router-dom';
-import { Sparkles, Dna, Palette, Film } from 'lucide-react';
+import { Dna, Palette, Film } from 'lucide-react';
+import { NexterMark } from '@/components/nexter/NexterMark';
 
 const highlights = [
   { icon: Dna, text: 'Creator DNA als Basis für alles' },
@@ -16,10 +17,11 @@ export function AuthLayout() {
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(34,211,238,0.15),_transparent_55%)]" />
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,_rgba(168,85,247,0.12),_transparent_50%)]" />
         <Link to="/" className="relative flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--ucbs-accent-cyan)] to-[var(--ucbs-accent-purple)]">
-            <Sparkles className="h-6 w-6 text-white" />
+          <NexterMark size={40} />
+          <div>
+            <span className="block font-display text-xl font-bold text-white">NEXTER</span>
+            <span className="block text-[10px] uppercase tracking-[0.16em] text-violet-300">Creator Studio</span>
           </div>
-          <span className="font-display text-xl font-bold text-white">UCBS</span>
         </Link>
         <div className="relative">
           <h1 className="font-display text-4xl font-bold leading-tight text-white">
@@ -43,15 +45,13 @@ export function AuthLayout() {
             ))}
           </ul>
         </div>
-        <p className="relative text-sm text-zinc-600">© {year} Ultimate Creator Branding Studio</p>
+        <p className="relative text-sm text-zinc-600">© {year} NEXTER Creator Studio</p>
       </div>
       <div className="flex flex-1 flex-col items-center justify-center p-6 sm:p-8">
         <div className="mb-8 text-center lg:hidden">
           <Link to="/" className="inline-flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--ucbs-accent-cyan)] to-[var(--ucbs-accent-purple)]">
-              <Sparkles className="h-5 w-5 text-white" />
-            </div>
-            <span className="font-display text-lg font-bold text-white">UCBS</span>
+            <NexterMark size={36} />
+            <span className="font-display text-lg font-bold text-white">NEXTER</span>
           </Link>
           <p className="mt-3 text-sm text-zinc-500">Deine Creator DNA — ein Branding für alle Plattformen</p>
         </div>

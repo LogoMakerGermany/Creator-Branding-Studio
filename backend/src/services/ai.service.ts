@@ -1,9 +1,9 @@
 import type { CreatorDNA, StudioExportUrls } from '@ucbs/shared';
-import { CoinSpendCategory, buildDnaPromptContext } from '@ucbs/shared';
+import { CoinSpendCategory, applyLockedDnaToGeneration, buildDnaPromptContext } from '@ucbs/shared';
 import { randomUUID } from 'node:crypto';
 import { getOpenAiApiKey, getReplicateApiToken } from '../config/env.js';
-import { getActiveDna } from './dna.service.js';
-import { deductCoins, addCoins, getCoinBalance } from './coins.service.js';
+import { getActiveDna, resolveDnaForRequest } from './dna.service.js';
+import { withCoinCharge, withCoinChargePack } from '../lib/billable-job.js';
 import { requireImageProvider } from '../lib/media-providers.js';
 import { buildSvgExportFromImage } from '../lib/studio-export.js';
 import {
@@ -34,6 +34,7 @@ import {
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
 import { ServiceError } from '../lib/errors.js';
 import { saveGeneratedAsset } from './file-cloud.service.js';
+import { attachAssetToProject } from './project-assets.service.js';
 
 const JOBS_COLLECTION = 'generationJobs';
 
@@ -47,8 +48,11 @@ export interface GenerationJob {
   provider?: string;
   exports?: StudioExportUrls;
   dnaId?: string;
+  assetKey?: string;
+  projectId?: string;
   error?: string;
   createdAt: string;
+  updatedAt?: string;
   completedAt?: string;
 }
 
@@ -224,7 +228,8 @@ export function buildPromptForStudioModule(
     };
   }
   if (module === 'banner') {
-    const bannerOpts = options as BannerGenerationOptions;
+    const raw = (options ?? { platform: 'twitch' }) as BannerGenerationOptions;
+    const bannerOpts: BannerGenerationOptions = raw.platform ? raw : { ...raw, platform: 'twitch' };
     return {
       prompt: buildBannerPrompt(dna, bannerOpts),
       size: bannerOpenAiSize(bannerOpts.platform),
@@ -257,7 +262,8 @@ export function buildBrandingModulePrompt(dna: CreatorDNA, module: string): stri
 }
 
 export async function saveJob(job: GenerationJob): Promise<void> {
-  await dsSet(JOBS_COLLECTION, job.id, job as unknown as Record<string, unknown>);
+  const row = { ...job, updatedAt: new Date().toISOString() };
+  await dsSet(JOBS_COLLECTION, job.id, row as unknown as Record<string, unknown>);
 }
 
 export async function getJob(jobId: string): Promise<GenerationJob | null> {
@@ -275,7 +281,7 @@ export async function runGenerationJob(
   module: string,
   dna: CreatorDNA,
   customPrompt?: string,
-  genOptions?: { size?: GenerateImageOptions['size']; hd?: boolean }
+  genOptions?: { size?: GenerateImageOptions['size']; hd?: boolean; assetKey?: string; projectId?: string }
 ): Promise<GenerationJob> {
   const job: GenerationJob = {
     id: randomUUID(),
@@ -284,6 +290,8 @@ export async function runGenerationJob(
     status: 'processing',
     prompt: customPrompt ?? buildPromptFromDNA(dna, module),
     dnaId: dna.id,
+    assetKey: genOptions?.assetKey,
+    projectId: genOptions?.projectId,
     createdAt: new Date().toISOString(),
   };
 
@@ -299,7 +307,10 @@ export async function runGenerationJob(
       hd: genOptions?.hd,
     });
 
-    const persisted = await saveGeneratedAsset(userId, module, imageUrl);
+    const persisted = await saveGeneratedAsset(userId, module, imageUrl, {
+      projectId: genOptions?.projectId,
+      sourceJobId: job.id,
+    });
     const durableUrl = persisted?.downloadUrl || imageUrl;
 
     job.status = 'completed';
@@ -311,8 +322,29 @@ export async function runGenerationJob(
       svg: buildSvgExportFromImage(durableUrl, module),
     };
     job.completedAt = new Date().toISOString();
-    // rawExports kept only as fallback reference — durable URLs are authoritative
+    const { recordApiCost } = await import('../lib/api-cost.js');
+    await recordApiCost({
+      userId,
+      module,
+      provider: provider ?? 'unknown',
+      internalCostCents: 4,
+    });
     void rawExports;
+
+    if (genOptions?.projectId && durableUrl) {
+      await attachAssetToProject(userId, genOptions.projectId, {
+        name: genOptions.assetKey || module,
+        type: module,
+        url: durableUrl,
+        jobId: job.id,
+        fileId: persisted?.id,
+        module,
+        sourceType: 'generation',
+        sourceId: job.id,
+        mimeType: persisted?.mimeType,
+        assetKey: genOptions.assetKey,
+      }).catch(() => undefined);
+    }
   } catch (err) {
     job.status = 'failed';
     job.error = err instanceof Error ? err.message : 'Generation failed';
@@ -348,15 +380,16 @@ async function buildMagikPromptPair(userId: string, activeDna: CreatorDNA, studi
 export async function runMagikLogoJobs(
   userId: string,
   studioOptions: LogoGenerationOptions,
-  activeDna?: CreatorDNA
+  activeDna?: CreatorDNA,
+  extra?: { projectId?: string }
 ) {
-  const dna = activeDna ?? (await getActiveDna(userId));
+  const dna = activeDna ?? (await resolveDnaForRequest(userId, extra?.projectId)).dna ?? (await getActiveDna(userId));
   if (!dna) {
     throw new ServiceError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
   }
 
   const { promptA, promptB } = await buildMagikPromptPair(userId, dna, studioOptions);
-  const genOpts = { size: '1024x1024' as const, hd: true };
+  const genOpts = { size: '1024x1024' as const, hd: true, projectId: extra?.projectId };
   const jobA = await runGenerationJob(userId, 'logo', dna, promptA, genOpts);
   const jobB = await runGenerationJob(userId, 'logo', dna, promptB, genOpts);
 
@@ -374,44 +407,40 @@ export async function generateMagikLogoPair(
   userId: string,
   coinCategory: CoinSpendCategory,
   moduleLabel: string,
-  studioOptions: LogoGenerationOptions
+  studioOptions: LogoGenerationOptions,
+  extra?: { projectId?: string }
 ) {
-  const activeDna = await getActiveDna(userId);
+  const { dna: resolved } = await resolveDnaForRequest(userId, extra?.projectId);
+  const activeDna = resolved ?? (await getActiveDna(userId));
   if (!activeDna) {
     throw new ServiceError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
   }
 
-  const coinResult = await deductCoins(userId, coinCategory, `${moduleLabel} MAGIK (2 Varianten)`);
-  if (!coinResult.success) {
-    throw new ServiceError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
-  }
+  const lockedOptions = applyLockedDnaToGeneration(activeDna, studioOptions);
 
-  const result = await runMagikLogoJobs(userId, studioOptions, activeDna);
-  const anySuccess = result.jobs.some((j) => j.status === 'completed' && j.imageUrl);
-
-  if (!anySuccess) {
-    await addCoins(
+  try {
+    const billed = await withCoinChargePack(
       userId,
-      coinResult.cost,
-      `${moduleLabel} MAGIK — Rückerstattung (Generierung fehlgeschlagen)`,
-      'refund'
+      coinCategory,
+      `${moduleLabel} MAGIK (2 Varianten)`,
+      async () => {
+        const result = await runMagikLogoJobs(userId, lockedOptions, activeDna, extra);
+        return result.jobs;
+      }
     );
-    const errors = result.jobs.map((j) => j.error).filter(Boolean).join('; ');
-    throw new ServiceError(
-      503,
-      'AI_GENERATION_FAILED',
-      errors || 'Logo-Generierung fehlgeschlagen — Coins wurden erstattet'
-    );
+    const prompts = {
+      a: billed.jobs[0]?.prompt ?? '',
+      b: billed.jobs[1]?.prompt ?? '',
+    };
+    return {
+      jobs: billed.jobs,
+      prompts,
+      coinsSpent: billed.coinsSpent,
+      newBalance: billed.newBalance,
+    };
+  } catch (err) {
+    throw mapBillableError(err);
   }
-
-  const balance = await getCoinBalance(userId);
-
-  return {
-    jobs: result.jobs,
-    prompts: result.prompts,
-    coinsSpent: coinResult.cost,
-    newBalance: balance,
-  };
 }
 
 export async function generateStudioAsset(
@@ -419,42 +448,54 @@ export async function generateStudioAsset(
   module: StudioModuleKey,
   coinCategory: CoinSpendCategory,
   moduleLabel: string,
-  studioOptions?: LogoGenerationOptions | BannerGenerationOptions | FacecamGenerationOptions | OverlayGenerationOptions | StickerGenerationOptions
+  studioOptions?: LogoGenerationOptions | BannerGenerationOptions | FacecamGenerationOptions | OverlayGenerationOptions | StickerGenerationOptions,
+  extra?: { projectId?: string; assetKey?: string }
 ) {
-  const activeDna = await getActiveDna(userId);
+  const { dna: resolved } = await resolveDnaForRequest(userId, extra?.projectId);
+  const activeDna = resolved ?? (await getActiveDna(userId));
   if (!activeDna) {
     throw new ServiceError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
   }
 
-  const coinResult = await deductCoins(userId, coinCategory, `${moduleLabel} Generierung`);
-  if (!coinResult.success) {
-    throw new ServiceError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
+  const lockedOptions = studioOptions
+    ? applyLockedDnaToGeneration(activeDna, studioOptions as LogoGenerationOptions)
+    : studioOptions;
+
+  try {
+    return await withCoinCharge(userId, coinCategory, `${moduleLabel} Generierung`, async () => {
+      const { prompt, size, hd } = buildPromptForStudioModule(activeDna, module, lockedOptions);
+      const { characterDna } = await getCcdPromptContext(userId);
+      const enrichedPrompt = appendCcdToPrompt(prompt, characterDna);
+      return runGenerationJob(userId, module, activeDna, enrichedPrompt, {
+        size,
+        hd,
+        assetKey: extra?.assetKey,
+        projectId: extra?.projectId,
+      }).then((job) => {
+        if (job.status !== 'completed' || !job.imageUrl) {
+          return {
+            ...job,
+            status: 'failed' as const,
+            error: job.error || `${moduleLabel}-Generierung fehlgeschlagen`,
+          };
+        }
+        return job;
+      });
+    });
+  } catch (err) {
+    throw mapBillableError(err);
   }
+}
 
-  const { prompt, size, hd } = buildPromptForStudioModule(activeDna, module, studioOptions);
-  const { characterDna } = await getCcdPromptContext(userId);
-  const enrichedPrompt = appendCcdToPrompt(prompt, characterDna);
-  const job = await runGenerationJob(userId, module, activeDna, enrichedPrompt, { size, hd });
-
-  if (job.status !== 'completed' || !job.imageUrl) {
-    await addCoins(
-      userId,
-      coinResult.cost,
-      `${moduleLabel} — Rückerstattung (Generierung fehlgeschlagen)`,
-      'refund'
-    );
-    throw new ServiceError(
-      503,
-      'AI_GENERATION_FAILED',
-      job.error || `${moduleLabel}-Generierung fehlgeschlagen — Coins wurden erstattet`
-    );
+function mapBillableError(err: unknown): ServiceError {
+  if (err instanceof ServiceError) return err;
+  if (err && typeof err === 'object' && 'statusCode' in err && 'code' in err) {
+    const e = err as { statusCode: number; code: string; message: string };
+    return new ServiceError(e.statusCode, e.code, e.message);
   }
-
-  const balance = await getCoinBalance(userId);
-
-  return {
-    job,
-    coinsSpent: coinResult.cost,
-    newBalance: balance,
-  };
+  return new ServiceError(
+    503,
+    'AI_GENERATION_FAILED',
+    err instanceof Error ? err.message : 'Generierung fehlgeschlagen'
+  );
 }

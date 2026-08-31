@@ -73,10 +73,13 @@ export function ContentCalendarPage() {
   return (
     <div>
       <PageHeader
-        title="Content Kalender"
-        description="Posts, Videos, Livestreams und Kampagnen planen"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        title="Interner Content-Kalender"
+        description="Nur interne Planung. NEXTER veröffentlicht Beiträge nicht automatisch auf TikTok, YouTube oder Instagram."
+        badge={<Badge variant="brand">Intern</Badge>}
       />
+      <p className="mb-4 text-sm text-amber-200">
+        Einträge sind intern geplant oder erledigt — das ist kein externes Publishing und keine Plattform-Analytics.
+      </p>
 
       {error && <StudioErrorBanner message={error} />}
 
@@ -99,7 +102,7 @@ export function ContentCalendarPage() {
                   <p className="text-sm font-medium text-zinc-200">{event.title}</p>
                   <p className="text-xs text-zinc-500">{formatDate(event.startAt)} · {event.type}</p>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => handleMarkDone(event)}>
+                <Button size="sm" variant="outline" aria-label="Termin erledigen" onClick={() => handleMarkDone(event)}>
                   <CheckCircle2 className="h-3 w-3" />
                 </Button>
               </div>
@@ -113,7 +116,7 @@ export function ContentCalendarPage() {
           <span className="flex items-center gap-2"><Plus className="h-4 w-4" /> Termin hinzufügen</span>
         }>
           <form onSubmit={handleCreate} className="space-y-3">
-            <Input placeholder="Titel" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input id="cal-title" label="Titel" placeholder="Titel" value={title} onChange={(e) => setTitle(e.target.value)} />
             <div className="flex flex-wrap gap-2">
               {EVENT_TYPES.map((t) => (
                 <TypeOptionButton
@@ -126,7 +129,7 @@ export function ContentCalendarPage() {
                 </TypeOptionButton>
               ))}
             </div>
-            <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
+            <Input id="cal-start" label="Beginn" type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
             <Button type="submit" loading={loading}>Termin erstellen</Button>
           </form>
         </NeonCard>
@@ -147,11 +150,11 @@ export function ContentCalendarPage() {
                 </div>
                 <div className="flex gap-1">
                   {event.status !== 'done' && (
-                    <Button variant="outline" size="sm" onClick={() => handleMarkDone(event)}>
+                    <Button variant="outline" size="sm" aria-label="Termin erledigen" onClick={() => handleMarkDone(event)}>
                       <CheckCircle2 className="h-3 w-3" />
                     </Button>
                   )}
-                  <Button variant="outline" size="sm" onClick={() => handleDelete(event.id)}>
+                  <Button variant="outline" size="sm" aria-label="Termin löschen" onClick={() => handleDelete(event.id)}>
                     <Trash2 className="h-3 w-3" />
                   </Button>
                 </div>

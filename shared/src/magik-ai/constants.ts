@@ -1,14 +1,13 @@
 import type { MagikAiPersonality, MagikAiSettings } from './types';
 
-export const MAGIK_AI_PHASE = 'preparation' as const;
+export const MAGIK_AI_PHASE = 'phase3' as const;
 
-/** Global deaktiviert bis Phase 2. */
-export const MAGIK_AI_ASSISTANT_ENABLED = false;
+export const MAGIK_AI_ASSISTANT_ENABLED = true;
 
 export const DEFAULT_MAGIK_AI_SETTINGS: MagikAiSettings = {
-  assistantEnabled: false,
-  animationsEnabled: false,
-  voiceEnabled: false,
+  assistantEnabled: true,
+  animationsEnabled: true,
+  voiceEnabled: true,
   personalityId: 'mentor',
   language: 'de',
 };

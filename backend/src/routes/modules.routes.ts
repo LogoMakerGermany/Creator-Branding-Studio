@@ -26,7 +26,7 @@ function createFileCloudRoutes() {
   router.get(
     '/',
     asyncHandler(async (req: AuthenticatedRequest, res) => {
-      sendSuccess(res, { files: await listUserFiles(req.user!.uid) });
+      sendSuccess(res, { files: await listUserFiles(req.user!.uid, { projectId: typeof req.query.projectId === 'string' ? req.query.projectId : undefined }) });
     })
   );
 
@@ -44,6 +44,8 @@ function createFileCloudRoutes() {
     mimeType: z.string().min(1).max(100).optional(),
     category: z.enum(['logo', 'banner', 'video', 'project', 'overlay', 'sticker', 'other']),
     dataUrl: z.string().min(20),
+    projectId: z.string().min(1).max(80).optional(),
+    rightsConfirmed: z.literal(true),
   });
 
   router.post(
@@ -68,6 +70,7 @@ function createFileCloudRoutes() {
         category: body.category as FileCategory,
         dataUrl: body.dataUrl.trim(),
         source: 'upload',
+        projectId: body.projectId,
       });
       sendSuccess(res, { file }, 201);
     })

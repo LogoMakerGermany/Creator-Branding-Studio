@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { FolderKanban, Plus, Trash2, RotateCcw, Download, Upload } from 'lucide-react';
 import type { Project, ProjectType } from '@ucbs/shared';
 import { PageHeader, Badge, Button, NeonCard, Input } from '@/components/ui';
@@ -6,6 +7,7 @@ import { HubPageLayout } from '@/v2/components/HubPageLayout';
 import { PROJECTS_MODULES } from '@/v2/config/navigation';
 import { api, ApiError } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
+import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 
 const TYPES: ProjectType[] = [
   'logo',
@@ -15,14 +17,21 @@ const TYPES: ProjectType[] = [
   'intro',
   'overlay',
   'full_package',
+  'streamset',
+  'mockup',
+  'shorts',
+  'social',
+  'text',
   'custom',
 ];
 
 const MAX_ZIP_MB = 80;
 
 export function ProjectsHubPage() {
-  const { refreshUser } = useAuth();
+  const { refreshUser, activeDna } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeProjectId = useBrandProjectStore((s) => s.activeProjectId);
+  const setActiveProjectId = useBrandProjectStore((s) => s.setActiveProjectId);
   const [projects, setProjects] = useState<Project[]>([]);
   const [trash, setTrash] = useState<Project[]>([]);
   const [name, setName] = useState('');
@@ -163,7 +172,7 @@ export function ProjectsHubPage() {
       <PageHeader
         title="Projektverwaltung"
         description="Versionierte Marken-Projekte mit Papierkorb sowie ZIP-Export und -Import"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        badge={<Badge variant="brand">NEXTER</Badge>}
       />
 
       {error && (
@@ -246,25 +255,47 @@ export function ProjectsHubPage() {
               <div className="flex items-center gap-3">
                 <FolderKanban className="h-5 w-5 text-[var(--ucbs-accent-purple)]" />
                 <div>
-                  <p className="font-medium text-zinc-100">{p.name}</p>
+                  <Link to={`/projects/${p.id}`} className="font-medium text-zinc-100 hover:underline" data-testid="project-open">
+                    {p.name}
+                  </Link>
                   <p className="text-xs text-zinc-500">
                     {p.type} · {p.status}
                     {p.dnaId ? ' · DNA verknüpft' : ''}
+                    {` · ${p.assets?.length ?? 0} Assets`}
+                    {` · ${p.updatedAt.slice(0, 10)}`}
                   </p>
                 </div>
               </div>
               <div className="flex gap-2">
                 {!showTrash ? (
                   <>
+                    <Button variant="outline" size="sm" className="gap-1" loading={loading} onClick={() => handleExport(p.id)}>
+                      <Download className="h-3.5 w-3.5" />
+                      ZIP
+                    </Button>
+                    <Button
+                      variant={activeProjectId === p.id ? 'secondary' : 'outline'}
+                      size="sm"
+                      onClick={() => setActiveProjectId(p.id)}
+                    >
+                      {activeProjectId === p.id ? 'Aktiv für Nexter' : 'Für Nexter nutzen'}
+                    </Button>
+                    {activeDna && p.dnaId !== activeDna.id && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void api.projects.update(p.id, { dnaId: activeDna.id }).then(() => refresh())}
+                      >
+                        DNA verknüpfen
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
-                      className="gap-1"
-                      loading={loading}
-                      onClick={() => handleExport(p.id)}
+                      onClick={() => void api.projects.duplicate(p.id).then(() => refresh())}
+                      title="Dupliziert nur die Projektstruktur (Name, Typ, DNA). Assets und Dateien werden nicht kopiert."
                     >
-                      <Download className="h-3.5 w-3.5" />
-                      ZIP
+                      Struktur duplizieren
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => handleDelete(p.id)}>
                       <Trash2 className="h-3.5 w-3.5" />
@@ -276,8 +307,13 @@ export function ProjectsHubPage() {
                       <RotateCcw className="h-3.5 w-3.5" />
                       Wiederherstellen
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => handlePurge(p.id)}>
-                      Endgültig löschen
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePurge(p.id)}
+                      title="Löscht nur den Projekteintrag. Dateien, Jobs und DNA bleiben."
+                    >
+                      Eintrag löschen
                     </Button>
                   </>
                 )}

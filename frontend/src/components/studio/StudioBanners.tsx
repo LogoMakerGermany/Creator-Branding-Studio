@@ -24,13 +24,15 @@ interface TypeOptionProps {
   onClick: () => void;
   children: ReactNode;
   className?: string;
+  disabled?: boolean;
 }
 
-export function TypeOptionButton({ active, onClick, children, className }: TypeOptionProps) {
+export function TypeOptionButton({ active, onClick, children, className, disabled }: TypeOptionProps) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
         'rounded-lg border p-3 text-sm transition-all',
         active

@@ -8,12 +8,12 @@ import { GlassCard } from '@/v2/components/GlassCard';
 import { Skeleton } from '@/v2/components/Skeleton';
 
 const QUICK_ACTIONS = [
-  { label: 'Ultimate Creator', path: '/ultimate-creator', icon: Sparkles, accent: 'purple' as const },
+  { label: 'Nexter', path: '/nexter', icon: Bot, accent: 'purple' as const },
   { label: 'Logo erstellen', path: '/logo-studio', icon: Sparkles, accent: 'cyan' as const },
-  { label: 'Banner erstellen', path: '/banner-studio', icon: Image, accent: 'purple' as const },
-  { label: 'Overlay erstellen', path: '/overlay-studio', icon: Image, accent: 'green' as const },
+  { label: 'Streamset', path: '/streamset-studio', icon: Image, accent: 'purple' as const },
+  { label: 'Mockup Studio', path: '/mockup-studio', icon: Image, accent: 'green' as const },
   { label: 'Video Studio', path: '/video-studio', icon: Film, accent: 'cyan' as const },
-  { label: 'AI Creator', path: '/ai-creator', icon: Bot, accent: 'purple' as const },
+  { label: 'Shorts', path: '/shorts-studio', icon: Film, accent: 'purple' as const },
 ];
 
 export function DashboardV2Page() {
@@ -81,6 +81,9 @@ export function DashboardV2Page() {
             <GlassCard accent="purple" hover={false} className="min-w-[140px] px-5 py-4">
               <p className="text-xs text-zinc-500">Coins</p>
               <p className="font-display text-2xl font-bold text-white">{formatCoins(user?.coinBalance ?? 0)}</p>
+              {(user?.coinBalance ?? 0) === 0 && (
+                <p className="mt-1 text-[11px] text-zinc-500">Noch keine Coins.</p>
+              )}
             </GlassCard>
             <GlassCard accent="green" hover={false} className="min-w-[140px] px-5 py-4">
               <p className="text-xs text-zinc-500">Projekte</p>
@@ -136,7 +139,7 @@ export function DashboardV2Page() {
             </div>
           ) : (
             <GlassCard accent="none" hover={false}>
-              <p className="text-sm text-zinc-500">Noch keine Dateien — starte im Branding Studio.</p>
+              <p className="text-sm text-zinc-500">Noch keine Dateien — starte im Logo- oder Streamset Studio.</p>
             </GlassCard>
           )}
         </section>
@@ -168,7 +171,7 @@ export function DashboardV2Page() {
             </div>
           ) : (
             <GlassCard accent="none" hover={false}>
-              <p className="text-sm text-zinc-500">Noch keine Projekte — starte im Branding Studio.</p>
+              <p className="text-sm text-zinc-500">Noch keine Projekte — starte im Logo Studio.</p>
             </GlassCard>
           )}
         </section>

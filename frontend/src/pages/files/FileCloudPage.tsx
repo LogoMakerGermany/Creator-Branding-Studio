@@ -3,6 +3,7 @@ import { Cloud, Upload, Trash2, Download, Image as ImageIcon } from 'lucide-reac
 import { PageHeader, Badge, Button, NeonCard } from '@/components/ui';
 import { StudioErrorBanner, TypeOptionButton } from '@/components/studio';
 import { api, ApiError, type UserFile } from '@/services/api';
+import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 
 const UPLOAD_CATEGORIES = [
   { id: 'logo', label: 'Logos' },
@@ -35,20 +36,27 @@ export function FileCloudPage() {
   const [files, setFiles] = useState<UserFile[]>([]);
   const [category, setCategory] = useState<UserFile['category']>('logo');
   const [typeFilter, setTypeFilter] = useState<(typeof FILE_TYPE_FILTERS)[number]['id']>('all');
+  const [projectOnly, setProjectOnly] = useState(false);
+  const brandProjectId = useBrandProjectStore((s) => s.activeProjectId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rightsConfirmed, setRightsConfirmed] = useState(false);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [projectOnly, brandProjectId]);
 
   async function load() {
-    const res = await api.files.list();
+    const res = await api.files.list(projectOnly && brandProjectId ? brandProjectId : undefined);
     setFiles(res.files);
   }
 
   async function handleUpload(fileList: FileList | null) {
     if (!fileList?.length) return;
+    if (!rightsConfirmed) {
+      setError('Bitte Rechte am Material bestätigen.');
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -65,6 +73,8 @@ export function FileCloudPage() {
           mimeType: file.type || 'application/octet-stream',
           category,
           dataUrl,
+          projectId: brandProjectId ?? undefined,
+          rightsConfirmed: true,
         });
       }
       await load();
@@ -108,7 +118,7 @@ export function FileCloudPage() {
       <PageHeader
         title="Datei Cloud"
         description="Speichere Logos, Banner, Overlays und Projekte zentral — wie Google Drive für Creator"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        badge={<Badge variant="brand">NEXTER</Badge>}
         backTo="/projects"
         backLabel="Projekte"
         actions={
@@ -121,7 +131,12 @@ export function FileCloudPage() {
               accept="image/*,video/*,.json,.zip"
               onChange={(e) => handleUpload(e.target.files)}
             />
-            <Button className="gap-2" loading={loading} onClick={() => inputRef.current?.click()}>
+            <Button
+              className="gap-2"
+              loading={loading}
+              disabled={!rightsConfirmed}
+              onClick={() => inputRef.current?.click()}
+            >
               <Upload className="h-4 w-4" />
               Hochladen
             </Button>
@@ -130,6 +145,19 @@ export function FileCloudPage() {
       />
 
       {error && <StudioErrorBanner message={error} />}
+
+      <label className="mb-4 flex items-start gap-2 text-sm text-zinc-400">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={rightsConfirmed}
+          onChange={(e) => setRightsConfirmed(e.target.checked)}
+        />
+        <span>
+          Ich bestätige, dass ich die erforderlichen Rechte am hochgeladenen Material habe. NEXTER prüft
+          Urheberrechte nicht automatisch.
+        </span>
+      </label>
 
       <NeonCard accent="cyan" className="mb-6" title="Upload-Kategorie">
         <div className="flex flex-wrap gap-2">
@@ -161,6 +189,19 @@ export function FileCloudPage() {
               {t.label}
             </TypeOptionButton>
           ))}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <TypeOptionButton active={!projectOnly} onClick={() => setProjectOnly(false)} className="px-3 py-1.5">
+            Alle Dateien
+          </TypeOptionButton>
+          <TypeOptionButton
+            active={projectOnly}
+            onClick={() => setProjectOnly(true)}
+            className="px-3 py-1.5"
+            disabled={!brandProjectId}
+          >
+            Dateien dieses Projekts
+          </TypeOptionButton>
         </div>
       </NeonCard>
 

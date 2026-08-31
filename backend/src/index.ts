@@ -23,6 +23,8 @@ import {
 import { errorHandler } from './middleware/errorHandler.js';
 import { attachStaticFrontend, shouldServeStatic } from './middleware/static.js';
 import { apiRouter } from './routes/index.js';
+import { setHttpServer, setupGracefulShutdown } from './lib/runtime.js';
+import { recoverStaleJobs } from './services/job-recovery.service.js';
 
 assertProductionConfigOrExit();
 initializeFirebase();
@@ -77,6 +79,7 @@ function createRateLimiters() {
     authLimiter: rateLimit({
       windowMs: 15 * 60 * 1000,
       max: 30,
+      skip: () => !isProduction(),
       standardHeaders: true,
       legacyHeaders: false,
       message: { success: false, error: { code: 'RATE_LIMIT', message: 'Zu viele Anfragen' } },
@@ -84,12 +87,14 @@ function createRateLimiters() {
     uploadLimiter: rateLimit({
       windowMs: 15 * 60 * 1000,
       max: 40,
+      skip: () => !isProduction(),
       standardHeaders: true,
       legacyHeaders: false,
     }),
     apiLimiter: rateLimit({
       windowMs: 15 * 60 * 1000,
       max: 200,
+      skip: () => !isProduction(),
       standardHeaders: true,
       legacyHeaders: false,
       message: { success: false, error: { code: 'RATE_LIMIT', message: 'Zu viele Anfragen' } },
@@ -176,13 +181,25 @@ attachStaticFrontend(app);
 app.use(errorHandler);
 
 console.log('Listening on', PORT);
-app.listen(Number(PORT), '0.0.0.0', () => {
+const server = app.listen(Number(PORT), '0.0.0.0', () => {
   console.log('/health ready');
   const mode = shouldServeStatic() ? 'API + static frontend' : 'API only';
   console.log(`UCBS running (${mode}) on port ${PORT}`);
   if (isDevAuthEnabled()) {
     console.log('[Dev] Dev-Auth aktiv — nur für lokale Entwicklung');
   }
+  void recoverStaleJobs().then(
+    (r) => {
+      if (r.interrupted > 0) {
+        console.info('[recovery] stale jobs', r);
+      }
+    },
+    (err) => {
+      console.error('[recovery] failed:', err instanceof Error ? err.message : 'error');
+    }
+  );
 });
+setHttpServer(server);
+setupGracefulShutdown();
 
 export default app;

@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  Sparkles,
   ArrowRight,
   Gamepad2,
   Radio,
@@ -15,6 +14,7 @@ import {
 import { Button } from '@/components/ui';
 import { BRANDING_MODULES } from '@/v2/config/navigation';
 import { GlassCard } from '@/v2/components/GlassCard';
+import { NexterMark } from '@/components/nexter/NexterMark';
 
 const audiences = [
   { icon: Gamepad2, label: 'Gamer & Creator' },
@@ -41,8 +41,8 @@ const highlights = [
   },
   {
     icon: Bot,
-    title: 'AI Creator',
-    text: 'KI-Assistent, Bild- und Video-Generierung, Voice-Overs und Änderungswünsche in einem Hub.',
+    title: 'Nexter',
+    text: 'Persönlicher KI-Assistent: berät, fragt nach, steuert Studios und bleibt bei jedem Projekt dabei.',
   },
 ];
 
@@ -52,10 +52,8 @@ export function LandingPage() {
       <header className="sticky top-0 z-50 border-b border-white/5 bg-[var(--ucbs-bg)]/80 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <Link to="/" className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--ucbs-accent-cyan)] to-[var(--ucbs-accent-purple)] shadow-lg shadow-cyan-500/20">
-              <Sparkles className="h-5 w-5 text-white" />
-            </div>
-            <span className="font-display text-sm font-bold uppercase tracking-wider">UCBS</span>
+            <NexterMark size={36} />
+            <span className="font-display text-sm font-bold uppercase tracking-wider">NEXTER</span>
           </Link>
           <div className="flex items-center gap-3">
             <Link to="/login">
@@ -78,10 +76,10 @@ export function LandingPage() {
           className="relative mx-auto max-w-4xl text-center"
         >
           <p className="mb-4 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ucbs-accent-cyan)]">
-            Premium Creator Branding · V2
+            NEXTER Creator Studio
           </p>
           <h1 className="font-display text-4xl font-bold leading-tight sm:text-5xl lg:text-6xl">
-            Deine Creator DNA.
+            Dein Creator OS.
             <br />
             <span className="bg-gradient-to-r from-[var(--ucbs-accent-cyan)] via-brand-400 to-[var(--ucbs-accent-purple)] bg-clip-text text-transparent">
               Ein Branding. Alle Plattformen.
@@ -156,7 +154,26 @@ export function LandingPage() {
       </section>
 
       <footer className="border-t border-white/5 py-8 text-center text-xs text-zinc-600">
-        © {new Date().getFullYear()} Ultimate Creator Branding Studio
+        © {new Date().getFullYear()} NEXTER Creator Studio ·{' '}
+        <Link to="/legal/impressum" className="text-zinc-400 hover:text-white">
+          Impressum
+        </Link>{' '}
+        ·{' '}
+        <Link to="/legal/datenschutz" className="text-zinc-400 hover:text-white">
+          Datenschutz
+        </Link>{' '}
+        ·{' '}
+        <Link to="/legal/agb" className="text-zinc-400 hover:text-white">
+          AGB
+        </Link>{' '}
+        ·{' '}
+        <Link to="/legal/widerruf" className="text-zinc-400 hover:text-white">
+          Widerruf
+        </Link>{' '}
+        ·{' '}
+        <Link to="/legal/cookies" className="text-zinc-400 hover:text-white">
+          Speicher
+        </Link>
       </footer>
     </div>
   );

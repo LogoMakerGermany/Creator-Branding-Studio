@@ -1,11 +1,24 @@
 import { ServiceError } from './errors.js';
 import { isProduction, getOpenAiApiKey } from '../config/env.js';
 import type { SubtitleSegment } from './video-processing.js';
-import { extractAudioFromVideo } from './video-processing.js';
+import { detectScenesAndPauses, extractAudioFromVideo } from './video-processing.js';
+import {
+  buildLocalHighlights,
+  sanitizeHighlightLabel,
+  highlightClaimsFakeDetection,
+  type VideoHighlight,
+  type VideoPause,
+  type VideoScene,
+  type AudioActivityBucket,
+} from '@ucbs/shared';
 
 export interface VideoAnalysisResult {
-  highlights: Array<{ start: number; end: number; label: string; score: number }>;
+  highlights: VideoHighlight[];
   subtitles: SubtitleSegment[];
+  scenes: VideoScene[];
+  pauses: VideoPause[];
+  audioActivity: AudioActivityBucket[];
+  analyzerVersion: string;
 }
 
 export async function transcribeVideoSource(sourceUrl: string): Promise<SubtitleSegment[]> {
@@ -79,7 +92,7 @@ export async function detectHighlightsFromSubtitles(
         {
           role: 'system',
           content:
-            'Du analysierst Video-Transkripte für Creator-Highlights. Antworte nur mit JSON: {"highlights":[{"start":number,"end":number,"label":string,"score":number}]}. 3 Highlights, Zeiten innerhalb der Videodauer, score 0-1.',
+            'Analysiere Transkripte für Creator-Highlights. JSON: {"highlights":[{"start":number,"end":number,"label":string,"score":number,"reason":string}]}. score 0-100. Niemals Kill, Headshot, Victory, Reaction oder Gameplay-Events behaupten. Nur Sprache/Themen.',
         },
         {
           role: 'user',
@@ -103,11 +116,39 @@ export async function detectHighlightsFromSubtitles(
     throw new ServiceError(422, 'NO_HIGHLIGHTS', 'Keine Highlights aus dem Transkript ableitbar');
   }
 
-  return parsed.highlights.map((h) => ({
-    ...h,
-    start: Math.max(0, Math.min(h.start, duration)),
-    end: Math.max(h.start + 1, Math.min(h.end, duration)),
-  }));
+  return parsed.highlights
+    .filter((h) => !highlightClaimsFakeDetection(`${h.label} ${h.reason ?? ''}`))
+    .map((h) => ({
+      start: Math.max(0, Math.min(h.start, duration)),
+      end: Math.max(h.start + 1, Math.min(h.end, duration)),
+      score: Math.max(0, Math.min(100, Math.round((h.score <= 1 ? h.score * 100 : h.score)))),
+      reason: h.reason || 'Transkript-Aktivität',
+      label: sanitizeHighlightLabel(h.label),
+      transcriptSegment: h.transcriptSegment,
+    }));
+}
+
+export async function analyzeVideoLocal(
+  sourceUrl: string,
+  duration: number,
+  existingSubtitles: SubtitleSegment[] = []
+): Promise<VideoAnalysisResult> {
+  const { scenes, pauses, activity } = await detectScenesAndPauses(sourceUrl, duration);
+  const highlights = buildLocalHighlights({
+    durationSec: duration,
+    scenes,
+    pauses,
+    activity,
+    subtitles: existingSubtitles,
+  });
+  return {
+    highlights,
+    subtitles: existingSubtitles,
+    scenes,
+    pauses,
+    audioActivity: activity,
+    analyzerVersion: 'local-ffmpeg-v1',
+  };
 }
 
 export async function analyzeVideoFromSource(
@@ -116,9 +157,26 @@ export async function analyzeVideoFromSource(
   duration: number,
   styleDirection?: string
 ): Promise<VideoAnalysisResult> {
+  const local = await analyzeVideoLocal(sourceUrl, duration);
   const subtitles = await transcribeVideoSource(sourceUrl);
-  const highlights = await detectHighlightsFromSubtitles(title, duration, subtitles, styleDirection);
-  return { highlights, subtitles };
+  let highlights = local.highlights;
+  try {
+    highlights = await detectHighlightsFromSubtitles(title, duration, subtitles, styleDirection);
+  } catch {
+    highlights = buildLocalHighlights({
+      durationSec: duration,
+      scenes: local.scenes,
+      pauses: local.pauses,
+      activity: local.audioActivity,
+      subtitles,
+    });
+  }
+  return {
+    ...local,
+    subtitles,
+    highlights,
+    analyzerVersion: 'whisper+local-ffmpeg-v1',
+  };
 }
 
 export function requireVideoAnalysisConfigured(): void {

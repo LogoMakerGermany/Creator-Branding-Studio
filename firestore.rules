@@ -8,11 +8,8 @@ service cloud.firestore {
 
       allow read: if request.auth != null && request.auth.uid == userId;
 
-      allow create: if request.auth != null
-        && request.auth.uid == userId
-        && request.resource.data.role == 'creator'
-        && request.resource.data.coinBalance == 0
-        && request.resource.data.keys().hasAll(['email', 'role', 'coinBalance']);
+      // Client self-create remains role==creator. Testers/Admins are created
+      // via Admin SDK (server), not this rule. Do not loosen.
 
       allow update: if request.auth != null
         && request.auth.uid == userId
@@ -90,11 +87,7 @@ service cloud.firestore {
 
     match /marketplace_items/{itemId} {
 
-      allow read: if true;
-
-      allow create: if request.auth != null && request.resource.data.sellerId == request.auth.uid;
-
-      allow update, delete: if request.auth != null && resource.data.sellerId == request.auth.uid;
+      allow read, write: if false;
 
     }
 

@@ -13,7 +13,7 @@ const SEARCH_ITEMS = [
   ...BRANDING_MODULES.map((m) => ({ title: m.title, path: m.path })),
   ...AI_CREATOR_MODULES.map((m) => ({ title: m.title, path: m.path })),
   { title: 'Ultimate Creator', path: '/ultimate-creator' },
-  { title: 'Export Center', path: '/export-center' },
+  { title: 'Ultimate Pack (Legacy)', path: '/export-center' },
 ];
 
 export function TopBar() {
@@ -50,6 +50,7 @@ export function TopBar() {
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
         <input
           type="search"
+          aria-label="Module suchen"
           placeholder="Module suchen…"
           value={query}
           onChange={(e) => {
@@ -107,6 +108,12 @@ export function TopBar() {
         </div>
       )}
 
+      <Link
+        to="/settings#feedback"
+        className="hidden rounded-xl border border-white/10 px-3 py-1.5 text-sm text-zinc-300 hover:bg-[var(--ucbs-hover)] sm:inline-flex"
+      >
+        Feedback senden
+      </Link>
       <Link
         to="/coins"
         className="hidden items-center gap-1.5 rounded-xl border border-[var(--ucbs-accent-purple)]/30 bg-[var(--ucbs-accent-purple)]/10 px-3 py-1.5 text-sm font-medium text-[var(--ucbs-accent-purple)] sm:flex"

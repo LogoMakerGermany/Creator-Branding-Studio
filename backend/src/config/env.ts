@@ -85,18 +85,27 @@ export function getDailyProviderBudgetCents(): number | null {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-export function getMaxDailyJobsPerUser(): number {
+/** Unset = no daily cap. */
+export function getMaxDailyJobsPerUser(): number | null {
   const raw = readEnv('MAX_DAILY_JOBS_PER_USER');
-  if (!raw) return 50;
+  if (!raw) return null;
   const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : 50;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export function getMaxConcurrentJobsPerUser(): number {
+/** Unset = no concurrency cap. */
+export function getMaxConcurrentJobsPerUser(): number | null {
   const raw = readEnv('MAX_CONCURRENT_JOBS_PER_USER');
-  if (!raw) return 3;
+  if (!raw) return null;
   const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : 3;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function getJobStaleMs(): number {
+  const raw = readEnv('JOB_STALE_MS');
+  if (!raw) return 15 * 60 * 1000;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 5_000 ? n : 15 * 60 * 1000;
 }
 
 export function getMaxDailyPromotionalSpendCents(): number | null {
@@ -306,19 +315,38 @@ export function getJwtSecret(): string | undefined {
   return readEnv('JWT_SECRET');
 }
 
-export function getAiProviderStatus() {
+export type ProviderConfigStatus = {
+  configured: boolean;
+  liveChecked: boolean;
+  available: boolean | null;
+};
+
+function envConfigured(configured: boolean): ProviderConfigStatus {
+  return { configured, liveChecked: false, available: null };
+}
+
+/** ENV presence only — not a live provider ping. */
+export function getAiProviderStatus(): Record<string, ProviderConfigStatus> {
   return {
-    openai: Boolean(getOpenAiApiKey()),
-    gemini: Boolean(getGeminiApiKey()),
-    replicate: Boolean(getReplicateApiToken()),
-    runway: Boolean(getRunwayApiKey()),
-    elevenlabs: Boolean(getElevenLabsApiKey()),
-    suno: Boolean(getSunoApiKey()),
+    openai: envConfigured(Boolean(getOpenAiApiKey())),
+    gemini: envConfigured(Boolean(getGeminiApiKey())),
+    replicate: envConfigured(Boolean(getReplicateApiToken())),
+    runway: envConfigured(Boolean(getRunwayApiKey())),
+    elevenlabs: envConfigured(Boolean(getElevenLabsApiKey())),
+    suno: envConfigured(Boolean(getSunoApiKey())),
   };
 }
 
 export function hasImageAiProvider(): boolean {
   return Boolean(getOpenAiApiKey() || getReplicateApiToken());
+}
+
+export function isResendConfigured(): boolean {
+  return Boolean(readEnv('RESEND_API_KEY'));
+}
+
+export function getEmailFrom(): string | undefined {
+  return readEnv('EMAIL_FROM');
 }
 
 // ─── Public client config (safe for browser) ────────────────────────────────

@@ -55,6 +55,9 @@ async function creditFromPayPalOrder(
     userId: order.userId,
     packageId: order.packageId,
     amountCents: order.amountCents,
+    currency: order.currency,
+    claimedCoins: order.coins,
+    claimedBonus: order.bonusCoins,
   });
 }
 
@@ -90,7 +93,10 @@ paypalRoutes.post(
       throw new AppError(403, 'FORBIDDEN', 'Dev-Kauf ist in Production deaktiviert');
     }
 
-    const { packageId } = checkoutSchema.parse(req.body);
+    const body = checkoutSchema.extend({
+      idempotencyKey: z.string().min(8).max(80).optional(),
+    }).parse(req.body);
+    const { packageId } = body;
     const pkg = getPackageById(packageId);
     if (!pkg) throw new AppError(404, 'NOT_FOUND', 'Paket nicht gefunden');
 
@@ -99,7 +105,16 @@ paypalRoutes.post(
       req.user!.uid,
       totalCoins,
       `${pkg.name} Paket (Dev-Kauf)`,
-      'purchase'
+      'purchase',
+      {
+        sourceType: 'dev_purchase',
+        sourceId: body.idempotencyKey ?? `dev:${req.user!.uid}:${packageId}`,
+        idempotencyKey: body.idempotencyKey
+          ? `dev-purchase:paypal:${req.user!.uid}:${body.idempotencyKey}`
+          : undefined,
+        packageId,
+        provider: 'paypal',
+      }
     );
 
     sendSuccess(res, {
@@ -166,7 +181,13 @@ paypalRoutes.post(
             return;
           }
         } catch (err) {
-          console.error('[PayPal] Webhook credit failed:', err);
+          console.error('[PayPal] Webhook credit failed:', err instanceof Error ? err.message : 'error');
+          if (err instanceof AppError && err.statusCode < 500) {
+            res.status(200).json({ received: true, error: err.code });
+            return;
+          }
+          res.status(500).json({ error: 'credit_failed' });
+          return;
         }
       }
     }

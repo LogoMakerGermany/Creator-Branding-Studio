@@ -4,6 +4,13 @@ import { verifyIdToken } from '../config/firebase.js';
 import { getUserById } from '../services/user.service.js';
 import type { UserRole } from '@ucbs/shared';
 
+export function denyIfDisabled(profile: { disabled?: boolean } | null | undefined): AppError | null {
+  if (profile?.disabled) {
+    return new AppError(403, 'ACCOUNT_DISABLED', 'Dieses Konto ist deaktiviert');
+  }
+  return null;
+}
+
 export interface AuthenticatedRequest extends Request {
   user?: {
     uid: string;
@@ -62,6 +69,11 @@ export async function authenticate(
       return;
     }
 
+    if (profile.disabled) {
+      next(denyIfDisabled(profile)!);
+      return;
+    }
+
     req.user = {
       uid: decoded.uid,
       email: profile.email,
@@ -107,6 +119,10 @@ export async function authenticateAllowUnprovisioned(
 
     const profile = await getUserById(decoded.uid);
     if (profile) {
+      if (profile.disabled) {
+        next(denyIfDisabled(profile)!);
+        return;
+      }
       req.user = {
         uid: decoded.uid,
         email: profile.email,

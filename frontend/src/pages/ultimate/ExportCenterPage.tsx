@@ -102,9 +102,11 @@ export function ExportCenterPage() {
         <div>
           <h1 className="flex items-center gap-2 font-display text-2xl font-bold text-white">
             <FolderOpen className="h-7 w-7 text-[var(--ucbs-accent-cyan)]" />
-            Export Center
+            Ultimate Pack (Legacy)
           </h1>
-          <p className="mt-1 text-sm text-zinc-400">Alle Ultimate-Creator-Assets an einem Ort</p>
+          <p className="mt-1 text-sm text-zinc-400">
+            Öffnet vorhandene Ultimate-Creator-Bild-URLs. Der echte Projekt-ZIP liegt unter Projekte.
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => detail && loadDetail(detail.id)} disabled={!detail}>
@@ -112,7 +114,7 @@ export function ExportCenterPage() {
           </Button>
           <Button size="sm" onClick={handleExport} disabled={!detail || exporting}>
             {exporting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Download className="mr-1 h-4 w-4" />}
-            Alles exportieren
+            URLs öffnen
           </Button>
         </div>
       </div>

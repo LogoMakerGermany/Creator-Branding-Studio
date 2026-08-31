@@ -5,6 +5,7 @@ import { StudioHistory } from '@/components/studio/StudioHistory';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
 import { useAuth } from '@/context/AuthContext';
+import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 import { api, ApiError } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
 import type { StickerGenerationOptions } from '@ucbs/shared';
@@ -18,6 +19,7 @@ const COIN_COST = 8;
 export function StickerStudioPage() {
   const { user, activeDna, refreshUser } = useAuth();
   const { projects, refresh } = useStudioProjects('sticker');
+  const projectId = useBrandProjectStore((s) => s.activeProjectId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export function StickerStudioPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.studio.generate('sticker', form);
+      const res = await api.studio.generate('sticker', { ...form, projectId: projectId ?? undefined });
       if (res.imageUrl) setImageUrl(res.imageUrl);
       if (res.exports) setExports(res.exports);
       setProvider(res.provider ?? null);
@@ -114,8 +116,10 @@ export function StickerStudioPage() {
               </a>
             )}
             {exports?.svg && (
-              <a href={exports.svg} download="sticker.svg" target="_blank" rel="noreferrer">
-                <Button variant="outline" size="sm"><Download className="h-3.5 w-3.5" /> SVG</Button>
+              <a href={exports.svg} download="sticker-container.svg" target="_blank" rel="noreferrer">
+                <Button variant="outline" size="sm" title="PNG in SVG-Hülle, kein Vektorlogo">
+                  <Download className="h-3.5 w-3.5" /> SVG-Container (kein Vektor)
+                </Button>
               </a>
             )}
           </>

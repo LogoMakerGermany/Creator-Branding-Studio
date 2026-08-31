@@ -6,6 +6,7 @@ import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
 import { useAuth } from '@/context/AuthContext';
 import { api, ApiError } from '@/services/api';
+import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 import { formatCoins } from '@/lib/utils';
 import {
   BANNER_PLATFORM_SPECS,
@@ -67,6 +68,7 @@ export function StudioPage({
   facecamShapes = [],
 }: StudioPageProps) {
   const { user, activeDna, refreshUser } = useAuth();
+  const projectId = useBrandProjectStore((s) => s.activeProjectId);
   const { projects, refresh } = useStudioProjects(module);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +107,7 @@ export function StudioPage({
         };
       }
 
-      const res = await api.studio.generate(module, body);
+      const res = await api.studio.generate(module, { ...body, projectId: projectId ?? undefined });
       if (res.status === 'failed' || !res.imageUrl) {
         setError(res.error || 'Generierung fehlgeschlagen');
         return;
@@ -231,11 +233,11 @@ export function StudioPage({
                 </Button>
               </a>
             )}
-            {exportUrls?.hd && (
-              <a href={exportUrls.hd} download={`${module}-hd.png`} target="_blank" rel="noreferrer">
-                <Button variant="outline" className="gap-2">
+            {exportUrls?.svg && (
+              <a href={exportUrls.svg} download={`${module}-container.svg`} target="_blank" rel="noreferrer">
+                <Button variant="outline" className="gap-2" title="PNG in SVG-Hülle, kein Vektorlogo">
                   <Download className="h-4 w-4" />
-                  HD
+                  SVG-Container (kein Vektor)
                 </Button>
               </a>
             )}

@@ -215,8 +215,8 @@ export type VideoAspectRatio = '16:9' | '9:16';
 
 export async function generateVideo(
   prompt: string,
-  options?: { aspectRatio?: VideoAspectRatio; duration?: number }
-): Promise<{ videoUrl: string; provider: string }> {
+  options?: { aspectRatio?: VideoAspectRatio; duration?: number; imageUrl?: string }
+): Promise<{ videoUrl: string; provider: string; imageToVideo?: boolean }> {
   if (getRunwayApiKey()) {
     try {
       return await generateVideoWithRunway(prompt, options);
@@ -246,11 +246,20 @@ export async function generateVideo(
 
 async function generateVideoWithReplicate(
   prompt: string,
-  options?: { aspectRatio?: VideoAspectRatio; duration?: number }
-): Promise<{ videoUrl: string; provider: string }> {
+  options?: { aspectRatio?: VideoAspectRatio; duration?: number; imageUrl?: string }
+): Promise<{ videoUrl: string; provider: string; imageToVideo?: boolean }> {
   const token = getReplicateApiToken()!;
   const model = getReplicateVideoModel();
   const aspectRatio = options?.aspectRatio === '9:16' ? '9:16' : '16:9';
+  const input: Record<string, unknown> = {
+    prompt,
+    prompt_optimizer: true,
+    aspect_ratio: aspectRatio,
+  };
+  if (options?.imageUrl) {
+    input.start_image = options.imageUrl;
+    input.image = options.imageUrl;
+  }
 
   const createRes = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
     method: 'POST',
@@ -260,11 +269,7 @@ async function generateVideoWithReplicate(
       Prefer: 'wait=180',
     },
     body: JSON.stringify({
-      input: {
-        prompt,
-        prompt_optimizer: true,
-        aspect_ratio: aspectRatio,
-      },
+      input,
     }),
   });
 
@@ -299,7 +304,7 @@ async function generateVideoWithReplicate(
     throw new Error('No video output from Replicate');
   }
 
-  return { videoUrl, provider: `replicate:${model}` };
+  return { videoUrl, provider: `replicate:${model}`, imageToVideo: Boolean(options?.imageUrl) };
 }
 
 async function generateVideoWithRunway(

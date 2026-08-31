@@ -25,7 +25,7 @@ export function PwaInstallBanner() {
           <Smartphone className="h-5 w-5 text-cyan-300" />
         </div>
         <div>
-          <p className="text-sm font-medium text-zinc-100">UCBS als App installieren</p>
+          <p className="text-sm font-medium text-zinc-100">NEXTER als App installieren</p>
           <p className="text-xs text-zinc-500">
             {isIos
               ? 'Safari → Teilen → „Zum Home-Bildschirm“'

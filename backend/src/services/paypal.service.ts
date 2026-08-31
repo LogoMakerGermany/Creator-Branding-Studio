@@ -141,6 +141,7 @@ export interface PayPalOrderDetails {
   coins: number;
   bonusCoins: number;
   amountCents?: number;
+  currency?: string;
 }
 
 export async function getPayPalOrder(orderId: string): Promise<PayPalOrderDetails> {
@@ -160,13 +161,15 @@ export async function getPayPalOrder(orderId: string): Promise<PayPalOrderDetail
     purchase_units: {
       custom_id?: string;
       amount?: { value: string; currency_code: string };
-      payments?: { captures?: { amount: { value: string }; status: string }[] };
+      payments?: { captures?: { amount: { value: string; currency_code: string }; status: string }[] };
     }[];
   };
 
   const unit = order.purchase_units[0];
   const parsed = unit?.custom_id ? parseCustomId(unit.custom_id) : null;
   const captureAmount = unit?.payments?.captures?.[0]?.amount?.value ?? unit?.amount?.value;
+  const captureCurrency =
+    unit?.payments?.captures?.[0]?.amount?.currency_code ?? unit?.amount?.currency_code;
   const amountCents = captureAmount
     ? Math.round(parseFloat(captureAmount) * 100)
     : undefined;
@@ -179,6 +182,7 @@ export async function getPayPalOrder(orderId: string): Promise<PayPalOrderDetail
     coins: parsed?.coins ?? 0,
     bonusCoins: parsed?.bonusCoins ?? 0,
     amountCents,
+    currency: captureCurrency,
   };
 }
 

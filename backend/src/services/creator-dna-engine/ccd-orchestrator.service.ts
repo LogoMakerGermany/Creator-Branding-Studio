@@ -19,12 +19,66 @@ import {
   getCcdLearningSignals,
 } from './ccd-storage.service.js';
 
-export async function getCcdPromptContext(userId: string) {
-  const [characterDna, creatorPreferences] = await Promise.all([
+export async function getCcdPromptContext(userId: string, projectId?: string) {
+  const { resolveDnaForRequest } = await import('../dna.service.js');
+  const [{ dna }, characterDna, creatorPreferences] = await Promise.all([
+    resolveDnaForRequest(userId, projectId),
     getCharacterDna(userId),
     getCreatorPreferences(userId),
   ]);
-  return { characterDna, creatorPreferences };
+
+  if (dna?.character?.present || dna?.mascot || dna?.character?.description) {
+    const figure = dna.character?.description || dna.mascot || dna.name;
+    const merged = characterDna
+      ? {
+          ...characterDna,
+          creatorDnaId: dna.id,
+          creatorName: dna.name,
+          figure,
+          visual: {
+            ...characterDna.visual,
+            clothing: dna.character?.clothing ?? characterDna.visual.clothing,
+            hair: dna.character?.hair ?? characterDna.visual.hair,
+            mask: dna.character?.face ?? characterDna.visual.mask,
+            jewelry: dna.character?.accessories ?? characterDna.visual.jewelry,
+          },
+        }
+      : {
+          id: dna.character?.ccdCharacterId ?? dna.id,
+          userId,
+          creatorDnaId: dna.id,
+          creatorName: dna.name,
+          clanName: dna.clanName,
+          figure,
+          subFigure: dna.character?.type,
+          personality: 'heroic' as const,
+          style: dna.styleDirection,
+          visual: {
+            clothing: dna.character?.clothing,
+            hair: dna.character?.hair,
+            mask: dna.character?.face,
+            jewelry: dna.character?.accessories,
+          },
+          colors: {
+            primary: dna.primaryColors,
+            secondary: dna.secondaryColors,
+            accent: dna.accentColors,
+            glow: [],
+            metal: [],
+            lighting: dna.atmosphere?.lighting ? [dna.atmosphere.lighting] : [],
+          },
+          effects: [],
+          pose: 'heroic' as const,
+          environment: 'abstract' as const,
+          generationCount: 0,
+          version: dna.version,
+          createdAt: dna.createdAt,
+          updatedAt: dna.updatedAt,
+        };
+    return { characterDna: merged, creatorPreferences, source: 'creator_dna' as const };
+  }
+
+  return { characterDna, creatorPreferences, source: characterDna ? ('ccd_sidecar' as const) : ('none' as const) };
 }
 
 /** Nach Logo-Generierung: Character DNA erstellen/erweitern. */
@@ -59,6 +113,33 @@ export async function processLogoGenerationCcd(
   );
 
   await Promise.all([saveCharacterDna(character), saveCreatorPreferences(preferences)]);
+
+  if (!creatorDna.locks?.character && !creatorDna.locks?.mascot) {
+    const emptyCharacter = !creatorDna.character?.description && !creatorDna.mascot;
+    if (emptyCharacter) {
+      const { updateDna } = await import('../dna.service.js');
+      await updateDna(
+        creatorDna.id,
+        userId,
+        {
+          userId,
+          name: creatorDna.name,
+          mascot: character.figure,
+          character: {
+            present: true,
+            type: character.figure,
+            description: character.figure,
+            clothing: character.visual.armor || character.visual.clothing,
+            hair: character.visual.hair,
+            face: character.visual.mask || character.visual.helmet,
+            accessories: character.visual.jewelry,
+            ccdCharacterId: character.id,
+          },
+        },
+        'Character aus Logo übernommen'
+      ).catch(() => undefined);
+    }
+  }
 
   const evolution = proposeCharacterEvolution(character, {
     jobId,

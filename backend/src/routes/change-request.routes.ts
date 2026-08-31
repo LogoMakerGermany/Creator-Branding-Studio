@@ -8,15 +8,24 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import {
   listChangeRequests,
   getChangeRequest,
-  createChangeRequest,
   restoreVersion,
   compareVersions,
   getVersionsForJob,
+  getOwnedJobForChange,
+  changeModuleToQuoteKind,
 } from '../services/change-request.service.js';
 import { getJobsByUser } from '../services/ai.service.js';
+import { createQuote } from '../services/nexter/quotes.service.js';
+import { ServiceError } from '../lib/errors.js';
 
 export const changeRequestRoutes = Router();
 changeRequestRoutes.use(authenticate, requirePermission(Permission.USE_LOGO_STUDIO));
+
+function mapErr(err: unknown): never {
+  if (err instanceof AppError) throw err;
+  if (err instanceof ServiceError) throw new AppError(err.statusCode, err.code, err.message);
+  throw new AppError(400, 'CHANGE_FAILED', err instanceof Error ? err.message : 'Fehler');
+}
 
 changeRequestRoutes.get(
   '/',
@@ -24,7 +33,7 @@ changeRequestRoutes.get(
     const jobs = await getJobsByUser(req.user!.uid);
     sendSuccess(res, {
       changeRequests: await listChangeRequests(req.user!.uid),
-      availableJobs: jobs.filter((j) => j.imageUrl),
+      availableJobs: jobs.filter((j) => j.imageUrl && changeModuleToQuoteKind(j.module)),
     });
   })
 );
@@ -47,21 +56,43 @@ changeRequestRoutes.post(
   })
 );
 
-const createSchema = z.object({
+const quoteSchema = z.object({
   jobId: z.string().uuid(),
   request: z.string().min(3).max(500),
+  projectId: z.string().min(1).max(80).optional(),
 });
 
 changeRequestRoutes.post(
-  '/',
+  '/quote',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
-    const body = createSchema.parse(req.body);
+    const body = quoteSchema.parse(req.body);
     try {
-      const cr = await createChangeRequest(req.user!.uid, body.jobId, body.request);
-      sendSuccess(res, { changeRequest: cr }, 201);
+      const job = await getOwnedJobForChange(body.jobId, req.user!.uid);
+      const kind = changeModuleToQuoteKind(job.module)!;
+      const quote = await createQuote(req.user!.uid, kind, body.projectId || job.projectId, {
+        changeRequest: true,
+        jobId: job.id,
+        request: body.request,
+      });
+      sendSuccess(res, {
+        quote,
+        module: kind,
+        honestLabel: 'KI-Variante auf Basis des bestehenden Designs',
+      });
     } catch (err) {
-      throw new AppError(400, 'CHANGE_FAILED', err instanceof Error ? err.message : 'Fehler');
+      mapErr(err);
     }
+  })
+);
+
+changeRequestRoutes.post(
+  '/',
+  asyncHandler(async (_req: AuthenticatedRequest, res) => {
+    throw new AppError(
+      400,
+      'CHANGE_REQUIRES_QUOTE',
+      'Änderungswünsche starten nur nach Angebot und Bestätigung (Erstellen).'
+    );
   })
 );
 

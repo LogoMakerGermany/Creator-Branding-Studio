@@ -167,7 +167,15 @@ export interface StickerGenerationOptions {
   transparentBackground?: boolean;
 }
 
-export type StudioModuleKey = 'logo' | 'banner' | 'facecam' | 'overlay' | 'sticker';
+export type StudioModuleKey =
+  | 'logo'
+  | 'banner'
+  | 'facecam'
+  | 'overlay'
+  | 'sticker'
+  | 'mockup'
+  | 'social'
+  | 'streamset';
 
 export interface StudioProjectSummary {
   id: string;

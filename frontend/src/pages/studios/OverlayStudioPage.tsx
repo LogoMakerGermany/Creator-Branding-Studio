@@ -5,6 +5,7 @@ import { StudioHistory } from '@/components/studio/StudioHistory';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
 import { useAuth } from '@/context/AuthContext';
+import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 import { api, ApiError } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
 import type { OverlayGenerationOptions } from '@ucbs/shared';
@@ -28,6 +29,7 @@ const OVERLAY_TYPES = [
 export function OverlayStudioPage() {
   const { user, activeDna, refreshUser } = useAuth();
   const { projects, refresh } = useStudioProjects('overlay');
+  const projectId = useBrandProjectStore((s) => s.activeProjectId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -48,7 +50,7 @@ export function OverlayStudioPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.studio.generate('overlay', form);
+      const res = await api.studio.generate('overlay', { ...form, projectId: projectId ?? undefined });
       if (res.status === 'failed' || !res.imageUrl) {
         setError(res.error || 'Generierung fehlgeschlagen');
         return;
@@ -130,8 +132,10 @@ export function OverlayStudioPage() {
               </a>
             )}
             {exports?.svg && (
-              <a href={exports.svg} download="overlay.svg" target="_blank" rel="noreferrer">
-                <Button variant="outline" size="sm"><Download className="h-3.5 w-3.5" /> SVG</Button>
+              <a href={exports.svg} download="overlay-container.svg" target="_blank" rel="noreferrer">
+                <Button variant="outline" size="sm" title="PNG in SVG-Hülle, kein Vektorlogo">
+                  <Download className="h-3.5 w-3.5" /> SVG-Container (kein Vektor)
+                </Button>
               </a>
             )}
           </>

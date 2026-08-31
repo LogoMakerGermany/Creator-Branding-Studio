@@ -35,7 +35,21 @@ export type ProjectType =
   | 'intro'
   | 'overlay'
   | 'full_package'
-  | 'custom';
+  | 'custom'
+  | 'streamset'
+  | 'mockup'
+  | 'shorts'
+  | 'social'
+  | 'text';
+
+export type ProjectAssetSourceType =
+  | 'generation'
+  | 'file'
+  | 'content'
+  | 'video'
+  | 'mockup'
+  | 'animation'
+  | 'text';
 
 export interface ProjectAsset {
   id: string;
@@ -44,6 +58,41 @@ export interface ProjectAsset {
   url: string;
   version: number;
   createdAt: string;
+  jobId?: string;
+  fileId?: string;
+  module?: string;
+  sourceType?: ProjectAssetSourceType;
+  sourceId?: string;
+  mimeType?: string;
+  size?: number;
+  assetKey?: string;
+  parentAssetId?: string;
+}
+
+export interface ProjectExportAssetMeta {
+  id: string;
+  name: string;
+  type: string;
+  module?: string;
+  version: number;
+  mimeType?: string;
+  source?: string;
+  filename: string;
+  missing: boolean;
+  jobId?: string;
+  fileId?: string;
+}
+
+export interface ProjectExportManifest {
+  exportVersion: 1;
+  projectId: string;
+  projectName: string;
+  projectType: ProjectType;
+  exportedAt: string;
+  dna: { id: string; name: string; version?: number } | null;
+  assets: ProjectExportAssetMeta[];
+  /** Present for import compatibility with older ZIP archives. */
+  project?: Partial<Project>;
 }
 
 export interface ProjectFeedback {

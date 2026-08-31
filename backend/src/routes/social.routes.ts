@@ -12,6 +12,7 @@ import {
   updateSocialPost,
   deleteSocialPost,
   getSocialStats,
+  getSocialPost,
 } from '../services/social.service.js';
 
 export const socialRoutes = Router();
@@ -34,12 +35,26 @@ socialRoutes.get(
   })
 );
 
+socialRoutes.get(
+  '/:id',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const post = await getSocialPost(String(req.params.id), req.user!.uid);
+    if (!post) throw new AppError(404, 'NOT_FOUND', 'Post nicht gefunden');
+    sendSuccess(res, { post });
+  })
+);
+
 const createSchema = z.object({
   platform: z.enum(['instagram', 'youtube', 'tiktok', 'twitter', 'discord', 'twitch']),
-  content: z.string().min(1).max(2000),
+  content: z.string().min(1).max(4000),
   scheduledAt: z.string().optional(),
   mediaDataUrl: z.string().min(20).optional(),
   mediaUrl: z.string().url().optional(),
+  mediaAssetId: z.string().max(80).optional(),
+  mediaKind: z.string().max(40).optional(),
+  packageId: z.string().max(80).optional(),
+  projectId: z.string().max(80).optional(),
+  status: z.enum(['draft', 'scheduled', 'ready', 'published']).optional(),
 });
 
 socialRoutes.post(
@@ -56,12 +71,16 @@ socialRoutes.post(
 );
 
 const updateSchema = z.object({
-  content: z.string().min(1).max(2000).optional(),
+  content: z.string().min(1).max(4000).optional(),
   platform: z.enum(['instagram', 'youtube', 'tiktok', 'twitter', 'discord', 'twitch']).optional(),
   scheduledAt: z.string().optional(),
-  status: z.enum(['draft', 'scheduled', 'published']).optional(),
+  status: z.enum(['draft', 'scheduled', 'ready', 'published']).optional(),
   mediaDataUrl: z.string().min(20).optional(),
   mediaUrl: z.string().url().optional(),
+  mediaAssetId: z.string().max(80).optional(),
+  mediaKind: z.string().max(40).optional(),
+  packageId: z.string().max(80).optional(),
+  projectId: z.string().max(80).optional(),
 });
 
 socialRoutes.patch(

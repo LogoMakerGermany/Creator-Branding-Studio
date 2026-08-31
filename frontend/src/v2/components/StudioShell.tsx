@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { Badge } from '@/components/ui';
 import { formatCoins } from '@/lib/utils';
+import { NexterStudioLayout } from '@/components/nexter';
 
 interface StudioShellProps {
   title: string;
@@ -13,19 +14,23 @@ interface StudioShellProps {
   badge?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
+  nexterHint?: string;
+  withNexter?: boolean;
 }
 
 export function StudioShell({
   title,
   description,
-  backTo = '/branding-studio',
-  backLabel = 'Branding Studio',
+  backTo = '/dashboard',
+  backLabel = 'Dashboard',
   coinCost,
   badge,
   actions,
   children,
+  nexterHint,
+  withNexter = true,
 }: StudioShellProps) {
-  return (
+  const inner = (
     <div className="space-y-6">
       {backTo && (
         <Link
@@ -46,7 +51,7 @@ export function StudioShell({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {coinCost != null && (
-            <Badge variant="default">{formatCoins(coinCost)} Coins</Badge>
+            <Badge variant="default">{formatCoins(coinCost)} Coins vor Generierung</Badge>
           )}
           {actions}
         </div>
@@ -54,4 +59,7 @@ export function StudioShell({
       {children}
     </div>
   );
+
+  if (!withNexter) return inner;
+  return <NexterStudioLayout hint={nexterHint ?? title}>{inner}</NexterStudioLayout>;
 }

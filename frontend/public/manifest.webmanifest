@@ -1,7 +1,7 @@
 {
-  "name": "Ultimate Creator Branding Studio",
-  "short_name": "UCBS",
-  "description": "All-in-One KI-Web-App für Creator und Streamer — Branding, Studios, Marketplace",
+  "name": "NEXTER Creator Studio",
+  "short_name": "NEXTER",
+  "description": "AI Creator Operating System für Branding, Streamsets, Video und Mockups",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",

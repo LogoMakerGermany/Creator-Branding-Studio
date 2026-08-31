@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { ApiResponse } from '@ucbs/shared';
+import { ZodError } from 'zod';
 import { ServiceError } from '../lib/errors.js';
 import { isProduction } from '../config/env.js';
 
@@ -12,6 +13,10 @@ export class AppError extends Error {
   ) {
     super(message);
     this.name = 'AppError';
+  }
+
+  override toString(): string {
+    return `${this.name} [${this.code}]: ${this.message}`;
   }
 }
 
@@ -39,6 +44,17 @@ export function errorHandler(
       error: {
         code: err.code,
         message: err.message,
+      },
+    });
+    return;
+  }
+
+  if (err instanceof ZodError) {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Ungültige Anfrage',
       },
     });
     return;

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
+import { plannerStatusLabel, normalizePlannerStatus } from '@ucbs/shared';
 import { PageHeader, Badge, Button, NeonCard, StatCard } from '@/components/ui';
-import { Share2, Send, Trash2, TrendingUp, Clock, Image } from 'lucide-react';
-import { api, ApiError, type SocialPost, type SocialPlatform } from '@/services/api';
+import { Share2, Send, Trash2, Clock, Image } from 'lucide-react';
+import { api, ApiError, type SocialPost, type SocialPlatform, type SocialStats } from '@/services/api';
 import { StudioErrorBanner, TypeOptionButton } from '@/components/studio';
-import { cn } from '@/lib/utils';
 
 const PLATFORMS: SocialPlatform[] = ['instagram', 'youtube', 'tiktok', 'twitter', 'discord', 'twitch'];
 
@@ -18,7 +18,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
 export function SocialMediaPage() {
   const [posts, setPosts] = useState<SocialPost[]>([]);
-  const [stats, setStats] = useState({ totalPosts: 0, scheduled: 0, published: 0, totalEngagement: 0 });
+  const [stats, setStats] = useState<SocialStats>({ totalPosts: 0, scheduled: 0, draft: 0, ready: 0 });
   const [platform, setPlatform] = useState<SocialPlatform>('instagram');
   const [content, setContent] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
@@ -69,8 +69,8 @@ export function SocialMediaPage() {
     }
   }
 
-  async function handlePublish(id: string) {
-    await api.social.update(id, { status: 'published' });
+  async function handleReady(id: string) {
+    await api.social.update(id, { status: 'ready' });
     await load();
   }
 
@@ -82,18 +82,17 @@ export function SocialMediaPage() {
   return (
     <div>
       <PageHeader
-        title="Social Media Center"
-        description="Posts planen und verwalten — Veröffentlichung markiert den Status lokal (kein Auto-Post an Plattformen)"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        title="Interner Content-Planer"
+        description="Nur interne Entwürfe und Termine. NEXTER veröffentlicht nichts auf TikTok, YouTube oder Instagram."
+        badge={<Badge variant="brand">Intern</Badge>}
       />
 
       {error && <StudioErrorBanner message={error} />}
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard label="Posts" value={stats.totalPosts} icon={<Share2 className="h-5 w-5" />} />
-        <StatCard label="Geplant" value={stats.scheduled} icon={<Clock className="h-5 w-5" />} />
-        <StatCard label="Veröffentlicht" value={stats.published} />
-        <StatCard label="Engagement" value={stats.totalEngagement} icon={<TrendingUp className="h-5 w-5" />} />
+        <StatCard label="Intern geplant" value={stats.scheduled} icon={<Clock className="h-5 w-5" />} />
+        <StatCard label="Entwürfe" value={stats.draft ?? 0} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -155,32 +154,24 @@ export function SocialMediaPage() {
               <div key={post.id} className="ucbs-neon-card p-3">
                 <div className="flex items-center justify-between">
                   <Badge variant="default" className="capitalize">{post.platform}</Badge>
-                  <Badge
-                    variant={post.status === 'published' ? 'brand' : 'default'}
-                    className={cn(post.status === 'scheduled' && 'text-cyan-300')}
-                  >
-                    {post.status}
+                  <Badge variant="default">
+                    {post.plannerLabel ?? plannerStatusLabel(normalizePlannerStatus(post.status))}
                   </Badge>
                 </div>
                 {post.mediaUrl && (
                   <img src={post.mediaUrl} alt="" className="mt-2 h-28 w-full rounded object-cover" />
                 )}
                 <p className="mt-2 text-sm text-zinc-300">{post.content}</p>
-                {post.scheduledAt && post.status === 'scheduled' && (
+                {post.scheduledAt && (
                   <p className="mt-1 flex items-center gap-1 text-xs text-cyan-400">
                     <Clock className="h-3 w-3" />
                     {new Date(post.scheduledAt).toLocaleString('de-DE')}
                   </p>
                 )}
-                {post.status === 'published' && post.publishedAt && (
-                  <p className="mt-1 text-xs text-zinc-500">
-                    Veröffentlicht am {new Date(post.publishedAt).toLocaleString('de-DE')}
-                  </p>
-                )}
                 <div className="mt-2 flex gap-2">
-                  {(post.status === 'draft' || post.status === 'scheduled') && (
-                    <Button size="sm" variant="outline" onClick={() => handlePublish(post.id)}>
-                      Als veröffentlicht markieren
+                  {(post.plannerStatus === 'draft' || post.status === 'draft') && (
+                    <Button size="sm" variant="outline" onClick={() => handleReady(post.id)}>
+                      Als bereit markieren (nicht veröffentlicht)
                     </Button>
                   )}
                   <Button size="sm" variant="outline" onClick={() => handleDelete(post.id)}>

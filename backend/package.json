@@ -7,7 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test --test-concurrency=1 src/services/nexter/*.test.ts src/services/dna*.test.ts src/services/streamset.test.ts src/services/mockup.test.ts src/services/video.phase-f.test.ts src/services/content.phase-g.test.ts src/services/project.phase-h.test.ts src/services/phase-i.test.ts src/services/phase-j.test.ts"
   },
   "dependencies": {
     "@ucbs/shared": "*",

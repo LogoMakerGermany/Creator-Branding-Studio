@@ -32,7 +32,7 @@ const verifySessionSchema = z.object({
   sessionId: z.string().min(1),
 });
 
-async function processCheckoutSession(session: Stripe.Checkout.Session): Promise<{
+export async function processCheckoutSession(session: Stripe.Checkout.Session): Promise<{
   credited: boolean;
   totalCoins: number;
   newBalance?: number;
@@ -93,6 +93,7 @@ async function processCheckoutSession(session: Stripe.Checkout.Session): Promise
     userId,
     packageId,
     amountCents: session.amount_total ?? undefined,
+    currency: session.currency ?? undefined,
   });
 }
 
@@ -128,7 +129,10 @@ stripeRoutes.post(
       throw new AppError(403, 'FORBIDDEN', 'Dev-Kauf ist in Production deaktiviert');
     }
 
-    const { packageId } = checkoutSchema.parse(req.body);
+    const body = checkoutSchema.extend({
+      idempotencyKey: z.string().min(8).max(80).optional(),
+    }).parse(req.body);
+    const { packageId } = body;
     const pkg = getPackageById(packageId);
     if (!pkg) throw new AppError(404, 'NOT_FOUND', 'Paket nicht gefunden');
 
@@ -137,7 +141,16 @@ stripeRoutes.post(
       req.user!.uid,
       totalCoins,
       `${pkg.name} Paket (Dev-Kauf)`,
-      'purchase'
+      'purchase',
+      {
+        sourceType: 'dev_purchase',
+        sourceId: body.idempotencyKey ?? `dev:${req.user!.uid}:${packageId}`,
+        idempotencyKey: body.idempotencyKey
+          ? `dev-purchase:stripe:${req.user!.uid}:${body.idempotencyKey}`
+          : undefined,
+        packageId,
+        provider: 'stripe',
+      }
     );
 
     sendSuccess(res, {
@@ -201,16 +214,24 @@ stripeRoutes.post(
       event.type === 'checkout.session.async_payment_succeeded'
     ) {
       const session = event.data.object as Stripe.Checkout.Session;
-      const result = await processCheckoutSession(session);
+      try {
+        const result = await processCheckoutSession(session);
 
-      if (!result.credited && !result.duplicate && session.payment_status !== 'paid') {
-        res.json({ received: true, skipped: true });
-        return;
-      }
+        if (!result.credited && !result.duplicate && session.payment_status !== 'paid') {
+          res.json({ received: true, skipped: true });
+          return;
+        }
 
-      if (result.duplicate) {
-        res.json({ received: true, duplicate: true });
-        return;
+        if (result.duplicate) {
+          res.json({ received: true, duplicate: true });
+          return;
+        }
+      } catch (err) {
+        if (err instanceof AppError && err.statusCode < 500) {
+          res.status(200).json({ received: true, error: err.code });
+          return;
+        }
+        throw err;
       }
     }
 

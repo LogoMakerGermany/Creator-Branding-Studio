@@ -16,7 +16,7 @@ export function BannerStudioPage() {
       module="banner"
       coinCost={10}
       bannerPlatforms={BANNER_PLATFORMS}
-      exports={['PNG', 'HD']}
+      exports={['PNG']}
     />
   );
 }

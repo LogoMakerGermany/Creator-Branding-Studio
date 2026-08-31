@@ -6,8 +6,8 @@ import { requirePermission } from '../middleware/rbac.js';
 import { asyncHandler, sendSuccess, AppError } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { getActiveDna } from '../services/dna.service.js';
-import { deductCoins } from '../services/coins.service.js';
 import { runGenerationJob, getJob, getJobsByUser } from '../services/ai.service.js';
+import { withCoinCharge } from '../lib/billable-job.js';
 
 export const aiRoutes = Router();
 
@@ -40,30 +40,17 @@ aiRoutes.post(
       throw new AppError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
     }
 
-    const coinResult = await deductCoins(
+    const { job, coinsSpent, newBalance } = await withCoinCharge(
       req.user!.uid,
       CoinSpendCategory.AI_IMAGE,
-      `KI Bildgenerierung (${body.module})`
-    );
-
-    if (!coinResult.success) {
-      throw new AppError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins', {
-        required: coinResult.cost,
-        balance: coinResult.newBalance,
-      });
-    }
-
-    const job = await runGenerationJob(
-      req.user!.uid,
-      body.module,
-      activeDna,
-      body.prompt
+      `KI Bildgenerierung (${body.module})`,
+      async () => runGenerationJob(req.user!.uid, body.module, activeDna, body.prompt)
     );
 
     sendSuccess(res, {
       job,
-      coinsSpent: coinResult.cost,
-      newBalance: coinResult.newBalance,
+      coinsSpent,
+      newBalance,
     }, 201);
   })
 );

@@ -30,11 +30,23 @@
     "railway:trigger": "node scripts/railway-trigger-deploy.mjs",
     "railway:fix": "node scripts/fix-railway-production.mjs",
     "lint": "npm run lint --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspace=backend",
+    "test:e2e": "node scripts/e2e/nexter-phase-b.mjs",
+    "test:e2e:c": "node scripts/e2e/nexter-phase-c.mjs",
+    "test:e2e:d": "node scripts/e2e/nexter-phase-d.mjs",
+    "test:e2e:e": "node scripts/e2e/nexter-phase-e.mjs",
+    "test:e2e:f": "node scripts/e2e/nexter-phase-f.mjs",
+    "test:e2e:g": "node scripts/e2e/nexter-phase-g.mjs",
+    "test:e2e:h": "node scripts/e2e/nexter-phase-h.mjs",
+    "test:e2e:i": "node scripts/e2e/nexter-phase-i.mjs",
+    "test:e2e:j": "node scripts/e2e/nexter-phase-j.mjs",
+    "test:e2e:all": "node scripts/e2e/nexter-phase-b.mjs && node scripts/e2e/nexter-phase-c.mjs && node scripts/e2e/nexter-phase-d.mjs && node scripts/e2e/nexter-phase-e.mjs && node scripts/e2e/nexter-phase-f.mjs && node scripts/e2e/nexter-phase-g.mjs && node scripts/e2e/nexter-phase-h.mjs && node scripts/e2e/nexter-phase-i.mjs && node scripts/e2e/nexter-phase-j.mjs"
   },
   "devDependencies": {
     "@railway/cli": "^4.6.3",
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "playwright": "^1.55.0"
   },
   "engines": {
     "node": ">=20.0.0"

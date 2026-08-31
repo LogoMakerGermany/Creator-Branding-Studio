@@ -10,6 +10,7 @@ import { ImprovementChips } from '@/components/ultimate';
 import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
 import { useAuth } from '@/context/AuthContext';
+import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 import { api, ApiError, type LogoVariantResult } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
 import {
@@ -42,6 +43,7 @@ import { StudioWorkbench } from '@/v2/components/StudioWorkbench';
 import { DnaRequiredBanner, StudioSuccessBanner } from '@/v2/components/StudioAlerts';
 import { StudioOptionPill } from '@/v2/components/StudioOptionPill';
 import { GlassCard } from '@/v2/components/GlassCard';
+import { Link } from 'react-router-dom';
 
 const COIN_COST = 15;
 
@@ -93,6 +95,7 @@ function FieldError({ message }: { message?: string }) {
 
 export function LogoStudioPage() {
   const { user, activeDna, refreshUser } = useAuth();
+  const projectId = useBrandProjectStore((s) => s.activeProjectId);
   const { projects, refresh } = useStudioProjects('logo');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -214,7 +217,7 @@ export function LogoStudioPage() {
     }
     const errors = validateMagikLogoOptions(payloadForm);
     if (Object.keys(errors).length > 0) {
-      setError('Bitte Pflichtfelder ausfüllen — MAGIK benötigt deine Eingaben.');
+      setError('Bitte Pflichtfelder ausfüllen — Nexter benötigt deine Eingaben.');
       return;
     }
 
@@ -228,6 +231,7 @@ export function LogoStudioPage() {
         selectedColors: collectMagikColors(payloadForm),
         transparentBackground: payloadForm.magikBackground === 'transparent',
         customPromptOverride: editPrompt ? promptDraft : undefined,
+        projectId: projectId ?? undefined,
       };
       const res = await api.studio.generate('logo', payload);
       if (res.variants?.length) {
@@ -289,13 +293,18 @@ export function LogoStudioPage() {
 
   return (
     <StudioShell
-      title="Logo Studio · MAGIK"
-      description="MAGIK PROMPT SYSTEM — Ultimate Qualitäts-DNA automatisch in jedem Prompt"
+      title="Logo Studio"
+      description="Gaming- und Stream-Logos aus deiner Creator DNA — Varianten A/B, echte Generierung"
       coinCost={COIN_COST}
       badge={
         <span className="rounded-full border border-[var(--ucbs-accent-purple)]/40 bg-[var(--ucbs-accent-purple)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--ucbs-accent-purple)]">
           2 Varianten / Klick
         </span>
+      }
+      nexterHint={
+        variants.length
+          ? 'Soll ich dir daraus ein vollständiges Streamset erstellen?'
+          : 'Logo Studio'
       }
     >
       <div className="space-y-4">
@@ -303,16 +312,25 @@ export function LogoStudioPage() {
         {error && <StudioErrorBanner message={error} />}
         {variants.length > 0 && !loading && (
           <StudioSuccessBanner>
-            <span className="flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5" />
-              MAGIK hat Variante A (Name) und B (Design) erstellt — wähle deine Favoritin
+            <span className="flex flex-wrap items-center gap-3">
+              <span className="flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5" />
+                Zwei Varianten — A (Name) und B (Design). Wähle deine Favoritin.
+              </span>
+              <Link
+                to="/streamset-studio"
+                data-testid="logo-to-streamset"
+                className="rounded-full border border-[var(--ucbs-accent-cyan)]/40 bg-[var(--ucbs-accent-cyan)]/10 px-3 py-1 text-xs font-medium text-[var(--ucbs-accent-cyan)] hover:bg-[var(--ucbs-accent-cyan)]/20"
+              >
+                Soll ich dir daraus ein vollständiges Streamset erstellen?
+              </Link>
             </span>
           </StudioSuccessBanner>
         )}
       </div>
 
       <StudioWorkbench
-        settingsTitle="MAGIK Konfiguration"
+        settingsTitle="Logo-Konfiguration"
         previewTitle="Live-Vorschau & Varianten"
         settings={
           <div className="max-h-[75vh] space-y-5 overflow-y-auto pr-1">
@@ -511,7 +529,7 @@ export function LogoStudioPage() {
             {!formValid && (
               <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                MAGIK generiert erst nach vollständiger Eingabe — kein Auto-Logo ohne Daten.
+                Nexter generiert erst nach vollständiger Eingabe — kein Auto-Logo ohne Daten.
               </div>
             )}
           </div>

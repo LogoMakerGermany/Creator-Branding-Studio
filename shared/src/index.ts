@@ -23,3 +23,8 @@ export * from './creator-dna-engine';
 export * from './ultimate-creator';
 export * from './api';
 export * from './video-formats';
+export * from './nexter';
+export * from './streamset';
+export * from './mockup';
+export * from './video-studio';
+export * from './content';

@@ -1,17 +1,35 @@
 import type { MagikAiMemoryEntry, MagikAiMemoryStatus } from '@ucbs/shared';
+import { listMemory, storeMemory } from '../nexter/memory.service.js';
 
-/** Platzhalter — Gedächtnis (Phase 3). */
+/** MAGIK-AI-Memory liest/schreibt Nexter-Memory (pro User). */
 export class MagikMemoryService {
-  async getStatus(_userId: string): Promise<MagikAiMemoryStatus> {
-    return 'empty';
+  async getStatus(userId: string): Promise<MagikAiMemoryStatus> {
+    const entries = await listMemory(userId);
+    return entries.length ? 'active' : 'empty';
   }
 
-  async listEntries(_userId: string, _limit = 50): Promise<MagikAiMemoryEntry[]> {
-    return [];
+  async listEntries(userId: string, limit = 50): Promise<MagikAiMemoryEntry[]> {
+    const entries = await listMemory(userId);
+    return entries.slice(0, limit).map((e) => ({
+      id: e.id,
+      userId: e.userId,
+      key: e.key,
+      value: e.value,
+      source: e.source === 'logo' || e.source === 'interaction' ? e.source : 'preference',
+      createdAt: e.createdAt,
+    }));
   }
 
-  async storeEntry(_userId: string, _key: string, _value: string): Promise<MagikAiMemoryEntry | null> {
-    return null;
+  async storeEntry(userId: string, key: string, value: string): Promise<MagikAiMemoryEntry | null> {
+    const entry = await storeMemory(userId, key, value, 'preference');
+    return {
+      id: entry.id,
+      userId: entry.userId,
+      key: entry.key,
+      value: entry.value,
+      source: 'preference',
+      createdAt: entry.createdAt,
+    };
   }
 }
 

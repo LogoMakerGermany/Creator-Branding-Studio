@@ -9,16 +9,22 @@ import type {
   CreatorDNA,
   DNAAnalysis,
   DNAVersion,
+  VideoEditPlan,
+  VideoMetadata,
+  VideoScene,
+  VideoPause,
+  VideoCrop,
 } from '@ucbs/shared';
 
 export type { CreatorDNA, DNAAnalysis, DNAVersion };
 
-type StudioGenerateOptions =
+type StudioGenerateOptions = (
   | LogoGenerationOptions
   | BannerGenerationOptions
   | FacecamGenerationOptions
   | OverlayGenerationOptions
-  | StickerGenerationOptions;
+  | StickerGenerationOptions
+) & { projectId?: string };
 
 export type { StudioProjectSummary };
 
@@ -76,9 +82,28 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   }
 
   if (!data.success) {
+    const code = data.error?.code || 'UNKNOWN';
+    const friendly: Record<string, string> = {
+      AI_NOT_CONFIGURED: 'KI-Funktion nicht konfiguriert. Ein Provider-Key fehlt.',
+      AI_UNAVAILABLE: 'Nexter ist ohne OpenAI-Key nicht verfügbar. Studios funktionieren weiter.',
+      INSUFFICIENT_COINS: 'Nicht genügend Coins.',
+      DAILY_JOB_LIMIT: 'Tägliches Job-Limit erreicht.',
+      CONCURRENT_JOB_LIMIT: 'Zu viele laufende Jobs. Bitte warten.',
+      ACCOUNT_DISABLED: 'Dieses Konto ist deaktiviert.',
+      VALIDATION_ERROR: 'Ungültige Eingabe.',
+      CHANGE_REQUIRES_QUOTE: 'Änderung braucht ein bestätigtes Nexter-Angebot.',
+      FEATURE_NOT_AVAILABLE: 'Diese Funktion ist in NEXTER V1 nicht verfügbar.',
+      NETWORK_ERROR: 'Netzwerkfehler. Bitte Verbindung prüfen.',
+      PAYMENT_FAILED: 'Zahlung fehlgeschlagen. Es wurden keine Coins gutgeschrieben.',
+      INVALID_UPLOAD: 'Datei ungültig. Bitte ein unterstütztes Format wählen.',
+      UPLOAD_FAILED: 'Upload fehlgeschlagen. Bitte erneut versuchen.',
+      FILE_TOO_LARGE: 'Datei ist zu groß.',
+      INTERNAL_ERROR: 'Ein interner Fehler ist aufgetreten. Bitte später erneut versuchen.',
+      EXPORT_FAILED: 'Export fehlgeschlagen. Bitte erneut versuchen.',
+    };
     throw new ApiError(
-      data.error?.message || 'API Fehler',
-      data.error?.code || 'UNKNOWN',
+      friendly[code] || data.error?.message || `Fehler (${res.status})`,
+      code,
       res.status
     );
   }
@@ -110,10 +135,19 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ displayName, authProvider, inviteCode }),
       }),
-    completeOnboarding: () =>
-      request('/api/v1/auth/onboarding/complete', { method: 'POST' }),
+    completeOnboarding: (displayName?: string) =>
+      request('/api/v1/auth/onboarding/complete', {
+        method: 'POST',
+        body: JSON.stringify({ displayName }),
+      }),
     stats: () =>
       request<{ generations: number; projects: number; files: number }>('/api/v1/auth/stats'),
+    exportData: () => request<{ export: Record<string, unknown> }>('/api/v1/auth/export'),
+    deleteAccount: (confirmation: string) =>
+      request<{ disabled: boolean; anonymized: boolean }>('/api/v1/auth/account/delete', {
+        method: 'POST',
+        body: JSON.stringify({ confirmation }),
+      }),
   },
   dna: {
     list: () => request<{ dnas: CreatorDNA[]; active: CreatorDNA | null }>('/api/v1/dna'),
@@ -137,6 +171,19 @@ export const api = {
       request<{ dna: CreatorDNA }>(`/api/v1/dna/${id}/activate`, { method: 'POST' }),
     versions: (id: string) =>
       request<{ versions: DNAVersion[] }>(`/api/v1/dna/${id}/versions`),
+    restore: (id: string, versionId: string) =>
+      request<{ dna: CreatorDNA }>(`/api/v1/dna/${id}/versions/${versionId}/restore`, {
+        method: 'POST',
+      }),
+    applyAnalysis: (id: string, body: { colors?: string[]; styleHint?: string; imageDataUrl?: string }) =>
+      request<{ dna: CreatorDNA; analysis: DNAAnalysis }>(`/api/v1/dna/${id}/apply-analysis`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    resolve: (projectId?: string) =>
+      request<{ dna: CreatorDNA | null; source: 'project' | 'active' | 'none' }>(
+        `/api/v1/dna/resolve${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`
+      ),
   },
   prompts: {
     list: () =>
@@ -161,8 +208,36 @@ export const api = {
   },
   projects: {
     list: () => request<{ projects: import('@ucbs/shared').Project[] }>('/api/v1/projects'),
+    get: (id: string) => request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}`),
+    overview: (id: string) =>
+      request<{
+        project: import('@ucbs/shared').Project;
+        dna: { id: string; name: string; version?: number; styleDirection?: string; primaryColors?: string[] } | null;
+        assets: Array<{
+          id: string;
+          name: string;
+          type: string;
+          url: string;
+          version: number;
+          createdAt: string;
+          jobId?: string;
+          fileId?: string;
+          module?: string;
+          previewUrl?: string;
+          downloadable: boolean;
+          changeSupported: boolean;
+          assetKey?: string;
+        }>;
+        files: UserFile[];
+        videos: Array<{ id: string; title: string; renderUrl?: string; createdAt: string }>;
+        shorts: Array<{ id: string; videoUrl?: string; createdAt: string }>;
+        content: Array<{ id: string; title: string; createdAt: string }>;
+        changeRequests: ChangeRequestRecord[];
+        versionsByJob: Record<string, import('@ucbs/shared').DesignVersion[] | { id: string; version: number; imageUrl: string; changeRequest?: string }[]>;
+        missing: string[];
+      }>(`/api/v1/projects/${id}/overview`),
     trash: () => request<{ projects: import('@ucbs/shared').Project[] }>('/api/v1/projects/trash'),
-    create: (body: { name: string; description?: string; type: import('@ucbs/shared').ProjectType }) =>
+    create: (body: { name: string; description?: string; type: import('@ucbs/shared').ProjectType; dnaId?: string }) =>
       request<{ project: import('@ucbs/shared').Project }>('/api/v1/projects', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -181,7 +256,9 @@ export const api = {
         assets: import('@ucbs/shared').ProjectAsset[];
         exportUrl: string;
         fileCount: number;
+        missingCount?: number;
         exportedAt: string;
+        manifest?: import('@ucbs/shared').ProjectExportManifest;
       }>(`/api/v1/projects/${id}/export`),
     import: (body: { zipDataUrl: string; importDna?: boolean; importCloud?: boolean }) =>
       request<{
@@ -193,6 +270,20 @@ export const api = {
         importedAt: string;
       }>('/api/v1/projects/import', {
         method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    duplicate: (id: string) =>
+      request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}/duplicate`, {
+        method: 'POST',
+      }),
+    rename: (id: string, name: string) =>
+      request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      }),
+    update: (id: string, body: { name?: string; dnaId?: string; status?: string; type?: string }) =>
+      request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}`, {
+        method: 'PATCH',
         body: JSON.stringify(body),
       }),
   },
@@ -416,9 +507,19 @@ export const api = {
       ),
   },
   files: {
-    list: () => request<{ files: UserFile[] }>('/api/v1/files'),
+    list: (projectId?: string) =>
+      request<{ files: UserFile[] }>(
+        `/api/v1/files${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`
+      ),
     get: (id: string) => request<{ file: UserFile & { dataUrl: string } }>(`/api/v1/files/${id}`),
-    upload: (body: { name: string; mimeType: string; category: UserFile['category']; dataUrl: string }) =>
+    upload: (body: {
+      name: string;
+      mimeType: string;
+      category: UserFile['category'];
+      dataUrl: string;
+      projectId?: string;
+      rightsConfirmed: true;
+    }) =>
       request<{ file: UserFile }>('/api/v1/files', { method: 'POST', body: JSON.stringify(body) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/api/v1/files/${id}`, { method: 'DELETE' }),
   },
@@ -437,11 +538,22 @@ export const api = {
   },
   changeRequest: {
     list: () => request<{ changeRequests: ChangeRequestRecord[]; availableJobs: GenerationJob[] }>('/api/v1/change-request'),
+    quote: (jobId: string, requestText: string, projectId?: string) =>
+      request<{
+        quote: { id: string; kind: string; coinCost: number; status: string };
+        module: string;
+        honestLabel: string;
+      }>('/api/v1/change-request/quote', {
+        method: 'POST',
+        body: JSON.stringify({ jobId, request: requestText, projectId }),
+      }),
     create: (jobId: string, requestText: string) =>
       request<{ changeRequest: ChangeRequestRecord }>('/api/v1/change-request', {
         method: 'POST',
         body: JSON.stringify({ jobId, request: requestText }),
       }),
+    versions: (jobId: string) =>
+      request<{ versions: DesignVersion[] }>(`/api/v1/change-request/job/${jobId}/versions`),
     compare: (id: string) =>
       request<{ comparison: { before?: string; after?: string; request: string; status: string } }>(
         `/api/v1/change-request/${id}/compare`
@@ -457,6 +569,191 @@ export const api = {
         body: JSON.stringify({ message }),
       }),
     clearSession: () => request('/api/v1/assistant/session', { method: 'DELETE' }),
+  },
+  nexter: {
+    getSession: () => request<{ session: NexterSessionDto }>('/api/v1/nexter/session'),
+    newSession: () =>
+      request<{ session: NexterSessionDto }>('/api/v1/nexter/session', { method: 'POST' }),
+    chat: (message: string, meta?: { path?: string; hint?: string; projectId?: string }) =>
+      request<{ session: NexterSessionDto }>('/api/v1/nexter/chat', {
+        method: 'POST',
+        body: JSON.stringify({ message, ...meta }),
+      }),
+    confirmQuote: (quoteId: string) =>
+      request<{
+        quote: { id: string; kind: string; coinCost: number; status: string };
+        coinsSpent: number;
+        newBalance: number;
+        jobIds: string[];
+        session: NexterSessionDto;
+      }>(`/api/v1/nexter/quotes/${quoteId}/confirm`, { method: 'POST' }),
+    cancelQuote: (quoteId: string) =>
+      request<{ quote: { id: string; status: string }; session: NexterSessionDto }>(
+        `/api/v1/nexter/quotes/${quoteId}/cancel`,
+        { method: 'POST' }
+      ),
+    listen: (audioBase64: string, mimeType?: string) =>
+      request<{ transcript: string }>('/api/v1/nexter/listen', {
+        method: 'POST',
+        body: JSON.stringify({ audioBase64, mimeType }),
+      }),
+    speak: (text: string) =>
+      request<{ audioUrl: string; provider: string }>('/api/v1/nexter/speak', {
+        method: 'POST',
+        body: JSON.stringify({ text }),
+      }),
+    context: () => request<{ context: import('@ucbs/shared').NexterContextSnapshot }>('/api/v1/nexter/context'),
+    clearSession: () => request('/api/v1/nexter/session', { method: 'DELETE' }),
+  },
+  mockups: {
+    list: () => request<{ jobs: import('@ucbs/shared').MockupJob[] }>('/api/v1/mockups'),
+    generate: (body: import('@ucbs/shared').MockupGenerateInput) =>
+      request<{ job: import('@ucbs/shared').MockupJob }>('/api/v1/mockups', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    saveFile: (id: string) =>
+      request<{ file: UserFile }>(`/api/v1/mockups/${id}/save-file`, { method: 'POST' }),
+    saveProject: (id: string, projectId: string) =>
+      request<{ project: import('@ucbs/shared').Project; asset: import('@ucbs/shared').ProjectAsset }>(
+        `/api/v1/mockups/${id}/save-project`,
+        { method: 'POST', body: JSON.stringify({ projectId }) }
+      ),
+  },
+  streamset: {
+    status: (projectId?: string) =>
+      request<StreamsetStatus>(
+        `/api/v1/streamset/status${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`
+      ),
+    pack: (projectId?: string) =>
+      request<{ jobs: GenerationJob[]; coinsSpent: number; newBalance: number }>('/api/v1/streamset/pack', {
+        method: 'POST',
+        body: JSON.stringify(projectId ? { projectId } : {}),
+      }),
+    asset: (input: { assetKey?: string; kind?: 'overlay' | 'banner' | 'facecam' | 'sticker'; projectId?: string }) =>
+      request<{ job: GenerationJob; coinsSpent: number; newBalance: number }>('/api/v1/streamset/asset', {
+        method: 'POST',
+        body: JSON.stringify(typeof input === 'string' ? { kind: input } : input),
+      }),
+    exportZip: (projectId?: string) =>
+      request<{ exportUrl: string; files: number; missing: string[]; exportedAt: string }>(
+        `/api/v1/streamset/export${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`
+      ),
+  },
+  textStudio: {
+    list: () => request<{ jobs: TextStudioJob[] }>('/api/v1/text'),
+    get: (id: string) => request<{ job: TextStudioJob }>(`/api/v1/text/${id}`),
+    quote: (body: {
+      kind?: string;
+      topic?: string;
+      projectId?: string;
+      sourceType?: string;
+      sourceAssetId?: string;
+      videoProjectId?: string;
+      shortJobId?: string;
+      highlightIndex?: number;
+      fileId?: string;
+      platforms?: string[];
+      packageId?: string;
+      revisionField?: string;
+      revisionInstruction?: string;
+      variantCount?: number;
+      wantLastShort?: boolean;
+    }) =>
+      request<{ quote: { id: string; kind: string; coinCost: number; status: string } }>('/api/v1/text/quote', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    update: (id: string, body: Partial<TextStudioJob>) =>
+      request<{ job: TextStudioJob }>(`/api/v1/text/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+    export: (id: string) => request<{ filename: string; text: string; mimeType: string }>(`/api/v1/text/${id}/export`),
+    restoreRevision: (id: string, revisionIndex: number) =>
+      request<{ job: TextStudioJob }>(`/api/v1/text/${id}/restore-revision`, {
+        method: 'POST',
+        body: JSON.stringify({ revisionIndex }),
+      }),
+    draft: (body: {
+      kind?: string;
+      topic?: string;
+      projectId?: string;
+      sourceType?: string;
+      sourceAssetId?: string;
+      videoProjectId?: string;
+      shortJobId?: string;
+    }) =>
+      request<{ job: TextStudioJob }>('/api/v1/text/draft', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+  },
+  socialStudio: {
+    quote: (format: 'thumbnail' | 'post' | 'story' | 'announcement', projectId?: string) =>
+      request<{ quote: { id: string; kind: string; coinCost: number; status: string } }>('/api/v1/social-studio/quote', {
+        method: 'POST',
+        body: JSON.stringify({ format, projectId }),
+      }),
+  },
+  feedback: {
+    submit: (body: {
+      module: string;
+      message: string;
+      category?: string;
+      route?: string;
+      screenshotDataUrl?: string;
+    }) =>
+      request<{ feedback: TesterFeedbackRow }>('/api/v1/feedback', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    get: (id: string) => request<{ feedback: TesterFeedbackRow }>(`/api/v1/feedback/${id}`),
+  },
+  legal: {
+    page: (slug: 'impressum' | 'datenschutz' | 'agb' | 'widerruf' | 'cookies') =>
+      request<{ title: string; html: string; draft?: boolean; notice?: string }>(`/api/v1/legal/${slug}`),
+  },
+  admin: {
+    analytics: () => request<{ analytics: AdminAnalytics }>('/api/v1/admin/analytics'),
+    users: (q?: string) =>
+      request<{ users: UserProfile[] }>(`/api/v1/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    setRole: (userId: string, role: string, reason: string) =>
+      request(`/api/v1/admin/users/${userId}/role`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role, reason }),
+      }),
+    disable: (userId: string, disabled: boolean, reason?: string) =>
+      request(`/api/v1/admin/users/${userId}/disable`, {
+        method: 'POST',
+        body: JSON.stringify({ disabled, reason }),
+      }),
+    coins: (userId: string, amount: number, reason: string, confirm: true, idempotencyKey?: string) =>
+      request(`/api/v1/admin/users/${userId}/coins`, {
+        method: 'POST',
+        body: JSON.stringify({ amount, reason, confirm, idempotencyKey }),
+      }),
+    user: (userId: string) =>
+      request<{ user: UserProfile; transactions: unknown[]; jobs: unknown[]; audit: unknown[] }>(
+        `/api/v1/admin/users/${userId}`
+      ),
+    audit: () => request<{ audit: Array<{ id: string; actorUserId: string; action: string; targetUserId?: string; reason?: string; createdAt: string }> }>('/api/v1/admin/audit'),
+    payments: () =>
+      request<{ stripe: Array<{ id: string; provider: string; status: string; packageId?: string; error?: string }>; paypal: Array<{ id: string; provider: string; status: string; packageId?: string; error?: string }> }>(
+        '/api/v1/admin/payments'
+      ),
+    recoverJobs: () => request<{ recovery: unknown }>('/api/v1/admin/jobs/recover', { method: 'POST' }),
+    feedback: () => request<{ feedback: TesterFeedbackRow[] }>('/api/v1/admin/feedback'),
+    updateFeedback: (id: string, status: string) =>
+      request<{ feedback: TesterFeedbackRow }>(`/api/v1/admin/feedback/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      }),
+    testerGrant: (userId: string, reason: string, confirm: true) =>
+      request<{ granted: number; duplicate: boolean; newBalance: number; alreadyGranted: boolean; message: string }>(
+        `/api/v1/admin/users/${userId}/tester-grant`,
+        { method: 'POST', body: JSON.stringify({ reason, confirm }) }
+      ),
   },
   team: {
     list: () => request<{ teams: Team[] }>('/api/v1/team'),
@@ -492,18 +789,50 @@ export const api = {
       request<{ project: VideoProject }>(`/api/v1/video/${id}/highlights`, { method: 'POST' }),
     generateSubtitles: (id: string) =>
       request<{ project: VideoProject }>(`/api/v1/video/${id}/subtitles`, { method: 'POST' }),
-    createShort: (id: string, highlightIndex?: number, format?: string) =>
-      request<{ job: MediaJob; coinsSpent: number; newBalance: number }>(`/api/v1/video/${id}/shorts`, {
+    createShort: (
+      id: string,
+      body: {
+        highlightIndex?: number;
+        start?: number;
+        end?: number;
+        format?: string;
+        crop?: VideoCrop;
+        burnSubtitles?: boolean;
+      }
+    ) =>
+      request<{ job: MediaJob; coinsSpent: number; newBalance?: number }>(`/api/v1/video/${id}/shorts`, {
         method: 'POST',
-        body: JSON.stringify({ highlightIndex, format }),
+        body: JSON.stringify(body),
       }),
     uploadSource: (id: string, dataUrl: string, duration?: number) =>
       request<{ project: VideoProject }>(`/api/v1/video/${id}/source`, {
         method: 'POST',
-        body: JSON.stringify({ dataUrl, duration }),
+        body: JSON.stringify({ dataUrl, duration, rightsConfirmed: true as const }),
       }),
     render: (id: string) =>
       request<{ project: VideoProject }>(`/api/v1/video/${id}/render`, { method: 'POST' }),
+    saveEditPlan: (id: string, plan: VideoEditPlan) =>
+      request<{ project: VideoProject }>(`/api/v1/video/${id}/edit-plan`, {
+        method: 'PATCH',
+        body: JSON.stringify(plan),
+      }),
+    analyzeLocal: (id: string) =>
+      request<{ project: VideoProject }>(`/api/v1/video/${id}/analyze-local`, { method: 'POST' }),
+    patchSubtitles: (id: string, subtitles: SubtitleEntry[]) =>
+      request<{ project: VideoProject }>(`/api/v1/video/${id}/subtitles`, {
+        method: 'PATCH',
+        body: JSON.stringify({ subtitles }),
+      }),
+    saveProject: (id: string, projectId: string) =>
+      request<{ project: { id: string }; asset: { id: string } }>(`/api/v1/video/${id}/save-project`, {
+        method: 'POST',
+        body: JSON.stringify({ projectId }),
+      }),
+    saveFile: (id: string, jobId?: string) =>
+      request<{ file: UserFile }>(
+        jobId ? `/api/v1/video/${id}/shorts/${jobId}/save-file` : `/api/v1/video/${id}/save-file`,
+        { method: 'POST' }
+      ),
   },
   introOutro: {
     list: () => request<{ jobs: MediaJob[] }>('/api/v1/intro-outro'),
@@ -516,6 +845,9 @@ export const api = {
       request<{ jobs: MediaJob[]; coinsSpent: number; newBalance: number }>('/api/v1/intro-outro/generate-pack', {
         method: 'POST',
       }),
+  },
+  animations: {
+    list: () => request<{ jobs: MediaJob[] }>('/api/v1/animations'),
   },
   vtuber: {
     list: () => request<{ characters: MediaJob[] }>('/api/v1/vtuber'),
@@ -590,6 +922,11 @@ export const api = {
       content: string;
       scheduledAt?: string;
       mediaDataUrl?: string;
+      mediaAssetId?: string;
+      mediaKind?: string;
+      packageId?: string;
+      projectId?: string;
+      status?: string;
     }) =>
       request<{ post: SocialPost }>('/api/v1/social', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: Partial<SocialPost>) =>
@@ -695,6 +1032,7 @@ export interface UserProfile {
   role: string;
   coinBalance: number;
   subscriptionTier: string;
+  disabled?: boolean;
   onboardingCompleted: boolean;
 }
 
@@ -702,10 +1040,13 @@ export interface CreateDnaBody {
   name: string;
   clanName?: string;
   mascot?: string;
+  slogan?: string;
+  usagePurpose?: string;
   styleDirection?: string;
   primaryColors?: string[];
   secondaryColors?: string[];
   accentColors?: string[];
+  backgroundColors?: string[];
   targetPlatforms?: string[];
   favoriteGenres?: string[];
   gamingStyle?: string;
@@ -716,6 +1057,37 @@ export interface CreateDnaBody {
   personalGuidelines?: string;
   fonts?: { name: string; role: 'primary' | 'secondary' | 'accent'; source: 'google' | 'custom' | 'system'; url?: string }[];
   sourceAssets?: { id: string; type: 'logo' | 'profile' | 'banner' | 'reference'; url: string; analyzedAt?: string }[];
+  character?: {
+    present: boolean;
+    type?: string;
+    description?: string;
+    clothing?: string;
+    hair?: string;
+    face?: string;
+    accessories?: string;
+    traits?: string[];
+  };
+  typography?: { character?: string; weight?: string; direction?: string; nameTreatment?: string };
+  atmosphere?: {
+    lighting?: string;
+    mood?: string;
+    effects?: string[];
+    particles?: boolean;
+    glow?: boolean;
+    smoke?: boolean;
+  };
+  outputPrefs?: { platform?: string; aspectRatios?: string[]; outputKinds?: string[] };
+  locks?: {
+    name?: boolean;
+    colors?: boolean;
+    mascot?: boolean;
+    character?: boolean;
+    style?: boolean;
+    fonts?: boolean;
+    typography?: boolean;
+  };
+  lightingStyle?: string;
+  dimension?: '2d' | '3d';
 }
 
 export interface CoinPackage {
@@ -776,9 +1148,43 @@ export interface GenerationJob {
   exports?: { png: string; hd?: string; svg?: string };
   provider?: string;
   dnaId?: string;
+  assetKey?: string;
   error?: string;
   createdAt: string;
   completedAt?: string;
+}
+
+export interface StreamsetStatusAsset {
+  key: string;
+  label: string;
+  tab: string;
+  module: string;
+  present: boolean;
+  coinCost: number;
+  job?: {
+    id: string;
+    status: string;
+    imageUrl?: string;
+    error?: string;
+    assetKey?: string;
+    module: string;
+  };
+}
+
+export interface StreamsetStatus {
+  packCoinCost: number;
+  dna: {
+    id: string;
+    name: string;
+    source: string;
+    primaryColors: string[];
+    locks?: Record<string, boolean>;
+    styleDirection?: string;
+  } | null;
+  projectName?: string;
+  assets: StreamsetStatusAsset[];
+  missing: string[];
+  jobs: GenerationJob[];
 }
 
 export interface LayoutElement {
@@ -847,6 +1253,89 @@ export interface AssistantSession {
   updatedAt: string;
 }
 
+export interface NexterAction {
+  id: string;
+  tool: string;
+  label: string;
+  path?: string;
+  payload?: Record<string, unknown>;
+  coinCost?: number;
+  requiresConfirmation?: boolean;
+}
+
+export interface NexterChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  createdAt: string;
+  suggestions?: string[];
+  actions?: NexterAction[];
+}
+
+export interface NexterSessionDto {
+  id: string;
+  userId: string;
+  messages: NexterChatMessage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TextStudioJob {
+  id: string;
+  userId: string;
+  kind: string;
+  prompt?: string;
+  topic: string;
+  hook: string;
+  title: string;
+  caption: string;
+  description: string;
+  hashtags: string[];
+  callToAction: string;
+  platformVariants?: Record<string, { hook?: string; title?: string; caption?: string; description?: string; hashtags?: string[]; callToAction?: string }>;
+  alternatives?: string[];
+  output: string;
+  status: string;
+  sourceType?: string;
+  sourceAssetId?: string;
+  sourceLabel?: string;
+  projectId?: string;
+  dnaId?: string;
+  usedTranscript?: boolean;
+  transcriptMissingNote?: string;
+  revisions?: { at: string; field: string; instruction: string; before: string; after: string }[];
+  error?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AdminAnalytics {
+  users: number;
+  testers: number;
+  generations: number;
+  completed: number;
+  failed: number;
+  failRate: number;
+  popularModules: { module: string; count: number }[];
+  coinsSpent: number;
+  coinsBought: number;
+  apiCostCents?: number;
+  feedback: number;
+}
+
+export interface TesterFeedbackRow {
+  id: string;
+  userId: string;
+  module: string;
+  route?: string;
+  category?: string;
+  status?: string;
+  message: string;
+  screenshotDataUrl?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface Team {
   id: string;
   name: string;
@@ -901,6 +1390,8 @@ export interface HighlightSegment {
   end: number;
   label: string;
   score: number;
+  reason?: string;
+  transcriptSegment?: string;
 }
 
 export interface MediaJob {
@@ -930,9 +1421,15 @@ export interface VideoProject {
   userId: string;
   title: string;
   sourceUrl?: string;
+  sourceFileId?: string;
   duration: number;
   dnaId?: string;
   format?: string;
+  metadata?: VideoMetadata;
+  editPlan?: VideoEditPlan;
+  scenes: VideoScene[];
+  pauses: VideoPause[];
+  analyzerVersion?: string;
   subtitles: SubtitleEntry[];
   highlights: HighlightSegment[];
   shorts: MediaJob[];
@@ -952,6 +1449,7 @@ export interface UserFile {
   category: 'logo' | 'banner' | 'video' | 'project' | 'overlay' | 'sticker' | 'other';
   downloadUrl?: string;
   source?: 'upload' | 'generation';
+  projectId?: string;
   createdAt: string;
 }
 
@@ -998,19 +1496,30 @@ export interface SocialPost {
   platform: SocialPlatform;
   content: string;
   mediaUrl?: string;
+  mediaAssetId?: string;
+  packageId?: string;
+  projectId?: string;
   scheduledAt?: string;
   publishedAt?: string;
-  status: 'draft' | 'scheduled' | 'published';
-  engagement: { likes: number; comments: number; shares: number; views: number };
+  status: 'draft' | 'scheduled' | 'published' | 'ready';
+  plannerStatus?: 'draft' | 'scheduled' | 'ready';
+  plannerLabel?: string;
+  publishingAvailable?: boolean;
+  analyticsAvailable?: boolean;
+  platformConnected?: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface SocialStats {
   totalPosts: number;
+  draft?: number;
   scheduled: number;
-  published: number;
-  totalEngagement: number;
+  ready?: number;
+  published?: number;
+  publishingAvailable?: boolean;
+  analyticsAvailable?: boolean;
+  totalEngagement?: number;
 }
 
 export interface CalendarEvent {
@@ -1199,10 +1708,11 @@ export interface PlatformStatus {
   environment: 'production' | 'development';
   frontendUrl: string;
   firebase: { admin: boolean; mode: string };
-  stripe: { configured: boolean; mode: 'live' | 'test' | 'disabled' };
-  paypal: { configured: boolean; mode: 'live' | 'sandbox' | 'disabled' };
+  stripe: { configured: boolean; liveChecked?: boolean; available?: boolean | null; mode: 'live' | 'test' | 'disabled' };
+  paypal: { configured: boolean; liveChecked?: boolean; available?: boolean | null; mode: 'live' | 'sandbox' | 'disabled' };
+  resend?: { configured: boolean; liveChecked?: boolean; available?: boolean | null };
   rtmp: { server: string; appName: string; provider: string };
-  ai: Record<string, boolean>;
+  ai: Record<string, { configured: boolean; liveChecked: boolean; available: boolean | null }>;
   features: { devLogin: boolean; devCoinPurchase: boolean; liveStreaming: boolean };
 }
 

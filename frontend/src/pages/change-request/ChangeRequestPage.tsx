@@ -4,8 +4,13 @@ import {
 } from '@/components/ui';
 import { RefreshCw, ArrowLeftRight, RotateCcw, AlertCircle } from 'lucide-react';
 import { api, ApiError, type ChangeRequestRecord, type GenerationJob } from '@/services/api';
+import { useAuth } from '@/context/AuthContext';
+import { formatCoins } from '@/lib/utils';
+import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 
 export function ChangeRequestPage() {
+  const { refreshUser } = useAuth();
+  const projectId = useBrandProjectStore((s) => s.activeProjectId);
   const [requests, setRequests] = useState<ChangeRequestRecord[]>([]);
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
   const [selectedJob, setSelectedJob] = useState<string>('');
@@ -13,6 +18,7 @@ export function ChangeRequestPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [comparison, setComparison] = useState<{ before?: string; after?: string; request: string } | null>(null);
+  const [pendingQuote, setPendingQuote] = useState<{ id: string; coinCost: number; label: string } | null>(null);
 
   useEffect(() => { load(); }, []);
 
@@ -31,14 +37,37 @@ export function ChangeRequestPage() {
     setLoading(true);
     setError(null);
     try {
-      await api.changeRequest.create(selectedJob, requestText.trim());
-      setRequestText('');
-      await load();
+      const res = await api.changeRequest.quote(selectedJob, requestText.trim(), projectId ?? undefined);
+      setPendingQuote({ id: res.quote.id, coinCost: res.quote.coinCost, label: res.honestLabel });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Fehler');
     } finally {
       setLoading(false);
     }
+  }
+
+  async function confirmQuote() {
+    if (!pendingQuote) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await api.nexter.confirmQuote(pendingQuote.id);
+      setPendingQuote(null);
+      setRequestText('');
+      await refreshUser();
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Fehler');
+      await refreshUser();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function cancelQuote() {
+    if (!pendingQuote) return;
+    await api.nexter.cancelQuote(pendingQuote.id);
+    setPendingQuote(null);
   }
 
   async function showCompare(id: string) {
@@ -55,8 +84,8 @@ export function ChangeRequestPage() {
     <div>
       <PageHeader
         title="Änderungswunsch-System"
-        description="KI-gestützte Design-Anpassungen mit Versionsverwaltung und Vorher/Nachher-Vergleich"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        description="KI-Variante auf Basis des bestehenden Designs. DNA-Locks gelten serverseitig. Modulpreis, Quote vor Start."
+        badge={<Badge variant="brand">NEXTER</Badge>}
       />
 
       {error && (
@@ -98,10 +127,25 @@ export function ChangeRequestPage() {
                 value={requestText}
                 onChange={(e) => setRequestText(e.target.value)}
               />
-              <Button type="submit" loading={loading} className="w-full gap-2">
+              <Button type="submit" loading={loading} className="w-full gap-2" disabled={Boolean(pendingQuote)}>
                 <RefreshCw className="h-4 w-4" />
-                Änderung generieren (5 Coins)
+                Angebot einholen
               </Button>
+              {pendingQuote && (
+                <div className="rounded-xl border border-violet-500/40 bg-violet-500/10 p-3" data-testid="change-quote-bar">
+                  <p data-testid="change-quote-cost" className="text-sm text-violet-100">
+                    {formatCoins(pendingQuote.coinCost)} Coins — {pendingQuote.label}. Startet erst nach Bestätigung.
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <Button type="button" data-testid="change-confirm" onClick={() => void confirmQuote()} loading={loading}>
+                      Bestätigen
+                    </Button>
+                    <Button type="button" data-testid="change-cancel" variant="outline" onClick={() => void cancelQuote()}>
+                      Abbrechen
+                    </Button>
+                  </div>
+                </div>
+              )}
             </form>
           )}
         </NeonCard>

@@ -178,3 +178,17 @@ export function listZipEntries(entries: ZipEntry[], prefix: string): ZipEntry[] 
   const p = prefix.replace(/\\/g, '/').replace(/\/?$/, '/');
   return entries.filter((e) => e.name.startsWith(p) && !e.name.endsWith('/'));
 }
+
+/** Safe ZIP entry basename — no path traversal, no absolute paths. */
+export function sanitizeZipEntryName(name: string, fallback = 'file'): string {
+  const noSlash = String(name || '').replace(/\\/g, '/');
+  const parts = noSlash.split('/').filter((p) => p && p !== '.' && p !== '..');
+  const base = parts.pop() || fallback;
+  const cleaned = base.replace(/[^\w.\-]+/g, '_').replace(/^\.+/g, '') || fallback;
+  return cleaned.slice(0, 80);
+}
+
+export function zipEntryPath(folder: string, fileName: string): string {
+  const f = String(folder || 'files').replace(/[^a-z0-9_-]/gi, '') || 'files';
+  return `${f}/${sanitizeZipEntryName(fileName)}`;
+}

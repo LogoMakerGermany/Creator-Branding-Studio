@@ -107,9 +107,13 @@ export enum Permission {
   // Phase 5
   USE_MOBILE_APP = 'use_mobile_app',
   USE_LIVE_STREAMING = 'use_live_streaming',
+  USE_MOCKUP_STUDIO = 'use_mockup_studio',
+  USE_TEXT_STUDIO = 'use_text_studio',
+  SUBMIT_FEEDBACK = 'submit_feedback',
 }
 
-const CREATOR_PERMISSIONS: Permission[] = [
+/** V1 product surface — no Agency / Marketplace / White-Label / Live / native Mobile. */
+const V1_PRODUCT_PERMISSIONS: Permission[] = [
   Permission.CREATE_DNA,
   Permission.EDIT_DNA,
   Permission.VIEW_DNA,
@@ -120,26 +124,33 @@ const CREATOR_PERMISSIONS: Permission[] = [
   Permission.USE_STICKER_STUDIO,
   Permission.USE_LAYOUT_STUDIO,
   Permission.USE_VIDEO_STUDIO,
-  Permission.USE_VTUBER_STUDIO,
   Permission.USE_AI_ASSISTANT,
   Permission.USE_AI_IMAGE,
   Permission.USE_AI_VIDEO,
   Permission.USE_AI_MUSIC,
   Permission.USE_AI_VOICE,
+  Permission.MANAGE_PROJECTS,
+  Permission.PURCHASE_COINS,
+  Permission.MANAGE_SOCIAL,
+  Permission.MANAGE_CALENDAR,
+  Permission.UPLOAD_FILES,
+  Permission.MANAGE_FILES,
+  Permission.USE_MOCKUP_STUDIO,
+  Permission.USE_TEXT_STUDIO,
+  Permission.SUBMIT_FEEDBACK,
+];
+
+const CREATOR_PERMISSIONS: Permission[] = [
+  ...V1_PRODUCT_PERMISSIONS,
+  Permission.USE_VTUBER_STUDIO,
   Permission.MANAGE_TEAM,
   Permission.MANAGE_TEAM_DNA,
   Permission.MANAGE_AGENCY,
   Permission.MANAGE_CLIENTS,
-  Permission.MANAGE_PROJECTS,
   Permission.SELL_MARKETPLACE,
   Permission.BUY_MARKETPLACE,
-  Permission.PURCHASE_COINS,
   Permission.MANAGE_WHITE_LABEL,
-  Permission.MANAGE_SOCIAL,
-  Permission.MANAGE_CALENDAR,
   Permission.USE_TEAM_CHAT,
-  Permission.UPLOAD_FILES,
-  Permission.MANAGE_FILES,
   Permission.ACCESS_CLIENT_PORTAL,
   Permission.USE_MOBILE_APP,
   Permission.USE_LIVE_STREAMING,
@@ -150,8 +161,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   [UserRole.ADMIN]: Object.values(Permission).filter(
     (p) => p !== Permission.MANAGE_WHITE_LABEL
   ),
-  [UserRole.USER]: [...CREATOR_PERMISSIONS],
-  [UserRole.TESTER]: [...CREATOR_PERMISSIONS],
+  [UserRole.USER]: [...V1_PRODUCT_PERMISSIONS],
+  [UserRole.TESTER]: [...V1_PRODUCT_PERMISSIONS],
   [UserRole.SUPPORT]: [
     Permission.VIEW_USERS,
     Permission.VIEW_ADMIN,

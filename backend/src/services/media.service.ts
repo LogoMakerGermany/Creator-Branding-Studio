@@ -1,24 +1,30 @@
-import type { CreatorDNA, VideoFormatId } from '@ucbs/shared';
-import { buildDnaPromptContext, getVideoFormatPreset, ffmpegScaleFilter } from '@ucbs/shared';
+import type { CreatorDNA, VideoFormatId, VideoEditPlan, VideoMetadata, VideoScene, VideoPause, AudioActivityBucket, VideoCrop } from '@ucbs/shared';
+import { buildDnaPromptContext, getVideoFormatPreset, ffmpegScaleFilter, defaultEditPlan, clipSubtitlesToRange, ffmpegCropScaleFilter } from '@ucbs/shared';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
 import { uploadAssetFromDataUrl, uploadAssetFromUrl } from '../lib/firebase-storage.js';
 import { buildPromptFromDNA, generateImage } from './ai.service.js';
 import { generateMusic, generateSpeech, generateVideo } from '../lib/media-providers.js';
 import {
   analyzeVideoFromSource,
+  analyzeVideoLocal,
   detectHighlightsFromSubtitles,
   transcribeVideoSource,
 } from '../lib/video-analysis.js';
 import {
-  burnSubtitlesIntoVideo,
   buildSrtContent,
   clipVideoSegment,
   convertMp4ToGif,
   convertMp4ToWebm,
   inferMusicMetadata,
+  probeVideoMetadata,
+  exportEditedVideo,
 } from '../lib/video-processing.js';
 import { getElevenLabsVoiceId } from '../config/env.js';
 import { randomUUID } from 'node:crypto';
+import { ServiceError } from '../lib/errors.js';
+import { saveUserFile } from './file-cloud.service.js';
+import { getProject, updateProject } from './project.service.js';
+import { attachAssetToProject } from './project-assets.service.js';
 const COLLECTION = 'mediaJobs';
 const VIDEO_COLLECTION = 'videoProjects';
 
@@ -33,6 +39,8 @@ export interface HighlightSegment {
   end: number;
   label: string;
   score: number;
+  reason?: string;
+  transcriptSegment?: string;
 }
 
 export interface MediaJob {
@@ -51,6 +59,7 @@ export interface MediaJob {
   duration?: number;
   provider?: string;
   dnaId?: string;
+  projectId?: string;
   metadata?: Record<string, unknown>;
   error?: string;
   createdAt: string;
@@ -69,16 +78,26 @@ export type MediaJobType =
   | 'vtuber-avatar'
   | 'ai-video'
   | 'ai-music'
-  | 'ai-voice';
+  | 'ai-voice'
+  | 'stinger'
+  | 'alert'
+  | 'logo-loop';
 
 export interface VideoProject {
   id: string;
   userId: string;
   title: string;
   sourceUrl?: string;
+  sourceFileId?: string;
   duration: number;
   dnaId?: string;
   format?: VideoFormatId;
+  metadata?: VideoMetadata;
+  editPlan?: VideoEditPlan;
+  scenes: VideoScene[];
+  pauses: VideoPause[];
+  audioActivity: AudioActivityBucket[];
+  analyzerVersion?: string;
   subtitles: SubtitleEntry[];
   highlights: HighlightSegment[];
   shorts: MediaJob[];
@@ -106,13 +125,26 @@ async function saveMediaJob(job: MediaJob): Promise<void> {
 
 export async function listVideoProjects(userId: string): Promise<VideoProject[]> {
   const projects = await dsList(VIDEO_COLLECTION, { userId, orderBy: 'updatedAt', order: 'desc' });
-  return projects as unknown as VideoProject[];
+  return (projects as unknown as VideoProject[]).map(normalizeVideoProject);
 }
 
 export async function getVideoProject(id: string, userId: string): Promise<VideoProject | null> {
   const p = await dsGet(VIDEO_COLLECTION, id);
   if (!p || p.userId !== userId) return null;
-  return p as unknown as VideoProject;
+  return normalizeVideoProject(p as unknown as VideoProject);
+}
+
+function normalizeVideoProject(p: VideoProject): VideoProject {
+  return {
+    ...p,
+    scenes: p.scenes ?? [],
+    pauses: p.pauses ?? [],
+    audioActivity: p.audioActivity ?? [],
+    subtitles: p.subtitles ?? [],
+    highlights: p.highlights ?? [],
+    shorts: p.shorts ?? [],
+    editPlan: p.editPlan ?? defaultEditPlan(p.duration || 1),
+  };
 }
 
 export async function createVideoProject(
@@ -133,6 +165,10 @@ export async function createVideoProject(
     subtitles: [],
     highlights: [],
     shorts: [],
+    scenes: [],
+    pauses: [],
+    audioActivity: [],
+    editPlan: defaultEditPlan(duration),
     status: 'draft',
     createdAt: now,
     updatedAt: now,
@@ -148,20 +184,34 @@ export async function attachVideoSource(
   duration?: number
 ): Promise<VideoProject> {
   const project = await getVideoProject(projectId, userId);
-  if (!project) throw new Error('Projekt nicht gefunden');
+  if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
 
   const { parseAndValidateVideoDataUrl } = await import('../lib/upload-validation.js');
-  parseAndValidateVideoDataUrl(dataUrl);
+  const validated = parseAndValidateVideoDataUrl(dataUrl);
 
-  const sourceUrl = await uploadAssetFromDataUrl(userId, dataUrl, {
-    folder: 'video-sources',
-    fileName: `${projectId}.mp4`,
+  const file = await saveUserFile(userId, {
+    name: `${project.title}.${validated.mimeType === 'video/webm' ? 'webm' : 'mp4'}`,
+    mimeType: validated.mimeType,
+    category: 'video',
+    dataUrl,
+    source: 'upload',
   });
 
-  project.sourceUrl = sourceUrl;
-  if (duration && duration > 0) {
-    project.duration = Math.min(Math.round(duration), 7200);
+  if (!file.downloadUrl) {
+    throw new ServiceError(500, 'UPLOAD_FAILED', 'Video konnte nicht gespeichert werden');
   }
+  project.sourceUrl = file.downloadUrl;
+  project.sourceFileId = file.id;
+  try {
+    const meta = await probeVideoMetadata(file.downloadUrl);
+    project.metadata = meta;
+    if (meta.durationSec > 0) project.duration = Math.min(meta.durationSec, 7200);
+  } catch {
+    if (duration && duration > 0) {
+      project.duration = Math.min(Math.round(duration), 7200);
+    }
+  }
+  project.editPlan = defaultEditPlan(project.duration);
   project.updatedAt = new Date().toISOString();
   await dsSet(VIDEO_COLLECTION, project.id, project as unknown as Record<string, unknown>);
   return project;
@@ -173,8 +223,8 @@ export async function detectHighlights(
   styleDirection?: string
 ): Promise<VideoProject> {
   const project = await getVideoProject(projectId, userId);
-  if (!project) throw new Error('Projekt nicht gefunden');
-  if (!project.sourceUrl) throw new Error('Video-Quelle fehlt — zuerst hochladen');
+  if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  if (!project.sourceUrl) throw new ServiceError(400, 'NO_SOURCE', 'Video-Quelle fehlt — zuerst hochladen');
 
   let subtitles = project.subtitles;
   if (!subtitles.length) {
@@ -196,8 +246,8 @@ export async function detectHighlights(
 
 export async function generateSubtitles(projectId: string, userId: string): Promise<VideoProject> {
   const project = await getVideoProject(projectId, userId);
-  if (!project) throw new Error('Projekt nicht gefunden');
-  if (!project.sourceUrl) throw new Error('Video-Quelle fehlt — zuerst hochladen');
+  if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  if (!project.sourceUrl) throw new ServiceError(400, 'NO_SOURCE', 'Video-Quelle fehlt — zuerst hochladen');
 
   project.subtitles = await transcribeVideoSource(project.sourceUrl);
   const srt = buildSrtContent(project.subtitles);
@@ -212,11 +262,16 @@ export async function generateSubtitles(projectId: string, userId: string): Prom
 
 export async function renderVideoProject(projectId: string, userId: string): Promise<VideoProject> {
   const project = await getVideoProject(projectId, userId);
-  if (!project) throw new Error('Projekt nicht gefunden');
-  if (!project.sourceUrl) throw new Error('Video-Quelle fehlt');
-  if (!project.subtitles.length) throw new Error('Untertitel fehlen — zuerst generieren');
+  if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  if (!project.sourceUrl) throw new ServiceError(400, 'NO_SOURCE', 'Video-Quelle fehlt');
 
-  const rendered = await burnSubtitlesIntoVideo(project.sourceUrl, project.subtitles);
+  const plan = project.editPlan ?? defaultEditPlan(project.duration);
+  const range = { start: plan.trimStart, end: plan.trimEnd };
+  const subs = plan.subtitleTrack ? clipSubtitlesToRange(project.subtitles, range) : [];
+  const rendered = await exportEditedVideo(project.sourceUrl, plan, {
+    subtitles: subs,
+    vertical: plan.aspectRatio === '9:16',
+  });
   project.renderUrl = await uploadAssetFromDataUrl(
     userId,
     `data:video/mp4;base64,${rendered.toString('base64')}`,
@@ -234,8 +289,8 @@ export async function analyzeVideoProject(
   styleDirection?: string
 ): Promise<VideoProject> {
   const project = await getVideoProject(projectId, userId);
-  if (!project) throw new Error('Projekt nicht gefunden');
-  if (!project.sourceUrl) throw new Error('Video-Quelle fehlt');
+  if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  if (!project.sourceUrl) throw new ServiceError(400, 'NO_SOURCE', 'Video-Quelle fehlt');
 
   const analysis = await analyzeVideoFromSource(
     project.sourceUrl,
@@ -245,6 +300,10 @@ export async function analyzeVideoProject(
   );
   project.subtitles = analysis.subtitles;
   project.highlights = analysis.highlights;
+  project.scenes = analysis.scenes;
+  project.pauses = analysis.pauses;
+  project.audioActivity = analysis.audioActivity;
+  project.analyzerVersion = analysis.analyzerVersion;
   const srt = buildSrtContent(project.subtitles);
   project.srtUrl = await uploadAssetFromDataUrl(userId, `data:text/plain;base64,${Buffer.from(srt).toString('base64')}`, {
     folder: 'video-exports',
@@ -261,13 +320,14 @@ export async function createShortFromHighlight(
   userId: string,
   highlightIndex: number,
   dna: CreatorDNA,
-  formatOverride?: VideoFormatId
+  formatOverride?: VideoFormatId,
+  crop?: VideoCrop
 ): Promise<MediaJob> {
   const project = await getVideoProject(projectId, userId);
-  if (!project) throw new Error('Projekt nicht gefunden');
-  if (!project.sourceUrl) throw new Error('Video-Quelle fehlt — Shorts benötigen ein hochgeladenes Video');
+  if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  if (!project.sourceUrl) throw new ServiceError(400, 'NO_SOURCE', 'Video-Quelle fehlt — Shorts benötigen ein hochgeladenes Video');
   const highlight = project.highlights[highlightIndex];
-  if (!highlight) throw new Error('Highlight nicht gefunden');
+  if (!highlight) throw new ServiceError(404, 'NOT_FOUND', 'Highlight nicht gefunden');
 
   const format = getVideoFormatPreset(formatOverride ?? project.format ?? 'shorts');
   const clipEnd = Math.min(highlight.end, highlight.start + format.maxDurationSec);
@@ -301,7 +361,10 @@ export async function createShortFromHighlight(
   await saveMediaJob(job);
 
   try {
-    const scaleFilter = ffmpegScaleFilter(format);
+    const scaleFilter =
+      crop
+        ? ffmpegCropScaleFilter(format.width, format.height, crop)
+        : ffmpegScaleFilter(format);
     const clipBuffer = await clipVideoSegment(project.sourceUrl, highlight.start, clipEnd, {
       vertical: format.vertical,
       scaleFilter,
@@ -328,6 +391,235 @@ export async function createShortFromHighlight(
   return job;
 }
 
+export async function saveEditPlan(
+  projectId: string,
+  userId: string,
+  plan: VideoEditPlan
+): Promise<VideoProject> {
+  const project = await getVideoProject(projectId, userId);
+  if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  const duration = project.duration || 1;
+  project.editPlan = {
+    ...plan,
+    trimStart: Math.max(0, Math.min(plan.trimStart, duration)),
+    trimEnd: Math.max(plan.trimStart + 0.2, Math.min(plan.trimEnd, duration)),
+    volume: Math.max(0, Math.min(2, plan.volume ?? 1)),
+    removeSegments: plan.removeSegments ?? [],
+    crop: plan.crop ?? project.editPlan?.crop ?? defaultEditPlan(duration).crop,
+    aspectRatio: plan.aspectRatio ?? 'original',
+    subtitleTrack: Boolean(plan.subtitleTrack),
+  };
+  project.updatedAt = new Date().toISOString();
+  await dsSet(VIDEO_COLLECTION, project.id, project as unknown as Record<string, unknown>);
+  return project;
+}
+
+export async function analyzeVideoLocally(projectId: string, userId: string): Promise<VideoProject> {
+  const project = await getVideoProject(projectId, userId);
+  if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  if (!project.sourceUrl) throw new ServiceError(400, 'NO_SOURCE', 'Video-Quelle fehlt');
+  const analysis = await analyzeVideoLocal(project.sourceUrl, project.duration, project.subtitles);
+  project.scenes = analysis.scenes;
+  project.pauses = analysis.pauses;
+  project.audioActivity = analysis.audioActivity;
+  project.highlights = analysis.highlights;
+  project.analyzerVersion = analysis.analyzerVersion;
+  project.updatedAt = new Date().toISOString();
+  await dsSet(VIDEO_COLLECTION, project.id, project as unknown as Record<string, unknown>);
+  return project;
+}
+
+export async function saveSubtitleEdits(
+  projectId: string,
+  userId: string,
+  subtitles: SubtitleEntry[]
+): Promise<VideoProject> {
+  const project = await getVideoProject(projectId, userId);
+  if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  project.subtitles = subtitles.map((s) => ({
+    start: Math.max(0, s.start),
+    end: Math.max(s.start + 0.05, s.end),
+    text: String(s.text ?? '').slice(0, 500),
+  }));
+  const srt = buildSrtContent(project.subtitles);
+  project.srtUrl = await uploadAssetFromDataUrl(
+    userId,
+    `data:text/plain;base64,${Buffer.from(srt).toString('base64')}`,
+    { folder: 'video-exports', fileName: `${projectId}.srt` }
+  );
+  project.updatedAt = new Date().toISOString();
+  await dsSet(VIDEO_COLLECTION, project.id, project as unknown as Record<string, unknown>);
+  return project;
+}
+
+export async function exportShortClip(
+  projectId: string,
+  userId: string,
+  input: {
+    start: number;
+    end: number;
+    crop?: VideoCrop;
+    format?: VideoFormatId;
+    burnSubtitles?: boolean;
+  }
+): Promise<MediaJob> {
+  const project = await getVideoProject(projectId, userId);
+  if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  if (!project.sourceUrl) throw new ServiceError(400, 'NO_SOURCE', 'Video-Quelle fehlt');
+  const format = getVideoFormatPreset(input.format ?? 'shorts');
+  const start = Math.max(0, input.start);
+  const end = Math.min(project.duration, Math.max(start + 0.3, input.end));
+  const crop = input.crop ?? project.editPlan?.crop;
+  const plan: VideoEditPlan = {
+    trimStart: start,
+    trimEnd: end,
+    removeSegments: [],
+    volume: 1,
+    crop: crop ?? { mode: 'center', x: 0, y: 0, width: 1, height: 1 },
+    aspectRatio: format.vertical ? '9:16' : '16:9',
+    subtitleTrack: Boolean(input.burnSubtitles && project.subtitles.length),
+  };
+  const range = { start, end };
+  const job: MediaJob = {
+    id: randomUUID(),
+    userId,
+    type: 'short',
+    status: 'processing',
+    prompt: `Local ${format.label} ${start.toFixed(1)}-${end.toFixed(1)}`,
+    title: `${project.title} · Short`,
+    duration: end - start,
+    metadata: {
+      projectId,
+      start,
+      end,
+      format: format.id,
+      aspectRatio: format.aspectRatio,
+      width: format.width,
+      height: format.height,
+      local: true,
+    },
+    createdAt: new Date().toISOString(),
+  };
+  await saveMediaJob(job);
+  try {
+    const buf = await exportEditedVideo(project.sourceUrl, plan, {
+      subtitles: plan.subtitleTrack ? clipSubtitlesToRange(project.subtitles, range) : [],
+      vertical: format.vertical,
+      width: format.width,
+      height: format.height,
+    });
+    job.videoUrl = await uploadAssetFromDataUrl(
+      userId,
+      `data:video/mp4;base64,${buf.toString('base64')}`,
+      { folder: 'videos', fileName: `${job.id}-short.mp4` }
+    );
+    job.provider = `ffmpeg-${format.id}`;
+    job.status = 'completed';
+    job.completedAt = new Date().toISOString();
+  } catch (err) {
+    job.status = 'failed';
+    job.error = err instanceof Error ? err.message : 'Short-Export fehlgeschlagen';
+    job.completedAt = new Date().toISOString();
+  }
+  await saveMediaJob(job);
+  project.shorts.push(job);
+  project.updatedAt = new Date().toISOString();
+  await dsSet(VIDEO_COLLECTION, project.id, project as unknown as Record<string, unknown>);
+  return job;
+}
+
+export async function saveVideoOutputToFiles(userId: string, projectId: string, jobId?: string) {
+  const video = await getVideoProject(projectId, userId);
+  if (!video) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  let url: string | undefined;
+  let name = `${video.title}.mp4`;
+  if (jobId) {
+    const job = video.shorts.find((s) => s.id === jobId) ?? (await getMediaJob(jobId, userId));
+    if (!job || job.userId !== userId || !job.videoUrl) {
+      throw new ServiceError(404, 'NOT_FOUND', 'Clip nicht gefunden');
+    }
+    url = job.videoUrl;
+    name = `${job.title || 'short'}.mp4`;
+  } else {
+    url = video.renderUrl || video.shorts[0]?.videoUrl;
+    if (!url) throw new ServiceError(404, 'NOT_FOUND', 'Kein Export vorhanden');
+  }
+  if (url.startsWith('data:')) {
+    return saveUserFile(userId, {
+      name,
+      mimeType: 'video/mp4',
+      category: 'video',
+      dataUrl: url,
+      source: 'generation',
+    });
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new ServiceError(502, 'VIDEO_FETCH_FAILED', 'Export konnte nicht geladen werden');
+  const buf = Buffer.from(await res.arrayBuffer());
+  return saveUserFile(userId, {
+    name,
+    mimeType: 'video/mp4',
+    category: 'video',
+    dataUrl: `data:video/mp4;base64,${buf.toString('base64')}`,
+    source: 'generation',
+  });
+}
+
+export async function saveMediaOutputToFiles(userId: string, jobId: string) {
+  const job = await getMediaJob(jobId, userId);
+  if (!job?.videoUrl && !job?.imageUrl) throw new ServiceError(404, 'NOT_FOUND', 'Job nicht gefunden');
+  const url = job.videoUrl || job.imageUrl!;
+  const dataUrl = url.startsWith('data:') ? url : `data:video/mp4;base64,`;
+  if (!url.startsWith('data:')) {
+    return saveUserFile(userId, {
+      name: job.title || job.type,
+      mimeType: job.videoUrl ? 'video/mp4' : 'image/png',
+      category: job.videoUrl ? 'video' : 'other',
+      dataUrl: url,
+      source: 'generation',
+    }).catch(async () => {
+      const res = await fetch(url);
+      const buf = Buffer.from(await res.arrayBuffer());
+      const mime = job.videoUrl ? 'video/mp4' : 'image/png';
+      return saveUserFile(userId, {
+        name: job.title || job.type,
+        mimeType: mime,
+        category: job.videoUrl ? 'video' : 'other',
+        dataUrl: `data:${mime};base64,${buf.toString('base64')}`,
+        source: 'generation',
+      });
+    });
+  }
+  return saveUserFile(userId, {
+    name: job.title || job.type,
+    mimeType: dataUrl.includes('video') ? 'video/mp4' : 'image/png',
+    category: 'video',
+    dataUrl,
+    source: 'generation',
+  });
+}
+
+export async function saveVideoRenderToProject(userId: string, projectId: string, brandProjectId: string) {
+  const video = await getVideoProject(projectId, userId);
+  if (!video?.renderUrl && !video?.shorts[0]?.videoUrl) {
+    throw new ServiceError(404, 'NOT_FOUND', 'Kein Export vorhanden');
+  }
+  const url = video.renderUrl || video.shorts[0]!.videoUrl!;
+  const isShort = !video.renderUrl && Boolean(video.shorts[0]?.videoUrl);
+  const asset = await attachAssetToProject(userId, brandProjectId, {
+    name: video.title,
+    type: isShort ? 'short' : 'video',
+    url,
+    module: isShort ? 'short' : 'video',
+    sourceType: 'video',
+    sourceId: video.id,
+    mimeType: 'video/mp4',
+  });
+  const project = await getProject(brandProjectId, userId);
+  if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  return { project, asset };
+}
+
 export async function runMediaJob(
   userId: string,
   type: MediaJobType,
@@ -337,12 +629,16 @@ export async function runMediaJob(
     title?: string;
     duration?: number;
     metadata?: Record<string, unknown>;
+    projectId?: string;
   }
 ): Promise<MediaJob> {
   const dnaCtx = buildDnaPromptContext(dna);
   const prompts: Record<string, string> = {
     intro: `Epic stream intro animation for ${dna.name}, ${dna.styleDirection} style, logo reveal, dynamic. ${dnaCtx}`,
     outro: `Stream outro/end screen for ${dna.name}, ${dna.styleDirection}, subscribe reminder, branded. ${dnaCtx}`,
+    stinger: `Short 1-3s branded stinger/transition slam for ${dna.name}, ${dna.styleDirection}. Keep the logo recognizable. ${dnaCtx}`,
+    alert: `Animated stream alert burst for ${dna.name}, ${dna.styleDirection}, readable text-safe center. ${dnaCtx}`,
+    'logo-loop': `Seamless looping background animation, logo of ${dna.name} stays centered and unchanged, particles/motion around it, ${dna.styleDirection}. ${dnaCtx}`,
     'stream-start': `Starting soon screen for ${dna.name}, ${dna.styleDirection} gaming stream. ${dnaCtx}`,
     'stream-end': `Stream ending thank you screen for ${dna.name}, ${dna.styleDirection}. ${dnaCtx}`,
     'vtuber-character': `VTuber anime character full body${dna.mascot ? ` inspired by ${dna.mascot}` : ''}, ${dna.styleDirection}. ${dnaCtx}`,
@@ -366,6 +662,7 @@ export async function runMediaJob(
     title: options?.title || type,
     duration: options?.duration,
     dnaId: dna.id,
+    projectId: options?.projectId,
     metadata: options?.metadata,
     createdAt: new Date().toISOString(),
   };
@@ -406,12 +703,21 @@ export async function runMediaJob(
       type === 'short' ||
       type.startsWith('stream') ||
       type === 'intro' ||
-      type === 'outro'
+      type === 'outro' ||
+      type === 'stinger' ||
+      type === 'alert' ||
+      type === 'logo-loop'
     ) {
-      const aspectRatio = type === 'short' ? '9:16' : '16:9';
+      const aspectRatio =
+        options?.metadata?.aspectRatio === '9:16' || options?.metadata?.aspectRatio === '16:9'
+          ? (options.metadata.aspectRatio as '9:16' | '16:9')
+          : type === 'short' || type === 'alert'
+            ? '9:16'
+            : '16:9';
       const video = await generateVideo(job.prompt, {
         aspectRatio,
-        duration: options?.duration || (type === 'intro' || type === 'outro' ? 6 : 10),
+        duration: options?.duration || (type === 'stinger' || type === 'alert' || type === 'logo-loop' ? 4 : type === 'intro' || type === 'outro' ? 6 : 10),
+        imageUrl: typeof options?.metadata?.logoUrl === 'string' ? options.metadata.logoUrl : undefined,
       });
       job.videoUrl = await persistVideo(userId, video.videoUrl);
       job.provider = video.provider;
@@ -485,6 +791,22 @@ export async function runMediaJob(
     job.status = 'failed';
     job.error = err instanceof Error ? err.message : 'Failed';
     job.completedAt = new Date().toISOString();
+  }
+
+  if (job.status === 'completed' && job.projectId) {
+    const url = job.videoUrl || job.imageUrl;
+    if (url) {
+      await attachAssetToProject(userId, job.projectId, {
+        name: job.title || job.type,
+        type: job.type === 'short' ? 'short' : job.type.includes('intro') || job.type === 'outro' || job.type === 'stinger' || job.type === 'logo-loop' || job.type === 'alert' ? 'animation' : 'video',
+        url,
+        jobId: job.id,
+        module: job.type,
+        sourceType: job.type === 'short' ? 'video' : 'animation',
+        sourceId: job.id,
+        mimeType: job.videoUrl ? 'video/mp4' : 'image/png',
+      }).catch(() => undefined);
+    }
   }
 
   await saveMediaJob(job);

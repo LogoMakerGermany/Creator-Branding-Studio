@@ -1,11 +1,34 @@
+export type CoinTransactionType = 'purchase' | 'spend' | 'refund' | 'bonus' | 'subscription';
+
+export type CoinSourceType =
+  | 'generation'
+  | 'purchase'
+  | 'welcome'
+  | 'admin'
+  | 'refund'
+  | 'marketplace'
+  | 'dev_purchase';
+
 export interface CoinTransaction {
   id: string;
   userId: string;
-  type: 'purchase' | 'spend' | 'refund' | 'bonus' | 'subscription';
+  type: CoinTransactionType;
   amount: number;
   balanceAfter: number;
+  /** Additive; older rows may omit this. */
+  balanceBefore?: number;
   category?: string;
   description: string;
+  reason?: string;
+  sourceType?: CoinSourceType | string;
+  sourceId?: string;
+  jobId?: string;
+  quoteId?: string;
+  paymentProvider?: 'stripe' | 'paypal';
+  paymentReference?: string;
+  refundOfTransactionId?: string;
+  idempotencyKey?: string;
+  adminActorId?: string;
   metadata?: Record<string, unknown>;
   stripePaymentIntentId?: string;
   paypalOrderId?: string;
@@ -37,6 +60,12 @@ export enum CoinSpendCategory {
   ULTIMATE_CREATOR_PACK = 'ultimate_creator_pack',
   VIDEO_EDIT = 'video_edit',
   MARKETPLACE_PURCHASE = 'marketplace_purchase',
+  MOCKUP_GENERATION = 'mockup_generation',
+  STREAMSET_PACK = 'streamset_pack',
+  TEXT_GENERATION = 'text_generation',
+  SHORTS_CLIP = 'shorts_clip',
+  ANIMATION_GENERATION = 'animation_generation',
+  NEXTER_VOICE = 'nexter_voice',
 }
 
 export const COIN_COSTS: Record<CoinSpendCategory, number> = {
@@ -53,4 +82,10 @@ export const COIN_COSTS: Record<CoinSpendCategory, number> = {
   [CoinSpendCategory.ULTIMATE_CREATOR_PACK]: 65,
   [CoinSpendCategory.VIDEO_EDIT]: 20,
   [CoinSpendCategory.MARKETPLACE_PURCHASE]: 0,
+  [CoinSpendCategory.MOCKUP_GENERATION]: 8,
+  [CoinSpendCategory.STREAMSET_PACK]: 50,
+  [CoinSpendCategory.TEXT_GENERATION]: 2,
+  [CoinSpendCategory.SHORTS_CLIP]: 20,
+  [CoinSpendCategory.ANIMATION_GENERATION]: 25,
+  [CoinSpendCategory.NEXTER_VOICE]: 3,
 };

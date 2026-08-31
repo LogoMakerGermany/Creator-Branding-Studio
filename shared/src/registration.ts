@@ -16,6 +16,8 @@ export interface InviteCode {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  /** UIDs that redeemed this code — no extra PII. */
+  usedBy?: Array<{ userId: string; usedAt: string }>;
 }
 
 export interface CreateInviteCodeInput {

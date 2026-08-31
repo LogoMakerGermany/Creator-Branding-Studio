@@ -7,14 +7,16 @@ import { asyncHandler, sendSuccess, AppError } from '../middleware/errorHandler.
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { getOrCreateUser, getUserById, updateUser } from '../services/user.service.js';
 import { getActiveDna } from '../services/dna.service.js';
-import { deductCoins, addCoins, getCoinBalance } from '../services/coins.service.js';
 import { buildBrandingModulePrompt, getJobsByUser, runGenerationJob } from '../services/ai.service.js';
-import { listLayouts } from '../services/layout.service.js';
+import { listProjects } from '../services/project.service.js';
 import { listUserFiles } from '../services/file-cloud.service.js';
 import { getRegistrationMode } from '../services/system-settings.service.js';
 import { redeemInviteCode, validateInviteCode } from '../services/invite.service.js';
 import { randomUUID } from 'node:crypto';
 import { isProduction, isDevAuthEnabled } from '../config/env.js';
+import { withCoinChargePack } from '../lib/billable-job.js';
+import { dispatchTransactionalEmail, welcomeEmail } from '../services/email.service.js';
+import { exportAccountData, requestAccountDeletion } from '../services/account.service.js';
 
 export const authRoutes = Router();
 
@@ -109,7 +111,7 @@ authRoutes.post(
           'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich'
         );
       }
-      const redeemed = await redeemInviteCode(body.inviteCode, email);
+      const redeemed = await redeemInviteCode(body.inviteCode, email, uid);
       role = redeemed.grantRole === 'tester' ? UserRole.TESTER : UserRole.USER;
       inviteCodeId = redeemed.invite.id;
     }
@@ -119,6 +121,10 @@ authRoutes.post(
       role,
       inviteCodeId,
     });
+
+    void dispatchTransactionalEmail(`welcome:${uid}`, welcomeEmail(user.email, user.displayName)).catch(
+      () => undefined
+    );
 
     sendSuccess(res, { user }, 201);
   })
@@ -152,7 +158,14 @@ authRoutes.post(
   '/onboarding/complete',
   authenticate,
   asyncHandler(async (req: AuthenticatedRequest, res) => {
-    const user = await updateUser(req.user!.uid, { onboardingCompleted: true });
+    const body = z
+      .object({
+        displayName: z.string().min(1).max(100).optional(),
+      })
+      .parse(req.body ?? {});
+    const patch: { onboardingCompleted: true; displayName?: string } = { onboardingCompleted: true };
+    if (body.displayName) patch.displayName = body.displayName;
+    const user = await updateUser(req.user!.uid, patch);
     sendSuccess(res, { user });
   })
 );
@@ -185,9 +198,28 @@ authRoutes.get(
     const jobs = await getJobsByUser(userId);
     sendSuccess(res, {
       generations: jobs.filter((j) => j.status === 'completed').length,
-      projects: (await listLayouts(userId)).length,
+      projects: (await listProjects(userId)).length,
       files: (await listUserFiles(userId)).length,
     });
+  })
+);
+
+authRoutes.get(
+  '/export',
+  authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const data = await exportAccountData(req.user!.uid);
+    sendSuccess(res, { export: data });
+  })
+);
+
+authRoutes.post(
+  '/account/delete',
+  authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const body = z.object({ confirmation: z.string().min(1) }).parse(req.body);
+    const result = await requestAccountDeletion(req.user!.uid, body.confirmation);
+    sendSuccess(res, result);
   })
 );
 
@@ -202,16 +234,6 @@ brandingRoutes.post(
       throw new AppError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
     }
 
-    const coinResult = await deductCoins(
-      req.user!.uid,
-      CoinSpendCategory.BRANDING_PACK,
-      'Branding-Paket Generierung'
-    );
-
-    if (!coinResult.success) {
-      throw new AppError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
-    }
-
     const packModules = [
       'profile-pic',
       'banner',
@@ -224,32 +246,25 @@ brandingRoutes.post(
       'alert',
     ] as const;
 
-    const jobs = await Promise.all(
-      packModules.map(async (module) => {
-        const prompt = buildBrandingModulePrompt(activeDna, module);
-        const hd = ['profile-pic', 'banner', 'overlay', 'stream-start', 'stream-end', 'offline'].includes(module);
-        const size = module === 'banner' ? '1792x1024' : moduleImageSizeForPack(module);
-        return runGenerationJob(req.user!.uid, module, activeDna, prompt, { size, hd });
-      })
+    const { jobs, coinsSpent, newBalance } = await withCoinChargePack(
+      req.user!.uid,
+      CoinSpendCategory.BRANDING_PACK,
+      'Branding-Paket Generierung',
+      async () => {
+        return Promise.all(
+          packModules.map(async (module) => {
+            const prompt = buildBrandingModulePrompt(activeDna, module);
+            const hd = ['profile-pic', 'banner', 'overlay', 'stream-start', 'stream-end', 'offline'].includes(
+              module
+            );
+            const size = module === 'banner' ? '1792x1024' : moduleImageSizeForPack(module);
+            return runGenerationJob(req.user!.uid, module, activeDna, prompt, { size, hd });
+          })
+        );
+      }
     );
 
     const failed = jobs.filter((j) => j.status === 'failed');
-    if (failed.length === jobs.length) {
-      await addCoins(
-        req.user!.uid,
-        coinResult.cost,
-        'Branding-Paket — Rückerstattung (Generierung fehlgeschlagen)',
-        'refund'
-      );
-      throw new AppError(
-        503,
-        'AI_GENERATION_FAILED',
-        'Branding-Paket konnte nicht generiert werden — Coins wurden erstattet'
-      );
-    }
-
-    const newBalance = await getCoinBalance(req.user!.uid);
-
     sendSuccess(
       res,
       {
@@ -258,7 +273,7 @@ brandingRoutes.post(
         dnaId: activeDna.id,
         jobs,
         failedCount: failed.length,
-        coinsSpent: coinResult.cost,
+        coinsSpent,
         newBalance,
       },
       201

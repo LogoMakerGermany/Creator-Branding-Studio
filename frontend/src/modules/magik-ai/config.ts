@@ -1,15 +1,14 @@
-/** UI- und Feature-Flags für die Vorbereitungsphase. */
 export const MAGIK_AI_FEATURE_FLAGS = {
-  assistantEnabled: false,
+  assistantEnabled: true,
   showShell: true,
-  showAvatar: false,
-  showAnimations: false,
-  showDialog: false,
-  allowConversation: false,
+  showAvatar: true,
+  showAnimations: true,
+  showDialog: true,
+  allowConversation: true,
 } as const;
 
 export const MAGIK_AI_UI = {
   position: 'bottom-right' as const,
   defaultMinimized: true,
-  comingSoonLabel: 'Demnächst verfügbar',
+  comingSoonLabel: 'Nexter',
 } as const;
