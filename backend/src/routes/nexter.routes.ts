@@ -6,8 +6,9 @@ import { requirePermission } from '../middleware/rbac.js';
 import { asyncHandler, sendSuccess, AppError } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { ServiceError } from '../lib/errors.js';
-import { withCoinCharge } from '../lib/billable-job.js';
-import { generateSpeech } from '../lib/media-providers.js';
+import { getUserById } from '../services/user.service.js';
+import { listPublicNexterVoices, getOfficialVoicePreview } from '../services/nexter/voice-catalog.service.js';
+import { speakNexterReply } from '../services/voice.service.js';
 import {
   getOrCreateNexterSession,
   getNexterSessionForUser,
@@ -28,10 +29,28 @@ nexterRoutes.use(authenticate, requirePermission(Permission.USE_AI_ASSISTANT));
 function mapErr(err: unknown): never {
   if (err instanceof AppError) throw err;
   if (err instanceof ServiceError) {
-    throw new AppError(err.statusCode, err.code, err.message);
+    throw new AppError(err.statusCode, err.code, err.message, err.details);
   }
   throw new AppError(400, 'NEXTER_ERROR', err instanceof Error ? err.message : 'Nexter-Fehler');
 }
+
+nexterRoutes.get(
+  '/voices',
+  asyncHandler(async (_req: AuthenticatedRequest, res) => {
+    sendSuccess(res, { voices: await listPublicNexterVoices() });
+  })
+);
+
+nexterRoutes.get(
+  '/voices/:catalogId/preview',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const preview = await getOfficialVoicePreview(String(req.params.catalogId));
+    if (!preview) throw new AppError(404, 'PREVIEW_UNAVAILABLE', 'Keine Vorschau für diese Stimme');
+    res.setHeader('Content-Type', preview.contentType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(preview.buffer);
+  })
+);
 
 nexterRoutes.get(
   '/session',
@@ -80,6 +99,7 @@ nexterRoutes.post(
         path: z.string().max(200).optional(),
         hint: z.string().max(200).optional(),
         projectId: z.string().max(80).optional(),
+        fileId: z.string().max(80).optional(),
       })
       .parse(req.body);
     try {
@@ -87,6 +107,7 @@ nexterRoutes.post(
         path: body.path,
         hint: body.hint,
         projectId: body.projectId,
+        fileId: body.fileId,
       });
       sendSuccess(res, { session });
     } catch (err) {
@@ -121,11 +142,27 @@ nexterRoutes.post(
                     ? ['Öffne das Animation Studio', 'Was fehlt noch?']
                     : result.quote.kind === 'text'
                       ? ['Öffne das Text Studio', 'Mach die Caption kürzer']
-                      : ['Öffne das Logo Studio', 'Was fehlt noch?'],
+                      : result.quote.kind === 'music'
+                        ? ['Öffne das Musik Studio', 'Was fehlt noch?']
+                        : result.quote.kind === 'voice'
+                          ? ['Öffne das Voice Studio', 'Was fehlt noch?']
+                          : result.quote.kind === 'captions'
+                          ? ['Captions prüfen', 'Öffne das Video Studio']
+                        : ['Öffne das Logo Studio', 'Was fehlt noch?'],
         }
       );
       sendSuccess(res, { ...result, session });
     } catch (err) {
+      if (
+        err instanceof ServiceError &&
+        (err.code === 'QUOTE_EXPIRED' ||
+          err.code === 'PRICE_CHANGED' ||
+          err.code === 'INSUFFICIENT_COINS' ||
+          err.code === 'QUOTE_USED' ||
+          err.code === 'QUOTE_NOT_FOUND')
+      ) {
+        await appendAssistantMessage(req.user!.uid, err.message).catch(() => undefined);
+      }
       mapErr(err);
     }
   })
@@ -154,7 +191,11 @@ nexterRoutes.post(
       })
       .parse(req.body);
     try {
-      const transcript = await transcribeNexterAudio(body.audioBase64, body.mimeType ?? 'audio/webm');
+      const transcript = await transcribeNexterAudio(
+        body.audioBase64,
+        body.mimeType ?? 'audio/webm',
+        (await getUserById(req.user!.uid))?.nexterPreferences?.language
+      );
       sendSuccess(res, { transcript });
     } catch (err) {
       mapErr(err);
@@ -167,26 +208,8 @@ nexterRoutes.post(
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const body = z.object({ text: z.string().min(1).max(2000) }).parse(req.body);
     try {
-      const { job } = await withCoinCharge(
-        req.user!.uid,
-        CoinSpendCategory.NEXTER_VOICE,
-        'Nexter Sprachausgabe',
-        async () => {
-          try {
-            const result = await generateSpeech(body.text.slice(0, 500));
-            return { status: 'completed' as const, ...result };
-          } catch (err) {
-            return {
-              status: 'failed' as const,
-              error: err instanceof Error ? err.message : 'Sprachausgabe fehlgeschlagen',
-            };
-          }
-        }
-      );
-      if (job.status === 'failed' || !('audioUrl' in job) || !job.audioUrl) {
-        throw new AppError(503, 'VOICE_FAILED', job.error || 'Sprachausgabe fehlgeschlagen');
-      }
-      sendSuccess(res, { audioUrl: job.audioUrl, provider: job.provider });
+      const result = await speakNexterReply(req.user!.uid, body.text);
+      sendSuccess(res, result);
     } catch (err) {
       mapErr(err);
     }

@@ -2,7 +2,7 @@
   "name": "ultimate-creator-branding-studio",
   "version": "0.1.0",
   "private": true,
-  "description": "All-in-One KI-Plattform für Creator, Streamer, Teams und Agenturen",
+  "description": "NEXTER Creator Studio — All-in-One KI-Plattform für Creator, Streamer, Teams und Agenturen",
   "workspaces": [
     "frontend",
     "backend",
@@ -16,7 +16,8 @@
     "build:prod": "npm run build --workspace=shared && npm run build --workspace=frontend && npm run build --workspace=backend",
     "start": "node backend/dist/index.js",
     "start:static": "node backend/dist/index.js",
-    "deploy:firebase": "node scripts/sync-firebase-env.mjs && npm run build:prod && npx firebase-tools deploy --only hosting,firestore:rules,firestore:indexes,storage",
+    "deploy:firebase:rules": "npx firebase-tools deploy --only firestore:rules,storage --project nexter-creator-studio",
+    "deploy:firebase:firestore": "npx firebase-tools deploy --only firestore:rules,firestore:indexes --project nexter-creator-studio",
     "sync:firebase-env": "node scripts/sync-firebase-env.mjs",
     "setup:local": "node scripts/setup-local-dev.mjs",
     "deploy:check": "node scripts/predeploy-check.mjs",

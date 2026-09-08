@@ -18,12 +18,30 @@ import { saveUserFile, type FileCategory } from './file-cloud.service.js';
 
 const COLLECTION = 'projects';
 
+export const PROJECT_LIST_DEFAULT_LIMIT = 50;
+export const PROJECT_LIST_MAX_LIMIT = 100;
+export const PROJECT_NAME_MAX = 120;
+
+export type ProjectListSort = 'updated' | 'newest' | 'oldest' | 'name';
+export type ProjectListFilter = 'active' | 'archived';
+
 export interface ProjectWriteInput {
   name: string;
   description?: string;
   type: ProjectType;
   dnaId?: string;
   status?: ProjectStatus;
+}
+
+export function sanitizeProjectName(name: string): string {
+  const cleaned = name.replace(/[\u0000-\u001F\u007F]/g, '').trim();
+  if (!cleaned) {
+    throw new ServiceError(400, 'INVALID_NAME', 'Projektname erforderlich');
+  }
+  if (cleaned.length > PROJECT_NAME_MAX) {
+    throw new ServiceError(400, 'INVALID_NAME', 'Projektname zu lang');
+  }
+  return cleaned;
 }
 
 function normalizeProject(raw: Project): Project {
@@ -51,6 +69,42 @@ export async function listTrash(userId: string): Promise<Project[]> {
   return all.filter((p) => Boolean(p.deletedAt));
 }
 
+export async function queryProjects(
+  userId: string,
+  opts?: {
+    q?: string;
+    type?: ProjectType;
+    filter?: ProjectListFilter;
+    sort?: ProjectListSort;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<{ projects: Project[]; total: number }> {
+  const filter = opts?.filter === 'archived' ? 'archived' : 'active';
+  const sort: ProjectListSort = opts?.sort ?? 'updated';
+  const limit = Math.min(PROJECT_LIST_MAX_LIMIT, Math.max(1, opts?.limit ?? PROJECT_LIST_DEFAULT_LIMIT));
+  const offset = Math.max(0, opts?.offset ?? 0);
+  const includeDeleted = filter === 'archived';
+  let rows = includeDeleted ? await listTrash(userId) : await listProjects(userId);
+  if (opts?.type) {
+    rows = rows.filter((p) => p.type === opts.type);
+  }
+  const q = opts?.q?.trim().toLowerCase();
+  if (q) {
+    rows = rows.filter((p) => {
+      if (p.name.toLowerCase().includes(q) || p.type.toLowerCase().includes(q)) return true;
+      return (p.assets ?? []).some((a) => a.name.toLowerCase().includes(q));
+    });
+  }
+  rows = [...rows].sort((a, b) => {
+    if (sort === 'name') return a.name.localeCompare(b.name, 'de');
+    if (sort === 'newest') return b.createdAt.localeCompare(a.createdAt);
+    if (sort === 'oldest') return a.createdAt.localeCompare(b.createdAt);
+    return b.updatedAt.localeCompare(a.updatedAt);
+  });
+  return { projects: rows.slice(offset, offset + limit), total: rows.length };
+}
+
 export async function getProject(id: string, userId: string): Promise<Project | null> {
   const row = await dsGet(COLLECTION, id);
   if (!row || row.ownerId !== userId) return null;
@@ -61,7 +115,7 @@ export async function createProject(userId: string, input: ProjectWriteInput): P
   const now = new Date().toISOString();
   const project: Project = {
     id: randomUUID(),
-    name: input.name.trim(),
+    name: sanitizeProjectName(input.name),
     description: input.description?.trim(),
     status: input.status ?? 'draft',
     type: input.type,
@@ -102,7 +156,7 @@ export async function updateProject(
 
   const updated: Project = {
     ...existing,
-    name: patch.name?.trim() ?? existing.name,
+    name: patch.name !== undefined ? sanitizeProjectName(patch.name) : existing.name,
     description: patch.description ?? existing.description,
     type: patch.type ?? existing.type,
     status: patch.status ?? existing.status,
@@ -432,12 +486,15 @@ export async function importProjectZip(
         ) {
           // Direct storage upload to avoid tight 5MB path when files are larger but still in ZIP budget
           const id = randomUUID();
+          const ext = mime.split('/')[1]?.replace('svg+xml', 'svg') || 'bin';
+          const fileName = `${id}.${ext}`;
+          const storagePath = `users/${userId}/${category}/${fileName}`;
           const downloadUrl = await uploadAssetFromDataUrl(
             userId,
             bufferToDataUrl(file.data, mime),
             {
               folder: category,
-              fileName: `${id}.${mime.split('/')[1]?.replace('svg+xml', 'svg') || 'bin'}`,
+              fileName,
             }
           );
           await dsSet('files', id, {
@@ -448,6 +505,7 @@ export async function importProjectZip(
             size: file.data.length,
             category,
             downloadUrl,
+            storagePath,
             source: 'upload',
             createdAt: now,
           });

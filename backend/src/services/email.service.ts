@@ -1,4 +1,5 @@
-import { isDevMode, isProduction, getDefaultFreeCoins } from '../config/env.js';
+import { isDevMode, isProduction, getDefaultFreeCoins, getResendApiKey, getEmailFrom } from '../config/env.js';
+import { isPaidProviderTestBlocked } from '../lib/media-providers.js';
 import { dsGet, dsSet } from '../lib/data-store.js';
 
 export type EmailKind =
@@ -26,14 +27,33 @@ export interface DispatchResult {
   provider: string;
 }
 
+export function maskEmailAddress(email: string): string {
+  const trimmed = email.trim();
+  const at = trimmed.indexOf('@');
+  if (at <= 0 || at === trimmed.length - 1) return '***';
+  const local = trimmed.slice(0, at);
+  const domain = trimmed.slice(at + 1);
+  return `${local.slice(0, 1)}***@${domain}`;
+}
+
+function sanitizeEmailTextField(value: string, max = 80): string {
+  return value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
 /**
  * Send is a side effect. Callers must not roll back money on failure.
+ * Tests never call a real provider.
  */
 export async function sendTransactionalEmail(
   payload: EmailPayload
 ): Promise<{ sent: boolean; provider: string }> {
-  const key = process.env.RESEND_API_KEY?.trim();
-  if (key) {
+  if (isPaidProviderTestBlocked()) {
+    return { sent: true, provider: 'test' };
+  }
+
+  const key = getResendApiKey();
+  const from = getEmailFrom();
+  if (key && from) {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -41,26 +61,25 @@ export async function sendTransactionalEmail(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: process.env.EMAIL_FROM?.trim() || 'NEXTER <noreply@nexter.studio>',
+        from,
         to: payload.to,
         subject: payload.subject,
         text: payload.text,
       }),
     });
     if (!res.ok) {
-      const body = await res.text();
       throw new Error(`E-Mail fehlgeschlagen (${res.status})`);
     }
     return { sent: true, provider: 'resend' };
   }
 
   if (isProduction()) {
-    console.error('[email] RESEND_API_KEY fehlt — Versand übersprungen');
+    console.error('[email] custom provider not configured — Versand übersprungen');
     return { sent: false, provider: 'none' };
   }
 
   if (isDevMode()) {
-    console.info(`[email:dev] ${payload.kind} → ${payload.to}: ${payload.subject}`);
+    console.info(`[email:dev] ${payload.kind} → ${maskEmailAddress(payload.to)}: ${payload.subject}`);
     return { sent: true, provider: 'log' };
   }
 
@@ -90,7 +109,7 @@ export async function dispatchTransactionalEmail(
     return { sent: result.sent, duplicate: false, provider: result.provider };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'email failed';
-    console.error('[email] send failed:', message);
+    console.error('[email] send failed:', message.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '***'));
     return { sent: false, duplicate: false, provider: 'error' };
   }
 }
@@ -100,7 +119,7 @@ export function welcomeEmail(to: string, name: string, coins = getDefaultFreeCoi
     to,
     kind: 'welcome',
     subject: 'Willkommen bei NEXTER Creator Studio',
-    text: `Hallo ${name},\n\ndu bist bei NEXTER Creator Studio. Startguthaben: ${coins} Coins.\n\n— NEXTER`,
+    text: `Hallo ${sanitizeEmailTextField(name)},\n\ndu bist bei NEXTER Creator Studio. Startguthaben: ${coins} Coins.\n\n— NEXTER`,
   };
 }
 
@@ -109,7 +128,7 @@ export function inviteEmail(to: string, code: string, description: string): Emai
     to,
     kind: 'invite',
     subject: 'Deine NEXTER-Einladung',
-    text: `Hallo,\n\ndu wurdest zu NEXTER Creator Studio eingeladen.\nCode: ${code}\n${description}\n\n— NEXTER`,
+    text: `Hallo,\n\ndu wurdest zu NEXTER Creator Studio eingeladen.\nCode: ${sanitizeEmailTextField(code, 64)}\n${sanitizeEmailTextField(description, 200)}\n\n— NEXTER`,
   };
 }
 
@@ -122,7 +141,7 @@ export function purchaseReceiptEmail(
   return {
     to,
     kind: 'purchase',
-    subject: `NEXTER: ${packageName} gutgeschrieben`,
-    text: `Hallo ${name},\n\n${coins} Coins (${packageName}) wurden deinem Konto gutgeschrieben.\n\n— NEXTER`,
+    subject: `NEXTER: ${sanitizeEmailTextField(packageName, 80)} gutgeschrieben`,
+    text: `Hallo ${sanitizeEmailTextField(name)},\n\n${coins} Coins (${sanitizeEmailTextField(packageName, 80)}) wurden deinem Konto gutgeschrieben.\n\n— NEXTER`,
   };
 }

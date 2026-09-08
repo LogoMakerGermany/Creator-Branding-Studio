@@ -5,6 +5,7 @@ import { listProjects, softDeleteProject } from './project.service.js';
 import { listUserFiles } from './file-cloud.service.js';
 import { ServiceError } from '../lib/errors.js';
 import { writeAdminAudit } from './admin-audit.service.js';
+import { listFeedbackForUserExport, redactFeedbackForAccountDelete } from './feedback.service.js';
 
 export const ACCOUNT_DELETE_CONFIRMATION = 'DELETE_ACCOUNT';
 
@@ -17,6 +18,7 @@ export interface AccountExport {
   nexterSessions: unknown[];
   nexterQuotes: unknown[];
   jobs: unknown[];
+  support: unknown[];
   retention: {
     paymentsAndLedger: 'retained';
     adminAudit: 'retained';
@@ -51,7 +53,7 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
   const user = await getUserById(userId);
   if (!user) throw new ServiceError(404, 'NOT_FOUND', 'Nutzer nicht gefunden');
 
-  const [projects, files, coinTransactions, nexterSessions, nexterQuotes, generationJobs] =
+  const [projects, files, coinTransactions, nexterSessions, nexterQuotes, generationJobs, support] =
     await Promise.all([
       listProjects(userId, { includeDeleted: true }),
       listUserFiles(userId),
@@ -59,6 +61,7 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
       dsListWhere('nexterSessions', { userId }),
       dsListWhere('nexterQuotes', { userId }),
       dsListWhere('generationJobs', { userId }),
+      listFeedbackForUserExport(userId),
     ]);
 
   const safeUser = stripSecrets({
@@ -68,6 +71,8 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
     role: user.role,
     coinBalance: user.coinBalance,
     locale: user.locale,
+    nexterPreferences: user.nexterPreferences,
+    legalAcceptance: user.legalAcceptance,
     createdAt: user.createdAt,
     disabled: user.disabled,
   });
@@ -90,6 +95,7 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
     nexterSessions: stripSecrets(nexterSessions),
     nexterQuotes: stripSecrets(nexterQuotes),
     jobs: stripSecrets(generationJobs),
+    support: stripSecrets(support),
     retention: {
       paymentsAndLedger: 'retained',
       adminAudit: 'retained',
@@ -117,6 +123,8 @@ export async function requestAccountDeletion(
   for (const project of projects) {
     await softDeleteProject(project.id, userId).catch(() => undefined);
   }
+
+  await redactFeedbackForAccountDelete(userId);
 
   const sessions = await dsListWhere('nexterSessions', { userId });
   for (const session of sessions) {

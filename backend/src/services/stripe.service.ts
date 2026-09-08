@@ -9,6 +9,7 @@ import {
   getStripeWebhookSecret,
   getStripePriceId,
 } from '../config/env.js';
+import { assertNewPaymentsAllowed } from '../lib/payments-gate.js';
 
 let stripeClient: Stripe | null = null;
 
@@ -30,6 +31,7 @@ export async function createCheckoutSession(
   email: string,
   packageId: string
 ): Promise<{ url: string; sessionId: string }> {
+  await assertNewPaymentsAllowed();
   const stripe = getStripeClient();
   if (!stripe) {
     throw new Error('Stripe nicht konfiguriert');
@@ -89,6 +91,7 @@ export async function createQuoteCheckoutSession(
   totalCents: number,
   summary: string
 ): Promise<{ url: string; sessionId: string }> {
+  await assertNewPaymentsAllowed();
   const stripe = getStripeClient();
   if (!stripe) {
     throw new Error('Stripe nicht konfiguriert');

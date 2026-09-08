@@ -8,28 +8,31 @@ service cloud.firestore {
 
       allow read: if request.auth != null && request.auth.uid == userId;
 
-      // Client self-create remains role==creator. Testers/Admins are created
-      // via Admin SDK (server), not this rule. Do not loosen.
+      // Testers/Admins and all profile fields (role, coinBalance, balanceCents,
+      // disabled, subscriptionTier, nexterPreferences, onboarding) are written
+      // only via Admin SDK / authenticated API. Client SDK must not patch the user doc.
 
-      allow update: if request.auth != null
-        && request.auth.uid == userId
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'coinBalance']);
+      allow create, update, delete: if false;
 
     }
 
     match /creator_dna/{dnaId} {
 
-      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
 
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      // Writes go through the Admin SDK / authenticated API. Client SDK must not mutate DNA.
+
+      allow create, update, delete: if false;
 
     }
 
     match /projects/{projectId} {
 
-      allow read, write: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      allow read: if request.auth != null && resource.data.ownerId == request.auth.uid;
 
-      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+      // Writes go through the Admin SDK / authenticated API. Client SDK must not mutate projects.
+
+      allow create, update, delete: if false;
 
     }
 
@@ -79,9 +82,11 @@ service cloud.firestore {
 
     match /layouts/{layoutId} {
 
-      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
 
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      // Writes go through the Admin SDK / authenticated API. Client SDK must not mutate layouts.
+
+      allow create, update, delete: if false;
 
     }
 

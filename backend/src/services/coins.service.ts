@@ -455,6 +455,8 @@ export async function refundOnce(params: {
   amount: number;
   description: string;
   jobId?: string;
+  quoteId?: string;
+  idempotencyKey?: string;
 }): Promise<CoinMutationResult> {
   if (params.amount <= 0) {
     throw new Error('Refund amount must be positive');
@@ -465,11 +467,12 @@ export async function refundOnce(params: {
     type: 'refund',
     description: params.description,
     options: {
-      idempotencyKey: `refund:${params.chargeTransactionId}`,
+      idempotencyKey: params.idempotencyKey ?? `refund:${params.chargeTransactionId}`,
       refundOfTransactionId: params.chargeTransactionId,
       sourceType: 'refund',
       sourceId: params.chargeTransactionId,
       jobId: params.jobId,
+      quoteId: params.quoteId,
     },
   });
 }
@@ -567,9 +570,69 @@ export async function getTransactionById(id: string): Promise<CoinTransaction | 
   return { id: snap.id, ...snap.data() } as CoinTransaction;
 }
 
-export async function getTransactions(userId: string, limit = 50) {
+function sortTransactionsNewestFirst(txs: CoinTransaction[]): CoinTransaction[] {
+  return txs.slice().sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
+}
+
+export const TX_LIST_DEFAULT = 20;
+export const TX_LIST_MAX = 100;
+
+function clampTxPage(limit?: number, offset?: number): { limit: number; offset: number } {
+  const lim = Number.isFinite(limit) ? Math.floor(limit as number) : TX_LIST_DEFAULT;
+  const off = Number.isFinite(offset) ? Math.floor(offset as number) : 0;
+  return {
+    limit: Math.min(TX_LIST_MAX, Math.max(1, lim)),
+    offset: Math.max(0, off),
+  };
+}
+
+export interface CoinTransactionPage {
+  transactions: CoinTransaction[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+/** Own ledger only. Newest first. Used by the Coins UI. */
+export async function listOwnedTransactions(
+  userId: string,
+  opts?: { limit?: number; offset?: number }
+): Promise<CoinTransactionPage> {
+  const { limit, offset } = clampTxPage(opts?.limit, opts?.offset);
+
   if (isDevMode()) {
-    return devStore.getTransactionsByUser(userId).slice(0, limit);
+    const all = sortTransactionsNewestFirst(
+      (devStore.getTransactionsByUser(userId) as CoinTransaction[]).filter((tx) => tx.userId === userId)
+    );
+    return {
+      transactions: all.slice(offset, offset + limit),
+      total: all.length,
+      limit,
+      offset,
+    };
+  }
+
+  const { getFirestore } = await import('../config/firebase.js');
+  const db = getFirestore();
+  const base = db.collection(TX_COLLECTION).where('userId', '==', userId);
+  const [countSnap, snap] = await Promise.all([
+    base.count().get(),
+    base.orderBy('createdAt', 'desc').offset(offset).limit(limit).get(),
+  ]);
+
+  return {
+    transactions: snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as CoinTransaction),
+    total: countSnap.data().count,
+    limit,
+    offset,
+  };
+}
+
+export async function getTransactions(userId: string, limit = 50): Promise<CoinTransaction[]> {
+  if (isDevMode()) {
+    return sortTransactionsNewestFirst(
+      (devStore.getTransactionsByUser(userId) as CoinTransaction[]).filter((tx) => tx.userId === userId)
+    ).slice(0, limit);
   }
 
   const { getFirestore } = await import('../config/firebase.js');
@@ -581,5 +644,90 @@ export async function getTransactions(userId: string, limit = 50) {
     .limit(limit)
     .get();
 
-  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as CoinTransaction);
+}
+
+export type CoinPricingMode = 'fixed' | 'quote';
+
+export interface PublicCoinCatalogItem {
+  id: string;
+  category?: CoinSpendCategory;
+  label: string;
+  coins: number | null;
+  pricing: CoinPricingMode;
+  note?: string;
+}
+
+const STUDIO_CATALOG: Array<{
+  id: string;
+  category: CoinSpendCategory;
+  label: string;
+  pricing: CoinPricingMode;
+  note?: string;
+}> = [
+  { id: 'logo', category: CoinSpendCategory.LOGO_GENERATION, label: 'Logo-Generierung', pricing: 'fixed' },
+  { id: 'banner', category: CoinSpendCategory.BANNER_GENERATION, label: 'Banner-Generierung', pricing: 'fixed' },
+  { id: 'facecam', category: CoinSpendCategory.FACECAM_GENERATION, label: 'Facecam-Generierung', pricing: 'fixed' },
+  { id: 'overlay', category: CoinSpendCategory.OVERLAY_GENERATION, label: 'Overlay-Generierung', pricing: 'fixed' },
+  { id: 'sticker', category: CoinSpendCategory.STICKER_GENERATION, label: 'Sticker-Generierung', pricing: 'fixed' },
+  {
+    id: 'mockup',
+    category: CoinSpendCategory.MOCKUP_GENERATION,
+    label: 'Lifestyle-Mockup',
+    pricing: 'fixed',
+    note: 'Lokales Composite ist kostenlos.',
+  },
+  { id: 'animation', category: CoinSpendCategory.ANIMATION_GENERATION, label: 'Animation-Generierung', pricing: 'fixed' },
+  { id: 'music', category: CoinSpendCategory.AI_MUSIC, label: 'Musik-Generierung', pricing: 'fixed' },
+  { id: 'voice', category: CoinSpendCategory.AI_VOICE, label: 'Stimmen-Generierung', pricing: 'fixed' },
+  { id: 'nexter_voice', category: CoinSpendCategory.NEXTER_VOICE, label: 'Nexter-Stimme', pricing: 'fixed' },
+  { id: 'text', category: CoinSpendCategory.TEXT_GENERATION, label: 'Text-Generierung', pricing: 'fixed' },
+  { id: 'video', category: CoinSpendCategory.AI_VIDEO, label: 'Video-Generierung (Provider)', pricing: 'fixed' },
+  { id: 'video_edit', category: CoinSpendCategory.VIDEO_EDIT, label: 'Video-Captions (Provider)', pricing: 'fixed' },
+  { id: 'shorts', category: CoinSpendCategory.SHORTS_CLIP, label: 'Shorts-Clip', pricing: 'fixed' },
+  {
+    id: 'streamset',
+    category: CoinSpendCategory.STREAMSET_PACK,
+    label: 'Streamset',
+    pricing: 'quote',
+    note: 'Preis wird vor Generierung berechnet. Gesamtpaket oder Auswahl nach Server-Pricing.',
+  },
+  { id: 'branding_pack', category: CoinSpendCategory.BRANDING_PACK, label: 'Branding-Paket', pricing: 'fixed' },
+  { id: 'ultimate', category: CoinSpendCategory.ULTIMATE_CREATOR_PACK, label: 'Ultimate-Creator-Paket', pricing: 'fixed' },
+];
+
+const FREE_ACTION_CATALOG: PublicCoinCatalogItem[] = [
+  { id: 'file_preview', label: 'Datei-Vorschau', coins: 0, pricing: 'fixed' },
+  { id: 'file_download', label: 'Download', coins: 0, pricing: 'fixed' },
+  { id: 'project', label: 'Projektverwaltung', coins: 0, pricing: 'fixed' },
+  { id: 'local_mockup', label: 'Lokales Mockup-Composite', coins: 0, pricing: 'fixed' },
+  { id: 'local_ffmpeg', label: 'Lokale FFmpeg-Funktionen', coins: 0, pricing: 'fixed' },
+  { id: 'settings', label: 'Einstellungen', coins: 0, pricing: 'fixed' },
+  { id: 'calendar', label: 'Kalenderplanung', coins: 0, pricing: 'fixed' },
+];
+
+/** Central COIN_COSTS catalog for the Coins UI. No second price list. */
+export function getPublicCoinCatalog(): {
+  currency: 'Coins';
+  items: PublicCoinCatalogItem[];
+  freeActions: PublicCoinCatalogItem[];
+} {
+  const items: PublicCoinCatalogItem[] = [
+    ...STUDIO_CATALOG.map((row) => ({
+      id: row.id,
+      category: row.category,
+      label: row.label,
+      coins: COIN_COSTS[row.category],
+      pricing: row.pricing,
+      note: row.note,
+    })),
+    {
+      id: 'change_request',
+      label: 'Änderungswunsch',
+      coins: null,
+      pricing: 'quote',
+      note: 'Preis wird vor Generierung berechnet (Modulpreis der Original-Generierung).',
+    },
+  ];
+  return { currency: 'Coins', items, freeActions: FREE_ACTION_CATALOG };
 }

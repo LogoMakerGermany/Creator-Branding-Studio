@@ -4,8 +4,9 @@ import {
   Smile, User, Heart, Sparkles, CheckCircle2, Download, Package,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api, ApiError, type MediaJob, type VTuberType } from '@/services/api';
+import { api, type MediaJob, type VTuberType } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
+import { useNexterStore } from '@/v2/store/nexter-store';
 import { MediaJobPreview, getMediaDownloadUrl } from '@/components/media/MediaJobPreview';
 import {
   StudioErrorBanner,
@@ -27,7 +28,8 @@ const TYPES: { type: VTuberType; label: string; icon: typeof User }[] = [
 ];
 
 export function VTuberStudioPage() {
-  const { user, activeDna, refreshUser } = useAuth();
+  const { user, activeDna } = useAuth();
+  const queueNexterPrompt = useNexterStore((s) => s.queueNexterPrompt);
   const [characters, setCharacters] = useState<MediaJob[]>([]);
   const [selectedType, setSelectedType] = useState<VTuberType>('vtuber-character');
   const [prompt, setPrompt] = useState('');
@@ -46,16 +48,9 @@ export function VTuberStudioPage() {
       return;
     }
     setLoading(true);
-    setError(null);
-    try {
-      const res = await api.vtuber.generate(selectedType, prompt || undefined, title || undefined);
-      setCurrentJob(res.job);
-      await refreshUser();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Generierung fehlgeschlagen');
-    } finally {
-      setLoading(false);
-    }
+    setError('VTuber-Generierung startet nur über Nexter nach Bestätigung (Für X Coins erstellen).');
+    queueNexterPrompt('Animier mein Logo als Stream-Charakter.');
+    setLoading(false);
   }
 
   async function handleGeneratePack() {
@@ -64,17 +59,9 @@ export function VTuberStudioPage() {
       return;
     }
     setLoading(true);
-    setError(null);
-    try {
-      const res = await api.vtuber.generatePack();
-      setCharacters((prev) => [...res.jobs, ...prev]);
-      setCurrentJob(res.jobs[0] ?? null);
-      await refreshUser();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Paket-Generierung fehlgeschlagen');
-    } finally {
-      setLoading(false);
-    }
+    setError('VTuber-Paket startet nur über Nexter nach Bestätigung (Für X Coins erstellen).');
+    queueNexterPrompt('Animier mein Logo.');
+    setLoading(false);
   }
 
   const downloadUrl = getMediaDownloadUrl(currentJob);

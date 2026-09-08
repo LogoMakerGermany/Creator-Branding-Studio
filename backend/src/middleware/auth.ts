@@ -3,6 +3,10 @@ import { AppError } from './errorHandler.js';
 import { verifyIdToken } from '../config/firebase.js';
 import { getUserById } from '../services/user.service.js';
 import type { UserRole } from '@ucbs/shared';
+import {
+  isEmailVerificationExemptPath,
+  passwordProviderNeedsEmailVerification,
+} from '../lib/email-verification.js';
 
 export function denyIfDisabled(profile: { disabled?: boolean } | null | undefined): AppError | null {
   if (profile?.disabled) {
@@ -27,6 +31,7 @@ export interface AuthenticatedRequest extends Request {
     email: string;
     name?: string;
     emailVerified?: boolean;
+    signInProvider?: string;
   };
 }
 
@@ -50,11 +55,13 @@ export async function authenticate(
 
   try {
     const decoded = await verifyIdToken(token);
+    const signInProvider = decoded.firebase?.sign_in_provider;
     req.authToken = {
       uid: decoded.uid,
       email: decoded.email || `${decoded.uid}@unknown.local`,
       name: decoded.name,
       emailVerified: decoded.email_verified,
+      signInProvider,
     };
 
     const profile = await getUserById(decoded.uid);
@@ -71,6 +78,14 @@ export async function authenticate(
 
     if (profile.disabled) {
       next(denyIfDisabled(profile)!);
+      return;
+    }
+
+    if (
+      passwordProviderNeedsEmailVerification(signInProvider, decoded.email_verified) &&
+      !isEmailVerificationExemptPath(req.method, req.baseUrl || '', req.path || '')
+    ) {
+      next(new AppError(403, 'EMAIL_NOT_VERIFIED', 'Bitte bestätige zuerst deine E-Mail-Adresse'));
       return;
     }
 
@@ -115,6 +130,7 @@ export async function authenticateAllowUnprovisioned(
       email: decoded.email || `${decoded.uid}@unknown.local`,
       name: decoded.name,
       emailVerified: decoded.email_verified,
+      signInProvider: decoded.firebase?.sign_in_provider,
     };
 
     const profile = await getUserById(decoded.uid);

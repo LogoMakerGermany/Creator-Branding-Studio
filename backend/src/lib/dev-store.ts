@@ -1,9 +1,22 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, '../../.data');
+
+function isTestProcess(): boolean {
+  return (
+    Boolean(process.env.NODE_TEST) ||
+    process.execArgv.includes('--test') ||
+    process.argv.includes('--test') ||
+    process.argv.some((arg) => /\.test\.[cm]?ts$/.test(String(arg).replace(/\\/g, '/')))
+  );
+}
+
+const DATA_DIR = isTestProcess()
+  ? path.join(os.tmpdir(), `ucbs-dev-store-${process.pid}`)
+  : path.join(__dirname, '../../.data');
 
 type StoreData = {
   users: Record<string, unknown>;
@@ -25,15 +38,26 @@ function readJson<T>(name: string, fallback: T): T {
   ensureDataDir();
   const filePath = getStorePath(name);
   if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(fallback, null, 2));
+    writeJson(name, fallback);
     return fallback;
   }
-  return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as T;
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  if (!raw.trim()) return fallback;
+  return JSON.parse(raw) as T;
 }
 
 function writeJson<T>(name: string, data: T): void {
   ensureDataDir();
-  fs.writeFileSync(getStorePath(name), JSON.stringify(data, null, 2));
+  const filePath = getStorePath(name);
+  const tmpPath = `${filePath}.${process.pid}.tmp`;
+  const pretty = isTestProcess() ? undefined : 2;
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, pretty));
+  try {
+    fs.rmSync(filePath, { force: true });
+  } catch {
+    /* replace */
+  }
+  fs.renameSync(tmpPath, filePath);
 }
 
 export const devStore = {

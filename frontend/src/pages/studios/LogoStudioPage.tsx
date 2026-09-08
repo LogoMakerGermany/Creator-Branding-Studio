@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Sparkles, CheckCircle2, Download, RefreshCw, AlertCircle, Wand2, Star, Trash2,
+  CheckCircle2, Download, AlertCircle, Wand2, Star, Trash2,
 } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
@@ -12,6 +12,7 @@ import { useStudioProjects } from '@/hooks/useStudioProjects';
 import { useAuth } from '@/context/AuthContext';
 import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 import { api, ApiError, type LogoVariantResult } from '@/services/api';
+import { useNexterStore } from '@/v2/store/nexter-store';
 import { formatCoins } from '@/lib/utils';
 import {
   MAGIK_GAME_PRESETS,
@@ -34,9 +35,22 @@ import {
   readLogoStudioMode,
   writeLogoStudioMode,
   isLogoStudioProMode,
+  COIN_COSTS,
+  CoinSpendCategory,
+  LOGO_LOOK_PRESETS,
+  LOGO_PLATFORM_PRESETS,
+  LOGO_400PX_PRESET,
+  applyLogoPlatformPreset,
+  applyLogoStylePreset,
+  buildLogoDesignSummary,
+  defaultLogoConfig,
+  logoConfigFromDna,
+  logoConfigFromGenerationOptions,
   type LogoGenerationOptions,
   type LogoStudioMode,
   type SavedLogoFavorite,
+  type LogoPlatform,
+  type LogoShape,
 } from '@ucbs/shared';
 import { StudioShell } from '@/v2/components/StudioShell';
 import { StudioWorkbench } from '@/v2/components/StudioWorkbench';
@@ -45,7 +59,7 @@ import { StudioOptionPill } from '@/v2/components/StudioOptionPill';
 import { GlassCard } from '@/v2/components/GlassCard';
 import { Link } from 'react-router-dom';
 
-const COIN_COST = 15;
+const COIN_COST = COIN_COSTS[CoinSpendCategory.LOGO_GENERATION];
 
 const EMPTY_FORM: LogoGenerationOptions = {
   logoName: '',
@@ -96,7 +110,8 @@ function FieldError({ message }: { message?: string }) {
 export function LogoStudioPage() {
   const { user, activeDna, refreshUser } = useAuth();
   const projectId = useBrandProjectStore((s) => s.activeProjectId);
-  const { projects, refresh } = useStudioProjects('logo');
+  const { projects, refresh, loading: jobsLoading } = useStudioProjects('logo');
+  const queueNexterPrompt = useNexterStore((s) => s.queueNexterPrompt);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [variants, setVariants] = useState<LogoVariantResult[]>([]);
@@ -107,6 +122,12 @@ export function LogoStudioPage() {
   const [promptDraft, setPromptDraft] = useState('');
   const [studioMode, setStudioMode] = useState<LogoStudioMode>(() => readLogoStudioMode());
   const [activeFavoriteId, setActiveFavoriteId] = useState<string | null>(null);
+  const [logoWidth, setLogoWidth] = useState<number>(LOGO_400PX_PRESET.width);
+  const [logoHeight, setLogoHeight] = useState<number>(LOGO_400PX_PRESET.height);
+  const [outputFormat, setOutputFormat] = useState<'png' | 'webp' | 'jpg'>('png');
+  const [shape, setShape] = useState<LogoShape>('ring');
+  const [platform, setPlatform] = useState<LogoPlatform>('twitch');
+  const [dnaConfirmOpen, setDnaConfirmOpen] = useState(false);
 
   const isProMode = isLogoStudioProMode(studioMode);
 
@@ -157,10 +178,43 @@ export function LogoStudioPage() {
     return analyzeMagikName(form.logoName);
   }, [form.logoName, form.magikMode]);
 
+  const logoConfig = useMemo(() => {
+    const fromForm = logoConfigFromGenerationOptions(form, {
+      width: logoWidth,
+      height: logoHeight,
+      outputFormat,
+      shape,
+      platform,
+      name: form.logoName,
+    });
+    return defaultLogoConfig({
+      ...fromForm,
+      ...(activeDna ? logoConfigFromDna(activeDna) : {}),
+      ...fromForm,
+      width: logoWidth,
+      height: logoHeight,
+      outputFormat,
+      shape,
+      platform,
+      name: form.logoName || (activeDna ? logoConfigFromDna(activeDna).name : '') || '',
+    });
+  }, [form, logoWidth, logoHeight, outputFormat, shape, platform, activeDna]);
+
+  const designSummary = buildLogoDesignSummary(logoConfig);
+  const coins = user?.coinBalance ?? 0;
+  const remainder = coins - COIN_COST;
+
   const magikPrompts = useMemo(() => {
-    if (!activeDna || !formValid) return null;
+    if (!formValid) return null;
+    const dnaCtx = activeDna ?? {
+      name: form.logoName || 'Creator',
+      primaryColors: collectMagikColors(form),
+      secondaryColors: [],
+      accentColors: [],
+      styleDirection: form.magikStyle,
+    };
     try {
-      return buildMagikLogoPrompts(activeDna, buildPayload());
+      return buildMagikLogoPrompts(dnaCtx, buildPayload());
     } catch {
       return null;
     }
@@ -208,11 +262,36 @@ export function LogoStudioPage() {
     api.magik.feedback({ eventType, variant, prompt, profile: magikProfile() }).catch(() => {});
   }
 
+  function nexterPrompt(kind: 'create' | 'variant' | 'change' = 'create', extra = '') {
+    if (kind === 'variant') {
+      return `Neue Variante meines Logos: ${designSummary} ${extra}`.trim();
+    }
+    if (kind === 'change') {
+      return extra || `Ändere mein letztes Logo: ${designSummary}`;
+    }
+    return `Mach mir ein Logo. ${designSummary} ${extra}`.trim();
+  }
+
+  async function tryDirectGenerate() {
+    setTouched(true);
+    setError(null);
+    try {
+      await api.studio.generate('logo', {
+        ...form,
+        selectedColors: collectMagikColors(form),
+        transparentBackground: form.magikBackground === 'transparent' || outputFormat !== 'jpg',
+        projectId: projectId ?? undefined,
+      });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Generierung fehlgeschlagen');
+    }
+  }
+
   async function runGenerate(nextForm?: LogoGenerationOptions) {
     const payloadForm = nextForm ?? form;
     setTouched(true);
-    if (!activeDna) {
-      setError('Erstelle zuerst eine Creator DNA');
+    if (!payloadForm.logoName?.trim()) {
+      setError('Bitte zuerst einen Namen eingeben');
       return;
     }
     const errors = validateMagikLogoOptions(payloadForm);
@@ -220,56 +299,12 @@ export function LogoStudioPage() {
       setError('Bitte Pflichtfelder ausfüllen — Nexter benötigt deine Eingaben.');
       return;
     }
-
-    trackFeedback('regenerate', activeVariant, promptDraft);
-
     setLoading(true);
-    setError(null);
     try {
-      const payload = {
-        ...payloadForm,
-        selectedColors: collectMagikColors(payloadForm),
-        transparentBackground: payloadForm.magikBackground === 'transparent',
-        customPromptOverride: editPrompt ? promptDraft : undefined,
-        projectId: projectId ?? undefined,
-      };
-      const res = await api.studio.generate('logo', payload);
-      if (res.variants?.length) {
-        const ok = res.variants.filter((v) => v.status === 'completed' && v.imageUrl);
-        if (!ok.length) {
-          const errMsg = res.variants.map((v) => v.error).filter(Boolean).join('; ');
-          setError(errMsg || 'Beide Logo-Varianten sind fehlgeschlagen');
-          setVariants(res.variants);
-        } else {
-          setVariants(res.variants);
-          setActiveVariant(ok[0].variant);
-        }
-      } else if (res.imageUrl && res.status === 'completed') {
-        setVariants([
-          {
-            variant: 'a',
-            jobId: res.jobId,
-            status: res.status,
-            imageUrl: res.imageUrl,
-            exports: res.exports,
-            provider: res.provider,
-            prompt: res.prompts?.a ?? promptDraft,
-          },
-        ]);
-      } else {
-        setError(res.error || 'Generierung fehlgeschlagen');
-      }
-      await refreshUser();
-      await refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Generierung fehlgeschlagen');
+      queueNexterPrompt(nexterPrompt('create'));
     } finally {
       setLoading(false);
     }
-  }
-
-  async function handleGenerate() {
-    await runGenerate();
   }
 
   async function handleGenerateFromName() {
@@ -291,36 +326,73 @@ export function LogoStudioPage() {
     await runGenerate(prepared);
   }
 
+  async function downloadOwnedLogo(jobId: string) {
+    setError(null);
+    try {
+      const dl = await api.studio.downloadLogo(jobId);
+      window.open(dl.downloadUrl, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Download fehlgeschlagen');
+    }
+  }
+
+  async function queueStreamsetFromLogo(jobId: string) {
+    setError(null);
+    try {
+      await api.streamset.preview({
+        sourceLogoJobId: jobId,
+        projectId: projectId ?? undefined,
+      });
+      queueNexterPrompt('Komplettes Streamset daraus erstellen');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Streamset-Entwurf fehlgeschlagen');
+    }
+  }
+
+  async function confirmApplyDna(jobId: string) {
+    setError(null);
+    try {
+      await api.studio.applyLogoDna(jobId, true);
+      await refresh();
+      setDnaConfirmOpen(false);
+      await refreshUser();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'DNA-Übernahme fehlgeschlagen');
+    }
+  }
+
   return (
     <StudioShell
       title="Logo Studio"
-      description="Gaming- und Stream-Logos aus deiner Creator DNA — Varianten A/B, echte Generierung"
+      description="Gaming- und Stream-Logos — DNA als Defaults, Quote und Bestätigung über Nexter"
       coinCost={COIN_COST}
       badge={
         <span className="rounded-full border border-[var(--ucbs-accent-purple)]/40 bg-[var(--ucbs-accent-purple)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--ucbs-accent-purple)]">
-          2 Varianten / Klick
+          400×400 / Quote
         </span>
       }
       nexterHint={
-        variants.length
+        projects.some((p) => p.status === 'completed')
           ? 'Soll ich dir daraus ein vollständiges Streamset erstellen?'
           : 'Logo Studio'
       }
     >
       <div className="space-y-4">
-        {!activeDna && <DnaRequiredBanner />}
+        {!activeDna && (
+          <DnaRequiredBanner message="Ohne Creator DNA reichen Name, Farben und Stil in diesem Formular — kein zweites Onboarding." />
+        )}
         {error && <StudioErrorBanner message={error} />}
-        {variants.length > 0 && !loading && (
+        {projects.some((p) => p.status === 'completed') && (
           <StudioSuccessBanner>
             <span className="flex flex-wrap items-center gap-3">
               <span className="flex items-center gap-2">
                 <CheckCircle2 className="h-5 w-5" />
-                Zwei Varianten — A (Name) und B (Design). Wähle deine Favoritin.
+                Logo gespeichert — Preview, Download und Streamset über Nexter.
               </span>
               <Link
                 to="/streamset-studio"
                 data-testid="logo-to-streamset"
-                className="rounded-full border border-[var(--ucbs-accent-cyan)]/40 bg-[var(--ucbs-accent-cyan)]/10 px-3 py-1 text-xs font-medium text-[var(--ucbs-accent-cyan)] hover:bg-[var(--ucbs-accent-cyan)]/20"
+                className="min-h-11 rounded-full border border-[var(--ucbs-accent-cyan)]/40 bg-[var(--ucbs-accent-cyan)]/10 px-3 py-2 text-xs font-medium text-[var(--ucbs-accent-cyan)] hover:bg-[var(--ucbs-accent-cyan)]/20"
               >
                 Soll ich dir daraus ein vollständiges Streamset erstellen?
               </Link>
@@ -335,6 +407,119 @@ export function LogoStudioPage() {
         settings={
           <div className="max-h-[75vh] space-y-5 overflow-y-auto pr-1">
             <LogoProModeSection mode={studioMode} onModeChange={setStudioModePersist} />
+
+            <section data-testid="logo-presets">
+              <FieldLabel>Logo-Presets</FieldLabel>
+              <div className="flex flex-wrap gap-1">
+                {LOGO_LOOK_PRESETS.map((preset) => (
+                  <StudioOptionPill
+                    key={preset.id}
+                    active={logoConfig.magikStyle === preset.magikStyle || logoConfig.shape === preset.shape}
+                    onClick={() => {
+                      const next = applyLogoStylePreset(logoConfig, preset.id);
+                      setShape(next.shape);
+                      setField('magikStyle', next.magikStyle);
+                      if (next.magikLogoArt) setField('magikLogoArt', next.magikLogoArt);
+                      if (next.magikMode) setField('magikMode', next.magikMode);
+                    }}
+                    className="min-h-11 text-[10px]"
+                  >
+                    {preset.label}
+                  </StudioOptionPill>
+                ))}
+              </div>
+            </section>
+
+            <section data-testid="logo-platform-presets">
+              <FieldLabel>Plattform</FieldLabel>
+              <div className="flex flex-wrap gap-1">
+                {(Object.keys(LOGO_PLATFORM_PRESETS) as LogoPlatform[]).map((id) => (
+                  <StudioOptionPill
+                    key={id}
+                    active={platform === id}
+                    onClick={() => {
+                      const next = applyLogoPlatformPreset(logoConfig, id);
+                      setPlatform(id);
+                      setLogoWidth(next.width);
+                      setLogoHeight(next.height);
+                    }}
+                    className="min-h-11 text-[10px]"
+                  >
+                    {LOGO_PLATFORM_PRESETS[id].label}
+                  </StudioOptionPill>
+                ))}
+                <StudioOptionPill
+                  active={logoWidth === 400 && logoHeight === 400}
+                  onClick={() => {
+                    setLogoWidth(400);
+                    setLogoHeight(400);
+                  }}
+                  className="min-h-11 text-[10px]"
+                >
+                  400×400
+                </StudioOptionPill>
+              </div>
+              <p className="mt-1 text-[11px] text-zinc-500">{LOGO_PLATFORM_PRESETS[platform].safeArea}</p>
+            </section>
+
+            <section>
+              <FieldLabel>Form</FieldLabel>
+              <div className="flex flex-wrap gap-1">
+                {([
+                  ['free', 'Frei'],
+                  ['ring', 'Kreis/Ring'],
+                  ['badge', 'Badge/Emblem'],
+                ] as const).map(([id, label]) => (
+                  <StudioOptionPill
+                    key={id}
+                    active={shape === id}
+                    onClick={() => {
+                      setShape(id);
+                      setField('ringLogoMode', id === 'free' ? 'no' : 'yes');
+                    }}
+                    className="min-h-11 text-[10px]"
+                  >
+                    {label}
+                  </StudioOptionPill>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <FieldLabel>Format & Transparenz</FieldLabel>
+              <div className="flex flex-wrap gap-1">
+                {(['png', 'webp', 'jpg'] as const).map((fmt) => (
+                  <StudioOptionPill
+                    key={fmt}
+                    active={outputFormat === fmt}
+                    onClick={() => {
+                      setOutputFormat(fmt);
+                      if (fmt === 'jpg') {
+                        setField('magikBackground', 'dark');
+                        setField('transparentBackground', false);
+                      }
+                    }}
+                    className="min-h-11 text-[10px]"
+                  >
+                    {fmt.toUpperCase()}
+                  </StudioOptionPill>
+                ))}
+                <StudioOptionPill
+                  active={form.magikBackground === 'transparent' && outputFormat !== 'jpg'}
+                  onClick={() => {
+                    if (outputFormat === 'jpg') {
+                      setError('JPG unterstützt keine Transparenz. Bitte PNG oder WEBP wählen.');
+                      return;
+                    }
+                    setField('magikBackground', 'transparent');
+                    setField('transparentBackground', true);
+                  }}
+                  className="min-h-11 text-[10px]"
+                >
+                  Transparent
+                </StudioOptionPill>
+              </div>
+            </section>
 
             <LogoStyleSection
               form={form}
@@ -537,6 +722,22 @@ export function LogoStudioPage() {
         preview={
           <div className={`grid gap-4 ${isProMode ? 'xl:grid-cols-[1fr_minmax(260px,300px)]' : ''}`}>
             <div className="space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400" data-testid="logo-preview-label">
+              Konfigurationsvorschau — noch kein generiertes Logo
+            </p>
+            <div className="rounded-lg border border-white/10 p-3 text-sm text-zinc-200" data-testid="logo-design-summary">
+              {designSummary}
+            </div>
+            <div className="rounded-lg border border-white/10 p-3 text-[11px] text-zinc-400" data-testid="logo-quote-summary">
+              <p>
+                {COIN_COST} Coins · Bestand {coins} → nach Bestätigung {remainder < 0 ? 'unzureichend' : remainder}
+              </p>
+              {remainder < 0 && (
+                <p className="mt-1 text-amber-300" data-testid="logo-insufficient-coins">
+                  Zu wenig Coins — Job startet nicht.
+                </p>
+              )}
+            </div>
             <LogoPreviewNamePanel
               form={form}
               onFormChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
@@ -551,7 +752,7 @@ export function LogoStudioPage() {
               }
               nameError={touched ? validationErrors.logoName : undefined}
               loading={loading}
-              disabled={!activeDna || (user?.coinBalance ?? 0) < COIN_COST}
+              disabled={!form.logoName?.trim() || (user?.coinBalance ?? 0) < COIN_COST}
               onGenerateFromName={handleGenerateFromName}
               onGenerateRandom={handleGenerateRandom}
             />
@@ -649,35 +850,113 @@ export function LogoStudioPage() {
           </div>
         }
         actions={
-          <Button
-            className="gap-2"
-            onClick={handleGenerate}
-            loading={loading}
-            disabled={!activeDna || !formValid || (user?.coinBalance ?? 0) < COIN_COST}
-          >
-            {variants.length ? <RefreshCw className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
-            {variants.length ? 'Neu generieren (A+B)' : 'Logo generieren (A+B)'} ({formatCoins(COIN_COST)} Coins)
-          </Button>
+          <div className="flex w-full flex-col gap-2">
+            <button
+              type="button"
+              data-testid="logo-nexter-chip"
+              onClick={() => queueNexterPrompt(nexterPrompt('create'))}
+              className="min-h-11 w-full rounded-full border border-violet-500/40 bg-violet-500/10 px-3 py-2 text-sm text-violet-200"
+            >
+              Für {formatCoins(COIN_COST)} Coins erstellen — Nexter
+            </button>
+            <Button variant="ghost" size="sm" className="min-h-11 w-full" onClick={() => void tryDirectGenerate()}>
+              Direkt erzeugen (wird abgelehnt)
+            </Button>
+          </div>
         }
         history={
-          <StudioHistory
-            projects={projects}
-            onSelect={(p) => {
-              if (p.imageUrl) {
-                setVariants([
-                  {
-                    variant: 'a',
-                    jobId: p.id,
-                    status: p.status,
-                    imageUrl: p.imageUrl,
-                    exports: p.exports,
-                    provider: p.provider,
-                    prompt: '',
-                  },
-                ]);
-              }
-            }}
-          />
+          <GlassCard accent="cyan" className="!p-5" data-testid="logo-jobs">
+            <h2 className="mb-3 text-sm font-semibold text-zinc-300">Ergebnisse</h2>
+            {jobsLoading && (
+              <p className="text-sm text-zinc-500" data-testid="logo-jobs-loading">
+                Ergebnisse laden …
+              </p>
+            )}
+            {!jobsLoading && projects.length === 0 && (
+              <p className="text-sm text-zinc-500" data-testid="logo-jobs-empty">
+                Noch kein Logo-Projekt.
+              </p>
+            )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {projects.slice(0, 8).map((p) => (
+                <div key={p.id} className="rounded-lg border border-zinc-800 p-3" data-testid="logo-result-card">
+                  {p.imageUrl ? (
+                    <img src={p.imageUrl} alt={`Logo Version ${p.version ?? 1}, ${p.width ?? logoWidth} mal ${p.height ?? logoHeight} Pixel`} className="mb-2 h-24 w-full object-contain" />
+                  ) : p.status === 'failed' ? (
+                    <p className="text-xs text-red-400">Fehlgeschlagen{p.error ? `: ${p.error}` : ''}</p>
+                  ) : p.status === 'processing' || p.status === 'queued' ? (
+                    <p className="text-xs text-zinc-400">{p.status === 'queued' ? 'In der Warteschlange' : 'Wird erzeugt …'}</p>
+                  ) : p.fileMissing ? (
+                    <p className="text-xs text-amber-300" data-testid="logo-result-missing">Result fehlt</p>
+                  ) : null}
+                  <p className="text-xs text-zinc-500">
+                    {p.status}
+                    {p.width && p.height ? ` · ${p.width}×${p.height}` : ''}
+                    {p.mimeType ? ` · ${p.mimeType}` : ''}
+                    {typeof p.version === 'number' ? ` · v${p.version}` : ''}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {p.status === 'completed' && !p.fileMissing && (
+                      <Button size="sm" variant="outline" className="min-h-11 gap-1" onClick={() => void downloadOwnedLogo(p.id)}>
+                        <Download className="h-3.5 w-3.5" /> Download
+                      </Button>
+                    )}
+                    {p.status === 'completed' && (
+                      <Button size="sm" variant="outline" className="min-h-11" onClick={() => queueNexterPrompt(nexterPrompt('variant'))}>
+                        Neue Variante
+                      </Button>
+                    )}
+                    {p.status === 'completed' && (
+                      <Button size="sm" variant="outline" className="min-h-11" onClick={() => queueNexterPrompt('Mach das Logo aggressiver.')}>
+                        Ändern
+                      </Button>
+                    )}
+                    {p.status === 'completed' && (
+                      <Button size="sm" variant="outline" className="min-h-11" data-testid="logo-to-streamset-action" onClick={() => void queueStreamsetFromLogo(p.id)}>
+                        Für Streamset verwenden
+                      </Button>
+                    )}
+                    {p.status === 'completed' && (
+                      <Button size="sm" variant="ghost" className="min-h-11" onClick={() => setDnaConfirmOpen(true)}>
+                        Als Creator DNA
+                      </Button>
+                    )}
+                    {p.status === 'failed' && (
+                      <Button size="sm" variant="outline" className="min-h-11" onClick={() => void api.studio.retryLogo(p.id).catch((err) => setError(err instanceof ApiError ? err.message : 'Retry braucht ein neues Angebot'))}>
+                        Erneut versuchen
+                      </Button>
+                    )}
+                  </div>
+                  {dnaConfirmOpen && p.status === 'completed' && (
+                    <div className="mt-2 rounded border border-amber-500/30 p-2 text-xs text-amber-100" data-testid="logo-dna-confirm">
+                      <p>Dieses Logo als Basis der Creator DNA verwenden? DNA wird nicht still überschrieben.</p>
+                      <Button size="sm" className="mt-2 min-h-11" onClick={() => void confirmApplyDna(p.id)}>
+                        Ja, DNA aktualisieren
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <StudioHistory
+              projects={projects}
+              onSelect={(p) => {
+                if (p.imageUrl) {
+                  setVariants([
+                    {
+                      variant: 'a',
+                      jobId: p.id,
+                      status: p.status,
+                      imageUrl: p.imageUrl,
+                      exports: p.exports,
+                      provider: p.provider,
+                      prompt: '',
+                    },
+                  ]);
+                }
+              }}
+            />
+          </GlassCard>
         }
       />
     </StudioShell>

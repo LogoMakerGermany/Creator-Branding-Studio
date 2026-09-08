@@ -8,20 +8,11 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import {
   listUltimateProjects,
   getUltimateProject,
-  runUltimateCreatorPack,
   markProjectExported,
 } from '../services/ultimate-creator/index.js';
-import { ServiceError } from '../lib/errors.js';
 
 export const ultimateCreatorRoutes = Router();
 ultimateCreatorRoutes.use(authenticate);
-
-function mapError(err: unknown): never {
-  if (err instanceof ServiceError) {
-    throw new AppError(err.statusCode, err.code, err.message);
-  }
-  throw err;
-}
 
 ultimateCreatorRoutes.get(
   '/projects',
@@ -55,13 +46,12 @@ ultimateCreatorRoutes.post(
   '/create',
   requirePermission(Permission.USE_BANNER_STUDIO),
   asyncHandler(async (req: AuthenticatedRequest, res) => {
-    const wizard = wizardSchema.parse(req.body);
-    try {
-      const result = await runUltimateCreatorPack(req.user!.uid, wizard);
-      sendSuccess(res, result, 201);
-    } catch (err) {
-      mapError(err);
-    }
+    wizardSchema.parse(req.body ?? {});
+    throw new AppError(
+      400,
+      'ULTIMATE_REQUIRES_QUOTE',
+      'Ultimate-Creator-Paket startet nur über Nexter nach Bestätigung (Streamset / Für X Coins erstellen).'
+    );
   })
 );
 

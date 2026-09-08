@@ -1,5 +1,7 @@
 import type { Server } from 'node:http';
 
+import { logProcessFailure } from './observability.js';
+
 let acceptingWork = true;
 let httpServer: Server | null = null;
 let shuttingDown = false;
@@ -43,4 +45,10 @@ export function setupGracefulShutdown(): void {
 
   process.on('SIGTERM', () => onSignal('SIGTERM'));
   process.on('SIGINT', () => onSignal('SIGINT'));
+  process.on('unhandledRejection', (reason) => {
+    logProcessFailure('unhandledRejection', reason);
+  });
+  process.on('uncaughtException', (err) => {
+    logProcessFailure('uncaughtException', err);
+  });
 }

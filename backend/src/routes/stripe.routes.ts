@@ -21,6 +21,7 @@ import { assertQuoteValidForPayment } from '../services/pricing.service.js';
 import { creditStripeOrderPayment } from '../services/ledger.service.js';
 import { claimStripeSession } from '../services/session-store.service.js';
 import { isDevAuthEnabled, isProduction } from '../config/env.js';
+import { assertNewPaymentsAllowed } from '../lib/payments-gate.js';
 
 export const stripeRoutes = Router();
 
@@ -103,6 +104,7 @@ stripeRoutes.post(
   requirePermission(Permission.PURCHASE_COINS),
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const { packageId } = checkoutSchema.parse(req.body);
+    await assertNewPaymentsAllowed();
 
     if (!isStripeConfigured()) {
       if (isDevAuthEnabled()) {
@@ -128,6 +130,7 @@ stripeRoutes.post(
     if (isProduction() || !isDevAuthEnabled()) {
       throw new AppError(403, 'FORBIDDEN', 'Dev-Kauf ist in Production deaktiviert');
     }
+    await assertNewPaymentsAllowed();
 
     const body = checkoutSchema.extend({
       idempotencyKey: z.string().min(8).max(80).optional(),
@@ -204,7 +207,7 @@ stripeRoutes.post(
     try {
       event = await constructWebhookEvent(req.body, signature);
     } catch (err) {
-      console.error('[Stripe] Webhook signature verification failed:', err);
+      console.error('[Stripe] Webhook signature verification failed:', err instanceof Error ? err.message : 'error');
       res.status(400).json({ error: 'Invalid signature' });
       return;
     }

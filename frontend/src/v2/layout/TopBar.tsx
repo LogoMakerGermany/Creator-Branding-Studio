@@ -109,17 +109,18 @@ export function TopBar() {
       )}
 
       <Link
-        to="/settings#feedback"
+        to="/support"
         className="hidden rounded-xl border border-white/10 px-3 py-1.5 text-sm text-zinc-300 hover:bg-[var(--ucbs-hover)] sm:inline-flex"
       >
-        Feedback senden
+        Hilfe
       </Link>
       <Link
         to="/coins"
-        className="hidden items-center gap-1.5 rounded-xl border border-[var(--ucbs-accent-purple)]/30 bg-[var(--ucbs-accent-purple)]/10 px-3 py-1.5 text-sm font-medium text-[var(--ucbs-accent-purple)] sm:flex"
+        aria-label={user ? `Coins: ${formatCoins(user.coinBalance)}` : 'Coins-Übersicht'}
+        className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-[var(--ucbs-accent-purple)]/30 bg-[var(--ucbs-accent-purple)]/10 px-2.5 py-1.5 text-sm font-medium text-[var(--ucbs-accent-purple)] sm:px-3"
       >
-        <Coins className="h-4 w-4" />
-        {formatCoins(user?.coinBalance ?? 0)}
+        <Coins className="h-4 w-4" aria-hidden />
+        <span>{user ? formatCoins(user.coinBalance) : '…'}</span>
       </Link>
 
       <div className="hidden items-center gap-1 rounded-xl border border-[var(--ucbs-accent-green)]/25 bg-[var(--ucbs-accent-green)]/10 px-2.5 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--ucbs-accent-green)] sm:flex">
@@ -142,6 +143,9 @@ export function TopBar() {
           </div>
           <Link to="/settings" className="block px-4 py-2 text-sm text-zinc-300 hover:bg-[var(--ucbs-hover)]">
             Einstellungen
+          </Link>
+          <Link to="/support" className="block px-4 py-2 text-sm text-zinc-300 hover:bg-[var(--ucbs-hover)]">
+            Hilfe
           </Link>
           <button
             type="button"

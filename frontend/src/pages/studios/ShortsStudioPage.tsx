@@ -26,6 +26,9 @@ export function ShortsStudioPage() {
   const [selected, setSelected] = useState<VideoProject | null>(null);
   const [start, setStart] = useState(Number(search.get('start') ?? 0));
   const [end, setEnd] = useState(Number(search.get('end') ?? 8));
+  const [format, setFormat] = useState<'shorts' | 'tiktok' | 'instagram' | 'youtube' | 'ad'>(
+    (search.get('format') as 'shorts') || 'shorts'
+  );
   const [cropMode, setCropMode] = useState<'center' | 'manual'>('center');
   const [cropX, setCropX] = useState(0.35);
   const [cropY, setCropY] = useState(0);
@@ -95,7 +98,7 @@ export function ShortsStudioPage() {
       const res = await api.video.createShort(selected.id, {
         start,
         end,
-        format: 'shorts',
+        format,
         crop,
         burnSubtitles: burnSubs,
       });
@@ -163,9 +166,22 @@ export function ShortsStudioPage() {
               ))}
             </div>
 
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Format</p>
+            <div className="flex flex-wrap gap-2" data-testid="shorts-formats">
+              {(['shorts', 'tiktok', 'instagram', 'youtube', 'ad'] as const).map((id) => (
+                <StudioOptionPill key={id} active={format === id} onClick={() => setFormat(id)}>
+                  {id === 'ad' ? '1:1' : id === 'youtube' ? '16:9' : '9:16'}
+                </StudioOptionPill>
+              ))}
+            </div>
+            {(selected?.highlights ?? []).length === 0 && selected && (
+              <p className="text-xs text-zinc-500" data-testid="shorts-no-highlights">
+                Keine Auto-Highlights — Start/Ende manuell wählen.
+              </p>
+            )}
             {(selected?.highlights ?? []).length > 0 && (
               <div>
-                <p className="mb-1 text-xs text-zinc-500">Highlight als Quelle</p>
+                <p className="mb-1 text-xs text-zinc-500">Highlight als Quelle (kein Auto-Export)</p>
                 {selected!.highlights.map((h, i) => (
                   <button
                     key={i}

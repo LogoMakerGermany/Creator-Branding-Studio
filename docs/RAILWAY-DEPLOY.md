@@ -82,7 +82,7 @@ git push -u origin main
 | `FIREBASE_PROJECT_ID` | Admin |
 | `FIREBASE_CLIENT_EMAIL` | Admin |
 | `FIREBASE_PRIVATE_KEY` | Mit `\n` für Zeilenumbrüche |
-| `FIREBASE_STORAGE_BUCKET` | z. B. `projekt.appspot.com` |
+| `FIREBASE_STORAGE_BUCKET` | z. B. `nexter-creator-studio.firebasestorage.app` (ohne `gs://`) |
 | `FRONTEND_URL` | Railway-URL nach erstem Deploy, z. B. `https://ucbs-production.up.railway.app` |
 | `FRONTEND_URLS` | Gleiche URL (kommagetrennt bei mehreren) |
 | `STRIPE_SECRET_KEY` | `sk_live_...` |

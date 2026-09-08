@@ -30,7 +30,10 @@ describe('phase E — mockup catalog', () => {
 
 describe('phase E — parseMockupIntent', () => {
   it('maps Zeig mir schwarze Tasse to black mug', () => {
-    assert.deepEqual(parseMockupIntent('Zeig mir schwarze Tasse'), { category: 'mug', colorId: 'black' });
+    const parsed = parseMockupIntent('Zeig mir schwarze Tasse');
+    assert.equal(parsed.category, 'mug');
+    assert.equal(parsed.colorId, 'black');
+    assert.equal(parsed.lifestyle, true);
   });
 
   it('maps hoodie and t-shirt separately', () => {

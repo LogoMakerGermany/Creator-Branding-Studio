@@ -2,7 +2,7 @@ import type { CreatorDNA, Project, ProjectAsset, ProjectExportManifest, ProjectE
 import { getProject } from './project.service.js';
 import { getDnaById } from './dna.service.js';
 import { getJobsByUser } from './ai.service.js';
-import { listUserFiles, type UserFile } from './file-cloud.service.js';
+import { listUserFiles, mintDownloadUrlForOwnedFile, type UserFile } from './file-cloud.service.js';
 import { listTextJobs, contentPackageExportText } from './text.service.js';
 import { buildZipArchive, sanitizeZipEntryName, zipEntryPath } from '../lib/zip-store.js';
 import { uploadAssetFromDataUrl } from '../lib/firebase-storage.js';
@@ -184,9 +184,27 @@ export async function exportProjectZip(
   }
 
   for (const file of files) {
-    if (!file.downloadUrl) continue;
-    const ext = extensionFromUrl(file.downloadUrl, file.mimeType);
-    await packBinary(file.id, 'files', `${sanitizeZipEntryName(file.name)}.${ext}`, file.downloadUrl, {
+    if (file.userId !== userId) continue;
+    const minted = await mintDownloadUrlForOwnedFile(userId, file);
+    const url = minted?.url ?? (file.downloadUrl?.startsWith('data:') ? file.downloadUrl : undefined);
+    if (!url) {
+      missingCount++;
+      assetMeta.push({
+        id: file.id,
+        name: file.name,
+        type: file.category,
+        module: file.category,
+        version: file.version ?? 1,
+        mimeType: file.mimeType,
+        source: 'file-cloud',
+        fileId: file.id,
+        filename: '',
+        missing: true,
+      });
+      continue;
+    }
+    const ext = extensionFromUrl(url, file.mimeType);
+    await packBinary(file.id, 'files', `${sanitizeZipEntryName(file.name)}.${ext}`, url, {
       id: file.id,
       name: file.name,
       type: file.category,

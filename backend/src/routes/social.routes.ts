@@ -55,6 +55,7 @@ const createSchema = z.object({
   packageId: z.string().max(80).optional(),
   projectId: z.string().max(80).optional(),
   status: z.enum(['draft', 'scheduled', 'ready', 'published']).optional(),
+  contentType: z.string().max(40).optional(),
 });
 
 socialRoutes.post(
@@ -81,6 +82,8 @@ const updateSchema = z.object({
   mediaKind: z.string().max(40).optional(),
   packageId: z.string().max(80).optional(),
   projectId: z.string().max(80).optional(),
+  contentType: z.string().max(40).optional(),
+  clearSchedule: z.boolean().optional(),
 });
 
 socialRoutes.patch(

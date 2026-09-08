@@ -5,9 +5,14 @@ import { getJob, runGenerationJob, saveJob, type GenerationJob } from './ai.serv
 import { resolveDnaForRequest } from './dna.service.js';
 import { withCoinCharge } from '../lib/billable-job.js';
 import { attachAssetToProject } from './project-assets.service.js';
+import { getUserFile, issueFileDownloadUrl } from './file-cloud.service.js';
+import { listProjects } from './project.service.js';
 import { ServiceError } from '../lib/errors.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { QUOTE_KIND_CATEGORY } from './nexter/tools.service.js';
+
+export const CHANGE_TEXT_MIN = 3;
+export const CHANGE_TEXT_MAX = 500;
 
 export interface ChangeRequestRecord {
   id: string;
@@ -19,9 +24,26 @@ export interface ChangeRequestRecord {
   versionAfter?: string;
   imageUrlBefore?: string;
   imageUrlAfter?: string;
+  fileIdBefore?: string;
+  fileIdAfter?: string;
   quoteId?: string;
+  scope?: 'asset' | 'set' | 'dna';
   createdAt: string;
   completedAt?: string;
+}
+
+export interface ChangeableSource {
+  id: string;
+  kind: NexterQuoteKind;
+  module: string;
+  label: string;
+  fileId?: string;
+  projectId?: string;
+  version?: number;
+  createdAt: string;
+  resultKind: 'image' | 'audio' | 'video' | 'other';
+  batchId?: string;
+  assetKey?: string;
 }
 
 export interface DesignVersionRecord {
@@ -52,8 +74,48 @@ const IMAGE_KIND_BY_MODULE: Record<string, NexterQuoteKind> = {
   alert: 'overlay',
 };
 
+const MEDIA_KIND_BY_MODULE: Record<string, NexterQuoteKind> = {
+  animation: 'animation',
+  music: 'music',
+  voice: 'voice',
+  mockup: 'mockup',
+  streamset: 'streamset',
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  logo: 'Logo',
+  'profile-pic': 'Profilbild',
+  banner: 'Banner',
+  facecam: 'Facecam',
+  sticker: 'Sticker',
+  overlay: 'Overlay',
+  animation: 'Animation',
+  music: 'Musik',
+  voice: 'Stimme',
+  mockup: 'Mockup',
+  streamset: 'Streamset',
+  video: 'Video',
+};
+
 export function changeModuleToQuoteKind(module: string): NexterQuoteKind | null {
-  return IMAGE_KIND_BY_MODULE[module] ?? null;
+  return IMAGE_KIND_BY_MODULE[module] ?? MEDIA_KIND_BY_MODULE[module] ?? null;
+}
+
+export function sanitizeChangeText(request: unknown): string {
+  if (typeof request !== 'string') {
+    throw new ServiceError(400, 'INVALID_CHANGE', 'Änderungswunsch erforderlich');
+  }
+  const trimmed = request.replace(/[\u0000-\u001F\u007F]/g, '').trim();
+  if (!trimmed) {
+    throw new ServiceError(400, 'INVALID_CHANGE', 'Änderungswunsch darf nicht leer sein');
+  }
+  if (trimmed.length < CHANGE_TEXT_MIN) {
+    throw new ServiceError(400, 'INVALID_CHANGE', 'Bitte den Änderungswunsch etwas genauer beschreiben');
+  }
+  if (trimmed.length > CHANGE_TEXT_MAX) {
+    throw new ServiceError(400, 'INVALID_CHANGE', `Maximal ${CHANGE_TEXT_MAX} Zeichen`);
+  }
+  return trimmed;
 }
 
 export async function listChangeRequests(userId: string): Promise<ChangeRequestRecord[]> {
@@ -75,16 +137,172 @@ export async function getVersionsForJob(jobId: string, userId: string): Promise<
 export async function getOwnedJobForChange(jobId: string, userId: string): Promise<GenerationJob> {
   const job = await getJob(jobId);
   if (!job || job.userId !== userId) {
-    throw new ServiceError(404, 'NOT_FOUND', 'Job nicht gefunden');
+    throw new ServiceError(404, 'NOT_FOUND', 'Ergebnis nicht gefunden');
   }
-  const kind = changeModuleToQuoteKind(job.module);
+  const kind = IMAGE_KIND_BY_MODULE[job.module];
   if (!kind) {
     throw new ServiceError(400, 'CHANGE_NOT_SUPPORTED', 'Änderungen sind für diesen Asset-Typ nicht als Bild-Variante verfügbar.');
   }
   if (!job.imageUrl) {
-    throw new ServiceError(400, 'NO_IMAGE', 'Kein Ausgangsbild vorhanden');
+    throw new ServiceError(410, 'SOURCE_MISSING', 'Die Ausgangsdatei fehlt oder wurde gelöscht.');
   }
   return job;
+}
+
+export async function resolveChangeSource(
+  userId: string,
+  ref: { jobId?: string; fileId?: string; projectAssetId?: string; projectId?: string }
+): Promise<ChangeableSource> {
+  if (ref.fileId) {
+    const file = await getUserFile(ref.fileId, userId);
+    if (!file) {
+      throw new ServiceError(410, 'SOURCE_MISSING', 'Datei nicht gefunden oder gelöscht.');
+    }
+    if (file.sourceJobId) {
+      return resolveChangeSource(userId, { jobId: file.sourceJobId, projectId: ref.projectId || file.projectId });
+    }
+    throw new ServiceError(
+      400,
+      'CHANGE_NOT_SUPPORTED',
+      'Für diesen Upload gibt es keine KI-Änderung. Nutze ein Studio-Ergebnis.'
+    );
+  }
+
+  if (ref.projectAssetId) {
+    const projects = await listProjects(userId);
+    for (const project of projects) {
+      const asset = (project.assets ?? []).find((a) => a.id === ref.projectAssetId);
+      if (!asset) continue;
+      if (asset.jobId) return resolveChangeSource(userId, { jobId: asset.jobId, projectId: project.id });
+      if (asset.fileId) return resolveChangeSource(userId, { fileId: asset.fileId, projectId: project.id });
+      throw new ServiceError(410, 'SOURCE_MISSING', 'Dieses Projekt-Asset hat keine verknüpfte Datei.');
+    }
+    throw new ServiceError(404, 'NOT_FOUND', 'Projekt-Asset nicht gefunden');
+  }
+
+  if (!ref.jobId) {
+    throw new ServiceError(400, 'INVALID_CHANGE', 'Bitte ein eigenes Ergebnis auswählen.');
+  }
+
+  const job = await getJob(ref.jobId);
+  if (!job || job.userId !== userId) {
+    throw new ServiceError(404, 'NOT_FOUND', 'Ergebnis nicht gefunden');
+  }
+  const kind = changeModuleToQuoteKind(job.module);
+  if (!kind) {
+    throw new ServiceError(400, 'CHANGE_NOT_SUPPORTED', 'Für diesen Typ gibt es keine KI-Änderung über Änderungswünsche.');
+  }
+  if (IMAGE_KIND_BY_MODULE[job.module] && !job.imageUrl) {
+    throw new ServiceError(410, 'SOURCE_MISSING', 'Die Ausgangsdatei fehlt oder wurde gelöscht.');
+  }
+  const versions = await getVersionsForJob(job.id, userId).catch(() => []);
+  return {
+    id: job.id,
+    kind,
+    module: job.module,
+    label: SOURCE_LABELS[job.module] || SOURCE_LABELS[kind] || kind,
+    fileId: job.fileId,
+    projectId: ref.projectId || job.projectId,
+    version: versions.length || 1,
+    createdAt: job.createdAt,
+    resultKind: resultKindForModule(job.module),
+    batchId: job.batchId,
+    assetKey: job.assetKey,
+  };
+}
+
+function resultKindForModule(module: string): ChangeableSource['resultKind'] {
+  if (module === 'music' || module === 'voice') return 'audio';
+  if (module === 'video' || module === 'animation') return 'video';
+  return 'image';
+}
+
+function sourceFromJob(job: GenerationJob, version?: number): ChangeableSource | null {
+  const kind = changeModuleToQuoteKind(job.module);
+  if (!kind) return null;
+  if (IMAGE_KIND_BY_MODULE[job.module] && !job.imageUrl) return null;
+  return {
+    id: job.id,
+    kind,
+    module: job.module,
+    label: job.assetKey
+      ? `${SOURCE_LABELS[job.module] || kind} · ${job.assetKey}`
+      : SOURCE_LABELS[job.module] || SOURCE_LABELS[kind] || kind,
+    fileId: job.fileId,
+    projectId: job.projectId,
+    version: version || 1,
+    createdAt: job.createdAt,
+    resultKind: resultKindForModule(job.module),
+    batchId: job.batchId,
+    assetKey: job.assetKey,
+  };
+}
+
+export async function listChangeableSources(userId: string): Promise<ChangeableSource[]> {
+  const { getJobsByUser } = await import('./ai.service.js');
+  const jobs = await getJobsByUser(userId);
+  const out: ChangeableSource[] = [];
+  const seen = new Set<string>();
+  for (const job of jobs) {
+    if (job.status !== 'completed') continue;
+    const row = sourceFromJob(job);
+    if (!row || seen.has(row.id)) continue;
+    seen.add(row.id);
+    out.push(row);
+  }
+
+  const addMedia = (
+    rows: Array<{ id: string; createdAt: string; projectId?: string; fileId?: string; status?: string }>,
+    kind: NexterQuoteKind,
+    resultKind: ChangeableSource['resultKind']
+  ) => {
+    for (const row of rows) {
+      if (row.status && row.status !== 'completed') continue;
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      out.push({
+        id: row.id,
+        kind,
+        module: kind,
+        label: SOURCE_LABELS[kind] || kind,
+        fileId: row.fileId,
+        projectId: row.projectId,
+        version: 1,
+        createdAt: row.createdAt,
+        resultKind,
+      });
+    }
+  };
+
+  const [{ listMockups }, { listAnimations }, { listMusic }, { listVoice }, { listVideoProjects }] = await Promise.all([
+    import('./mockup.service.js'),
+    import('./animation.service.js'),
+    import('./music.service.js'),
+    import('./voice.service.js'),
+    import('./media.service.js'),
+  ]);
+  addMedia(await listMockups(userId), 'mockup', 'image');
+  addMedia(await listAnimations(userId), 'animation', 'video');
+  addMedia(await listMusic(userId), 'music', 'audio');
+  addMedia(await listVoice(userId), 'voice', 'audio');
+  const videos = await listVideoProjects(userId);
+  for (const video of videos) {
+    if (seen.has(video.id)) continue;
+    seen.add(video.id);
+    out.push({
+      id: video.id,
+      kind: 'captions',
+      module: 'video',
+      label: video.title || 'Video',
+      projectId: undefined,
+      version: 1,
+      createdAt: video.createdAt,
+      resultKind: 'video',
+    });
+  }
+
+  out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return out;
 }
 
 export function buildChangePrompt(dna: CreatorDNA, requestText: string, previousPrompt?: string): string {
@@ -130,6 +348,28 @@ async function seedOriginalVersion(
   return [original];
 }
 
+export async function recordJobVersion(
+  userId: string,
+  jobId: string,
+  imageUrl: string,
+  label?: string
+): Promise<DesignVersionRecord> {
+  const existing = await getVersionsForJob(jobId, userId);
+  const previous = existing[existing.length - 1];
+  const row: DesignVersionRecord = {
+    id: randomUUID(),
+    userId,
+    jobId,
+    version: existing.length + 1,
+    imageUrl,
+    changeRequest: label || (existing.length ? 'Neue Version' : 'Original'),
+    parentVersionId: previous?.id,
+    createdAt: new Date().toISOString(),
+  };
+  await dsSet(VERSION_COLLECTION, row.id, row as unknown as Record<string, unknown>);
+  return row;
+}
+
 export async function executeQuotedChangeRequest(
   userId: string,
   jobId: string,
@@ -142,7 +382,7 @@ export async function executeQuotedChangeRequest(
   jobIds: string[];
 }> {
   const job = await getOwnedJobForChange(jobId, userId);
-  const kind = changeModuleToQuoteKind(job.module)!;
+  const kind = IMAGE_KIND_BY_MODULE[job.module]!;
   const category: CoinSpendCategory = QUOTE_KIND_CATEGORY[kind];
   const resolvedProjectId = projectId || job.projectId;
   const { dna } = await resolveDnaForRequest(userId, resolvedProjectId);
@@ -150,6 +390,7 @@ export async function executeQuotedChangeRequest(
     throw new ServiceError(400, 'NO_DNA', 'Creator DNA erforderlich');
   }
 
+  const safeRequest = sanitizeChangeText(requestText);
   const versions = await seedOriginalVersion(userId, job.id, job.imageUrl!);
   const currentVersion = versions[versions.length - 1];
   const imageBefore = currentVersion?.imageUrl ?? job.imageUrl!;
@@ -159,20 +400,28 @@ export async function executeQuotedChangeRequest(
     id: randomUUID(),
     userId,
     jobId: job.id,
-    request: requestText,
+    request: safeRequest,
     status: 'processing',
     versionBefore: currentVersion?.id,
     imageUrlBefore: imageBefore,
+    fileIdBefore: job.fileId,
+    scope: 'asset',
     createdAt: now,
   };
   await dsSet(CR_COLLECTION, cr.id, cr as unknown as Record<string, unknown>);
 
-  const prompt = buildChangePrompt(dna, requestText, job.prompt);
+  const prompt = buildChangePrompt(dna, safeRequest, job.prompt);
 
   try {
     const billed = await withCoinCharge(userId, category, `Änderungswunsch ${kind}`, async () => {
       return runGenerationJob(userId, job.module, dna, prompt, {
         assetKey: job.assetKey,
+        projectId: resolvedProjectId,
+        parentJobId: job.id,
+        width: job.width,
+        height: job.height,
+        mimeType: job.mimeType,
+        transparentBackground: job.transparentBackground,
       });
     });
 
@@ -184,7 +433,7 @@ export async function executeQuotedChangeRequest(
       jobId: job.id,
       version: versions.length + 1,
       imageUrl: imageAfter,
-      changeRequest: requestText,
+      changeRequest: safeRequest,
       parentVersionId: currentVersion?.id,
       createdAt: new Date().toISOString(),
     };
@@ -212,6 +461,7 @@ export async function executeQuotedChangeRequest(
     cr.status = 'completed';
     cr.versionAfter = newVersion.id;
     cr.imageUrlAfter = imageAfter;
+    cr.fileIdAfter = newJob.fileId;
     cr.completedAt = new Date().toISOString();
     await dsSet(CR_COLLECTION, cr.id, cr as unknown as Record<string, unknown>);
 
@@ -266,9 +516,18 @@ export async function restoreVersion(versionId: string, userId: string): Promise
 export async function compareVersions(changeRequestId: string, userId: string) {
   const cr = await getChangeRequest(changeRequestId, userId);
   if (!cr) return null;
+  const sign = async (fileId?: string, fallback?: string) => {
+    if (!fileId) return fallback;
+    try {
+      const issued = await issueFileDownloadUrl(fileId, userId);
+      return issued?.downloadUrl || fallback;
+    } catch {
+      return fallback;
+    }
+  };
   return {
-    before: cr.imageUrlBefore,
-    after: cr.imageUrlAfter,
+    before: await sign(cr.fileIdBefore, cr.imageUrlBefore),
+    after: await sign(cr.fileIdAfter, cr.imageUrlAfter),
     request: cr.request,
     status: cr.status,
   };

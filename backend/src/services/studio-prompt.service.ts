@@ -3,13 +3,31 @@ import {
   BANNER_PLATFORM_SPECS,
   buildDnaPromptContext,
   buildLogoPrompt,
+  buildStructuredStudioPrompt,
+  qualityInstructionsForStyle,
+  qualityNegativesForStyle,
+  bannerConfigFromGenerationOptions,
+  bannerPromptComposition,
+  bannerPromptConstraints,
+  facecamConfigFromGenerationOptions,
+  facecamPromptComposition,
+  facecamPromptConstraints,
+  overlayConfigFromGenerationOptions,
+  overlayPromptComposition,
+  overlayPromptConstraints,
+  stickerConfigFromGenerationOptions,
+  stickerPromptComposition,
+  stickerPromptConstraints,
+  mockupPromptComposition,
+  mockupPromptConstraints,
   type BannerGenerationOptions,
   type FacecamGenerationOptions,
   type OverlayGenerationOptions,
   type StickerGenerationOptions,
+  type MockupConfig,
 } from '@ucbs/shared';
 
-export { buildLogoPrompt, buildDnaPromptContext };
+export { buildLogoPrompt, buildDnaPromptContext, buildStructuredStudioPrompt };
 
 function colorList(dna: CreatorDNA, custom?: string[]): string {
   const fromDna = [...dna.primaryColors, ...dna.secondaryColors, ...dna.accentColors].filter(Boolean);
@@ -21,126 +39,205 @@ function dnaTail(dna: CreatorDNA): string {
   return buildDnaPromptContext(dna);
 }
 
+function qualityFor(dna: CreatorDNA, styleOverride?: string) {
+  const style = styleOverride || dna.styleDirection;
+  return {
+    style,
+    quality: qualityInstructionsForStyle(style),
+    negatives: qualityNegativesForStyle(style),
+  };
+}
+
 export function buildBannerPrompt(dna: CreatorDNA, opts: BannerGenerationOptions): string {
-  const spec = BANNER_PLATFORM_SPECS[opts.platform];
-  return [
-    `Professional ${spec.label} profile banner`,
-    `exact aspect ratio ${spec.aspect} (${spec.width}x${spec.height}px composition)`,
-    opts.title ? `headline theme: ${opts.title}` : `creator: ${dna.name}`,
-    opts.subtitle ? `subtitle mood: ${opts.subtitle}` : null,
-    opts.style ? `style: ${opts.style}` : `style: ${dna.styleDirection}`,
-    `colors: ${colorList(dna)}`,
-    dna.visualLanguage ? `visual language: ${dna.visualLanguage}` : null,
-    dna.fonts[0] ? `typography feel: ${dna.fonts[0].name}` : null,
-    'wide header graphic, readable at small sizes, no watermark',
-    dnaTail(dna),
-  ]
-    .filter(Boolean)
-    .join('. ');
+  const spec = BANNER_PLATFORM_SPECS[opts.platform] ?? BANNER_PLATFORM_SPECS.twitch;
+  const q = qualityFor(dna, opts.style);
+  const config = bannerConfigFromGenerationOptions(opts, {
+    title: opts.title || dna.name,
+    colors: [...dna.primaryColors, ...dna.secondaryColors].filter(Boolean).slice(0, 4),
+    motif: opts.motif || dna.mascot,
+    style: opts.style || dna.styleDirection,
+  });
+  return buildStructuredStudioPrompt({
+    assetType: 'banner',
+    creatorDna: dnaTail(dna),
+    userRequest: opts.title || `creator: ${dna.name}`,
+    style: q.style,
+    composition: bannerPromptComposition(config),
+    colors: colorList(dna),
+    platformFormat: `${spec.label} ${spec.aspect} (${config.width}x${config.height}px)`,
+    quality: q.quality,
+    constraints: [
+      bannerPromptConstraints(config),
+      dna.visualLanguage ? `visual language: ${dna.visualLanguage}` : null,
+      dna.fonts[0] ? `typography feel: ${dna.fonts[0].name}` : null,
+    ]
+      .filter(Boolean)
+      .join('; '),
+    negatives: q.negatives,
+  });
 }
 
 export function buildFacecamPrompt(dna: CreatorDNA, opts: FacecamGenerationOptions = {}): string {
-  const shape =
-    opts.shape === 'circle'
-      ? 'circular webcam frame'
-      : opts.shape === 'hexagon'
-        ? 'hexagonal webcam frame'
-        : 'rectangular webcam overlay frame';
-
-  return [
-    `${opts.style || dna.styleDirection} live stream facecam overlay`,
-    shape,
-    opts.transparentBackground !== false ? 'transparent background outside frame, PNG-ready' : null,
-    opts.animated || dna.animations?.length
-      ? `motion cues: ${(dna.animations?.length ? dna.animations : ['dynamic accent lines']).join(', ')}`
-      : 'clean static overlay',
-    `colors: ${colorList(dna)}`,
-    'leave center clear for webcam feed, decorative border only, no watermark',
-    dnaTail(dna),
-  ]
-    .filter(Boolean)
-    .join('. ');
+  const q = qualityFor(dna, opts.style);
+  const config = facecamConfigFromGenerationOptions(opts, {
+    colors: [...dna.primaryColors, ...dna.secondaryColors].filter(Boolean).slice(0, 4),
+    motif: opts.motif || dna.mascot,
+    style: opts.style || dna.styleDirection,
+  });
+  return buildStructuredStudioPrompt({
+    assetType: 'facecam',
+    creatorDna: dnaTail(dna),
+    userRequest: opts.decorations || `webcam overlay frame for ${config.platform}`,
+    style: q.style,
+    composition: facecamPromptComposition(config),
+    colors: colorList(dna, config.colors),
+    platformFormat: `${config.platform} ${config.aspectRatio} (${config.width}x${config.height}px)`,
+    quality: q.quality,
+    constraints: [
+      facecamPromptConstraints(config),
+      opts.animated || dna.animations?.length
+        ? `motion cues stay on the FRAME only: ${(dna.animations?.length ? dna.animations : ['dynamic accent lines']).join(', ')}`
+        : 'clean static overlay',
+      dna.visualLanguage ? `visual language: ${dna.visualLanguage}` : null,
+      'DESIGN AREA vs TRANSPARENT CAMERA INTERIOR must remain distinct',
+    ]
+      .filter(Boolean)
+      .join('; '),
+    negatives: q.negatives,
+  });
 }
 
-const OVERLAY_TYPE_LABELS: Record<NonNullable<OverlayGenerationOptions['overlayType']>, string> = {
-  hud: 'stream HUD overlay with info widgets',
-  alert: 'donation/sub alert box overlay',
-  panel: 'info panel overlay for schedule or social links',
-  'starting-soon': 'starting soon full-screen overlay',
-  brb: 'be right back stream overlay',
-  offline: 'stream offline full-screen graphic',
-  ending: 'stream ending thank you full-screen graphic',
-  'full-scene': 'full scene stream overlay composition',
-};
-
 export function buildOverlayPrompt(dna: CreatorDNA, opts: OverlayGenerationOptions = {}): string {
-  const typeLabel = opts.overlayType ? OVERLAY_TYPE_LABELS[opts.overlayType] : 'general stream overlay';
-  return [
-    `${opts.style || dna.styleDirection} ${typeLabel}`,
-    opts.transparentBackground !== false ? 'transparent background, PNG-ready alpha' : null,
-    opts.animated || dna.animations?.length
-      ? `animation style: ${(dna.animations ?? ['glow accents']).join(', ')}`
-      : 'clean static design',
-    `creator brand: ${dna.name}`,
-    `colors: ${colorList(dna)}`,
-    'OBS/Streamlabs compatible layout, no watermark, no mockup',
-    dnaTail(dna),
-  ]
-    .filter(Boolean)
-    .join('. ');
+  const q = qualityFor(dna, opts.style);
+  const config = overlayConfigFromGenerationOptions(opts, {
+    colors: [...dna.primaryColors, ...dna.secondaryColors].filter(Boolean).slice(0, 4),
+    motif: opts.motif || dna.mascot,
+    style: opts.style || dna.styleDirection,
+  });
+  return buildStructuredStudioPrompt({
+    assetType: 'overlay',
+    creatorDna: dnaTail(dna),
+    userRequest: opts.decorations || `${config.layoutPreset} stream overlay for ${config.platform}`,
+    style: q.style,
+    composition: overlayPromptComposition(config),
+    colors: colorList(dna, config.colors),
+    platformFormat: `${config.platform} ${config.aspectRatio} (${config.width}x${config.height}px)`,
+    quality: q.quality,
+    constraints: [
+      overlayPromptConstraints(config),
+      opts.animated || dna.animations?.length
+        ? `motion cues stay on DESIGN ELEMENTS only: ${(dna.animations?.length ? dna.animations : ['glow accents']).join(', ')}`
+        : 'clean static overlay',
+      dna.visualLanguage ? `visual language: ${dna.visualLanguage}` : null,
+      'DESIGN ELEMENTS vs TRANSPARENT CONTENT AREAS must remain distinct',
+    ]
+      .filter(Boolean)
+      .join('; '),
+    negatives: q.negatives,
+  });
 }
 
 export function buildStickerPrompt(dna: CreatorDNA, opts: StickerGenerationOptions = {}): string {
-  const shape =
-    opts.shape === 'circle'
-      ? 'circular sticker'
-      : opts.shape === 'die-cut'
-        ? 'die-cut sticker with custom outline'
-        : 'square sticker';
+  const q = qualityFor(dna, opts.style);
+  const config = stickerConfigFromGenerationOptions(opts, {
+    colors: [...dna.primaryColors, ...dna.secondaryColors].filter(Boolean).slice(0, 4),
+    motif: opts.motif || dna.mascot,
+    style: opts.style || dna.styleDirection,
+  });
+  return buildStructuredStudioPrompt({
+    assetType: config.kind === 'badge' ? 'badge' : 'sticker',
+    creatorDna: dnaTail(dna),
+    userRequest: opts.text || opts.name || `${config.kind} for ${config.platform}`,
+    style: q.style,
+    composition: stickerPromptComposition(config),
+    colors: colorList(dna, config.colors),
+    platformFormat: `${config.platform} ${config.width}x${config.height}px ${config.format}`,
+    quality: q.quality,
+    constraints: [
+      stickerPromptConstraints(config),
+      dna.visualLanguage ? `visual language: ${dna.visualLanguage}` : null,
+    ]
+      .filter(Boolean)
+      .join('; '),
+    negatives: q.negatives,
+  });
+}
 
-  return [
-    `Creator sticker/emote design${opts.name ? ` for "${opts.name}"` : ''}`,
-    shape,
-    opts.multicolor !== false ? 'multicolor vibrant design' : 'limited color palette',
-    opts.style ? `style: ${opts.style}` : `style: ${dna.styleDirection}`,
-    opts.transparentBackground !== false ? 'transparent background, isolated sticker' : null,
-    `colors: ${colorList(dna)}`,
-    dna.mascot ? `featuring mascot motif: ${dna.mascot}` : null,
-    'bold readable at small sizes, emoji/emote suitable, no watermark',
-    dnaTail(dna),
-  ]
-    .filter(Boolean)
-    .join('. ');
+export function buildMockupPrompt(dna: CreatorDNA, config: MockupConfig): string {
+  const q = qualityFor(dna, config.scene);
+  return buildStructuredStudioPrompt({
+    assetType: 'mockup',
+    creatorDna: dnaTail(dna),
+    userRequest: `lifestyle product photo of a ${config.colorId} ${config.category} with the creator artwork printed on it`,
+    style: q.style,
+    composition: mockupPromptComposition(config),
+    colors: colorList(dna, [config.colorId]),
+    platformFormat: `${config.outputWidth}x${config.outputHeight}px ${config.outputFormat}`,
+    quality: q.quality,
+    constraints: [
+      mockupPromptConstraints(config),
+      dna.visualLanguage ? `visual language: ${dna.visualLanguage}` : null,
+    ]
+      .filter(Boolean)
+      .join('; '),
+    negatives: q.negatives,
+  });
 }
 
 export function buildBrandingPackPrompt(dna: CreatorDNA, module: string): string {
+  const q = qualityFor(dna);
   const prompts: Record<string, string> = {
-    'profile-pic': `Square creator profile avatar icon for ${dna.name}, ${dna.styleDirection} style, bold recognizable, colors: ${colorList(dna)}. ${dnaTail(dna)}`,
+    'profile-pic': buildStructuredStudioPrompt({
+      assetType: 'logo',
+      creatorDna: dnaTail(dna),
+      userRequest: `square creator profile avatar icon for ${dna.name}`,
+      style: q.style,
+      colors: colorList(dna),
+      quality: q.quality,
+      constraints: 'bold recognizable, no watermark',
+      negatives: q.negatives,
+    }),
     banner: buildBannerPrompt(dna, { platform: 'twitch', title: dna.name }),
     facecam: buildFacecamPrompt(dna, { transparentBackground: true }),
     overlay: buildOverlayPrompt(dna, { overlayType: 'hud', transparentBackground: true }),
     'stream-start': buildOverlayPrompt(dna, { overlayType: 'starting-soon', transparentBackground: false }),
-    'stream-end': [
-      `${dna.styleDirection} stream ending / thank you screen`,
-      `creator brand: ${dna.name}`,
-      `colors: ${colorList(dna)}`,
-      'full-screen endcard, farewell message area, social handles space, no watermark',
-      dnaTail(dna),
-    ].join('. '),
-    offline: [
-      `${dna.styleDirection} stream offline screen`,
-      `creator brand: ${dna.name}`,
-      `colors: ${colorList(dna)}`,
-      'full-screen offline graphic, clear OFFLINE status, schedule placeholder area, no watermark',
-      dnaTail(dna),
-    ].join('. '),
+    'stream-end': buildStructuredStudioPrompt({
+      assetType: 'outro',
+      creatorDna: dnaTail(dna),
+      userRequest: `stream ending / thank you screen for ${dna.name}`,
+      style: q.style,
+      colors: colorList(dna),
+      quality: q.quality,
+      constraints: 'full-screen endcard, farewell message area, social handles space, no watermark',
+      negatives: q.negatives,
+    }),
+    offline: buildStructuredStudioPrompt({
+      assetType: 'overlay',
+      creatorDna: dnaTail(dna),
+      userRequest: `stream offline screen for ${dna.name}`,
+      style: q.style,
+      colors: colorList(dna),
+      quality: q.quality,
+      constraints: 'full-screen offline graphic, clear OFFLINE status, schedule placeholder, no watermark',
+      negatives: q.negatives,
+    }),
     panel: buildOverlayPrompt(dna, { overlayType: 'panel', transparentBackground: true }),
     alert: buildOverlayPrompt(dna, { overlayType: 'alert', transparentBackground: true }),
   };
-  return prompts[module] ?? `${dna.styleDirection} creator branding asset for ${module}, colors: ${colorList(dna)}. ${dnaTail(dna)}`;
+  return (
+    prompts[module] ??
+    buildStructuredStudioPrompt({
+      assetType: module,
+      creatorDna: dnaTail(dna),
+      style: q.style,
+      colors: colorList(dna),
+      quality: q.quality,
+      negatives: q.negatives,
+    })
+  );
 }
 
 export function bannerOpenAiSize(platform: BannerGenerationOptions['platform']): '1792x1024' | '1024x1792' {
-  const spec = BANNER_PLATFORM_SPECS[platform];
+  const spec = BANNER_PLATFORM_SPECS[platform] ?? BANNER_PLATFORM_SPECS.twitch;
   return spec.height > spec.width ? '1024x1792' : '1792x1024';
 }

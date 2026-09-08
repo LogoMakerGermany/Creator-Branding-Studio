@@ -3,6 +3,7 @@ import type { ApiResponse } from '@ucbs/shared';
 import { ZodError } from 'zod';
 import { ServiceError } from '../lib/errors.js';
 import { isProduction } from '../config/env.js';
+import { logEvent, safeErrorDetails, sanitizeProviderError } from '../lib/observability.js';
 
 export class AppError extends Error {
   constructor(
@@ -20,58 +21,66 @@ export class AppError extends Error {
   }
 }
 
+function requestIdOf(req: Request): string | undefined {
+  return req.requestId;
+}
+
+function sendApiError(
+  req: Request,
+  res: Response<ApiResponse>,
+  status: number,
+  code: string,
+  message: string,
+  details?: Record<string, unknown>
+): void {
+  const requestId = requestIdOf(req);
+  const safe = safeErrorDetails(details);
+  res.status(status).json({
+    success: false,
+    error: {
+      code,
+      message,
+      ...(safe ? { details: safe } : {}),
+      ...(requestId ? { requestId } : {}),
+    },
+  });
+}
+
 export function errorHandler(
   err: Error,
-  _req: Request,
+  req: Request,
   res: Response<ApiResponse>,
   _next: NextFunction
 ): void {
+  const requestId = requestIdOf(req);
+
   if (err instanceof AppError) {
-    res.status(err.statusCode).json({
-      success: false,
-      error: {
-        code: err.code,
-        message: err.message,
-        details: err.details,
-      },
-    });
+    sendApiError(req, res, err.statusCode, err.code, err.message, err.details);
     return;
   }
 
   if (err instanceof ServiceError) {
-    res.status(err.statusCode).json({
-      success: false,
-      error: {
-        code: err.code,
-        message: err.message,
-      },
-    });
+    sendApiError(req, res, err.statusCode, err.code, err.message, err.details);
     return;
   }
 
   if (err instanceof ZodError) {
-    res.status(400).json({
-      success: false,
-      error: {
-        code: 'VALIDATION_ERROR',
-        message: 'Ungültige Anfrage',
-      },
-    });
+    sendApiError(req, res, 400, 'VALIDATION_ERROR', 'Ungültige Anfrage');
     return;
   }
 
-  if (isProduction()) {
-    console.error('Unhandled error:', err.name, err.message);
-  } else {
-    console.error('Unhandled error:', err);
-  }
-  res.status(500).json({
-    success: false,
-    error: {
-      code: 'INTERNAL_ERROR',
-      message: 'Ein interner Fehler ist aufgetreten',
-    },
+  logEvent({
+    level: 'error',
+    ts: new Date().toISOString(),
+    event: 'unhandled_error',
+    requestId,
+    method: req.method,
+    route: req.originalUrl,
+    status: 500,
+    code: 'INTERNAL_ERROR',
+    message: isProduction() ? err.name : sanitizeProviderError(err),
   });
+  sendApiError(req, res, 500, 'INTERNAL_ERROR', 'Ein interner Fehler ist aufgetreten');
 }
 
 export function asyncHandler(

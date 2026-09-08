@@ -1,15 +1,14 @@
 # Etappe 3 — Firebase Auth & OAuth Setup
 
-Projekt: **creatorstudio-519eb**  
-Hosting: https://creatorstudio-519eb.web.app
+Projekt: **nexter-creator-studio**
+Production: Railway All-in-One (`SERVE_STATIC=true`)
 
 ## 1. Firebase Console — Authorized Domains
 
 Authentication → Settings → Authorized domains:
 
-- `creatorstudio-519eb.web.app`
-- `creatorstudio-519eb.firebaseapp.com`
-- Deine Railway-URL (falls All-in-one Deploy)
+- Die neue Nexter-Railway-Domain (nach Service-Erstellung; nicht eine retired UCBS-Domain)
+- `localhost` (für lokale Entwicklung)
 
 ## 2. Sign-in Methods aktivieren
 
@@ -38,10 +37,10 @@ Authentication → Sign-in method → **Add provider** → OpenID Connect:
 
 1. Firebase Console → Project Settings → Service accounts → Generate new private key
 2. In `backend/.env.railway` eintragen:
-   - `FIREBASE_PROJECT_ID=creatorstudio-519eb`
-   - `FIREBASE_CLIENT_EMAIL=firebase-adminsdk-...@creatorstudio-519eb.iam.gserviceaccount.com`
+   - `FIREBASE_PROJECT_ID=nexter-creator-studio`
+   - `FIREBASE_CLIENT_EMAIL=firebase-adminsdk-...@nexter-creator-studio.iam.gserviceaccount.com`
    - `FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"`
-   - `FIREBASE_STORAGE_BUCKET=creatorstudio-519eb.firebasestorage.app`
+   - `FIREBASE_STORAGE_BUCKET=nexter-creator-studio.firebasestorage.app`
 
 Public Keys synchronisieren:
 
@@ -54,12 +53,11 @@ npm run sync:firebase-env
 ```powershell
 npm run sync:firebase-env
 npm run build:prod
-npx firebase-tools deploy --only hosting
 ```
 
-Oder: `npm run deploy:firebase`
+Das Frontend wird über Railway ausgeliefert (`SERVE_STATIC=true`), nicht über Firebase Hosting.
 
-## 5. Railway Backend (API)
+## 5. Railway Backend (API + Frontend)
 
 Railway CLI (SSL-Fix auf Windows):
 
@@ -71,15 +69,9 @@ npm run railway:link
 npm run railway:deploy
 ```
 
-**Option B — Hosting + API getrennt:**
-
-- Frontend: Firebase Hosting (`creatorstudio-519eb.web.app`)
-- API: Railway mit `SERVE_STATIC=false`
-- Frontend Build: `VITE_API_URL=https://deine-api.up.railway.app`
-
 ## 6. Verifizierung
 
-1. https://creatorstudio-519eb.web.app/login öffnen
+1. Railway-URL/login öffnen
 2. Google / E-Mail Login testen
 3. Nach Login: `/api/v1/auth/me` (über Backend) liefert `authProviders: ["google"]`
 

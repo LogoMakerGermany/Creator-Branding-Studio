@@ -1,3 +1,5 @@
+import { isFirebaseConfigured } from '@/lib/runtime-config';
+import { AUTH_TOKEN_STORAGE_KEY, resolveAuthRequestToken } from '@/lib/auth-session';
 import type {
   BannerGenerationOptions,
   FacecamGenerationOptions,
@@ -34,19 +36,49 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public code: string,
-    public status: number
+    public status: number,
+    public requestId?: string
   ) {
     super(message);
     this.name = 'ApiError';
   }
 }
 
-async function getToken(): Promise<string | null> {
-  const stored = localStorage.getItem('auth_token');
-  if (stored) return stored;
+let lastApiRequestId: string | undefined;
 
-  const { getIdToken } = await import('@/lib/firebase');
-  return getIdToken();
+export function getLastApiRequestId(): string | undefined {
+  return lastApiRequestId;
+}
+
+function rememberRequestId(res: Response, bodyRequestId?: string): void {
+  const id = bodyRequestId || res.headers.get('x-request-id') || undefined;
+  if (id) lastApiRequestId = id;
+}
+
+function readLegacyAuthToken(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+}
+
+async function getToken(): Promise<string | null> {
+  if (isFirebaseConfigured()) {
+    const { getIdToken } = await import('@/lib/firebase');
+    return resolveAuthRequestToken({
+      firebaseConfigured: true,
+      firebaseIdToken: await getIdToken(),
+      legacyStoredToken: readLegacyAuthToken(),
+    });
+  }
+
+  return resolveAuthRequestToken({
+    firebaseConfigured: false,
+    firebaseIdToken: null,
+    legacyStoredToken: readLegacyAuthToken(),
+  });
+}
+
+export async function getAuthRequestToken(): Promise<string | null> {
+  return getToken();
 }
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -70,31 +102,53 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     );
   }
 
-  let data: { success?: boolean; error?: { message?: string; code?: string }; data?: T };
+  let data: { success?: boolean; error?: { message?: string; code?: string; requestId?: string }; data?: T };
   try {
     data = await res.json();
   } catch {
     throw new ApiError(
       res.ok ? 'Ungültige Server-Antwort' : `Server-Fehler (${res.status})`,
       'INVALID_RESPONSE',
-      res.status
+      res.status,
+      res.headers.get('x-request-id') || undefined
     );
   }
 
+  rememberRequestId(res, data.error?.requestId);
+
   if (!data.success) {
     const code = data.error?.code || 'UNKNOWN';
+    const requestId = data.error?.requestId || res.headers.get('x-request-id') || undefined;
     const friendly: Record<string, string> = {
       AI_NOT_CONFIGURED: 'KI-Funktion nicht konfiguriert. Ein Provider-Key fehlt.',
-      AI_UNAVAILABLE: 'Nexter ist ohne OpenAI-Key nicht verfügbar. Studios funktionieren weiter.',
+      ULTIMATE_REQUIRES_QUOTE: 'Ultimate-Creator-Paket startet nur über Nexter nach Bestätigung.',
+      VIDEO_REQUIRES_QUOTE: 'KI-Video startet nur über Nexter nach Bestätigung.',
+      INTRO_REQUIRES_QUOTE: 'Intro/Outro startet nur über Nexter nach Bestätigung.',
+      VTUBER_REQUIRES_QUOTE: 'VTuber-Generierung startet nur über Nexter nach Bestätigung.',
+      GENERATIONS_DISABLED: 'KI-Generierung ist derzeit deaktiviert.',
+      NEXTER_CHAT_LIMIT: 'Nexter-Chat-Limit erreicht. Bitte später erneut versuchen.',
+      SPEAK_RATE_LIMIT: 'Bitte kurz warten, bevor die Sprachausgabe erneut gestartet wird.',
+      AI_UNAVAILABLE: 'AI PROVIDER NOT CONFIGURED. Nexter-Chat ist nicht verfügbar, Studios funktionieren weiter.',
       INSUFFICIENT_COINS: 'Nicht genügend Coins.',
+      FILE_MISSING: 'Datei nicht verfügbar.',
+      RETRY_NOT_ALLOWED: 'Dieser Versuch ist nicht möglich.',
+      RETRY_REQUIRES_QUOTE: 'Neuer Versuch ist kostenpflichtig. Bitte bestätigen.',
+      PRICE_CHANGED: 'Der Preis hat sich geändert. Bitte erneut bestätigen.',
+      QUOTE_EXPIRED: 'Das Angebot ist abgelaufen. Bitte neu anfragen.',
+      QUOTE_USED: 'Dieses Angebot wurde bereits verwendet.',
       DAILY_JOB_LIMIT: 'Tägliches Job-Limit erreicht.',
       CONCURRENT_JOB_LIMIT: 'Zu viele laufende Jobs. Bitte warten.',
       ACCOUNT_DISABLED: 'Dieses Konto ist deaktiviert.',
       VALIDATION_ERROR: 'Ungültige Eingabe.',
       CHANGE_REQUIRES_QUOTE: 'Änderung braucht ein bestätigtes Nexter-Angebot.',
+      SOURCE_MISSING: 'Die Ausgangsdatei fehlt oder wurde gelöscht. Es wurde nichts abgebucht.',
+      INVALID_CHANGE: 'Bitte den Änderungswunsch prüfen — er darf nicht leer sein und hat eine maximale Länge.',
+      CHANGE_NOT_SUPPORTED: 'Diese Änderung ist so nicht möglich.',
+      DNA_CONFIRMATION_REQUIRED: 'DNA-Änderungen brauchen eine explizite Bestätigung in der Creator DNA.',
       FEATURE_NOT_AVAILABLE: 'Diese Funktion ist in NEXTER V1 nicht verfügbar.',
       NETWORK_ERROR: 'Netzwerkfehler. Bitte Verbindung prüfen.',
       PAYMENT_FAILED: 'Zahlung fehlgeschlagen. Es wurden keine Coins gutgeschrieben.',
+      PAYMENTS_DISABLED: 'Zahlungen sind derzeit deaktiviert.',
       INVALID_UPLOAD: 'Datei ungültig. Bitte ein unterstütztes Format wählen.',
       UPLOAD_FAILED: 'Upload fehlgeschlagen. Bitte erneut versuchen.',
       FILE_TOO_LARGE: 'Datei ist zu groß.',
@@ -104,9 +158,11 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     throw new ApiError(
       friendly[code] || data.error?.message || `Fehler (${res.status})`,
       code,
-      res.status
+      res.status,
+      requestId
     );
   }
+  rememberRequestId(res, data.error?.requestId);
   return data.data as T;
 }
 
@@ -118,7 +174,14 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ email, displayName }),
       }),
-    me: () => request<{ user: UserProfile; activeDna: CreatorDNA | null }>('/api/v1/auth/me'),
+    me: () =>
+      request<{
+        user: UserProfile;
+        activeDna: CreatorDNA | null;
+        emailVerified?: boolean;
+        signInProvider?: string | null;
+        needsEmailVerification?: boolean;
+      }>('/api/v1/auth/me'),
     registrationStatus: () =>
       request<{
         registrationMode: 'closed' | 'invite_only' | 'public';
@@ -130,15 +193,50 @@ export const api = {
         '/api/v1/auth/validate-invite',
         { method: 'POST', body: JSON.stringify({ code, email }) }
       ),
-    sync: (displayName?: string, authProvider?: string, inviteCode?: string) =>
+    sync: (
+      displayName?: string,
+      authProvider?: string,
+      inviteCode?: string,
+      legal?: { termsVersion: string; privacyVersion: string }
+    ) =>
       request<{ user: UserProfile }>('/api/v1/auth/sync', {
         method: 'POST',
-        body: JSON.stringify({ displayName, authProvider, inviteCode }),
+        body: JSON.stringify({
+          displayName,
+          authProvider,
+          inviteCode,
+          acceptedTermsVersion: legal?.termsVersion,
+          acceptedPrivacyVersion: legal?.privacyVersion,
+        }),
       }),
     completeOnboarding: (displayName?: string) =>
       request('/api/v1/auth/onboarding/complete', {
         method: 'POST',
         body: JSON.stringify({ displayName }),
+      }),
+    updateProfile: (body: { displayName?: string; locale?: string }) =>
+      request<{ user: UserProfile }>('/api/v1/auth/me', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+    updateNexterPreferences: (body: {
+      language?: string;
+      addressAs?: string;
+      voiceCatalogId?: string | null;
+      voiceOutputEnabled?: boolean;
+      uiTheme?: 'dark' | 'light' | 'system';
+      accentPreset?: string;
+      customPrimary?: string | null;
+      customAccent?: string | null;
+      platforms?: string[];
+      creationInterests?: string[];
+      stylePreferences?: string[];
+      creatorGoals?: string[];
+      personalizationCompleted?: boolean;
+    }) =>
+      request<{ user: UserProfile }>('/api/v1/auth/me/nexter-preferences', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
       }),
     stats: () =>
       request<{ generations: number; projects: number; files: number }>('/api/v1/auth/stats'),
@@ -148,6 +246,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ confirmation }),
       }),
+    requestVerificationResend: () =>
+      request<{ allowed: boolean }>('/api/v1/auth/email-verification/resend', { method: 'POST' }),
   },
   dna: {
     list: () => request<{ dnas: CreatorDNA[]; active: CreatorDNA | null }>('/api/v1/dna'),
@@ -207,7 +307,24 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/api/v1/prompts/${id}`, { method: 'DELETE' }),
   },
   projects: {
-    list: () => request<{ projects: import('@ucbs/shared').Project[] }>('/api/v1/projects'),
+    list: (query?: {
+      q?: string;
+      type?: string;
+      sort?: 'updated' | 'newest' | 'oldest' | 'name';
+      filter?: 'active' | 'archived';
+      limit?: number;
+      offset?: number;
+    }) => {
+      const qs = new URLSearchParams();
+      if (query?.q) qs.set('q', query.q);
+      if (query?.type) qs.set('type', query.type);
+      if (query?.sort) qs.set('sort', query.sort);
+      if (query?.filter) qs.set('filter', query.filter);
+      if (query?.limit != null) qs.set('limit', String(query.limit));
+      if (query?.offset != null) qs.set('offset', String(query.offset));
+      const suffix = qs.toString() ? `?${qs.toString()}` : '';
+      return request<{ projects: import('@ucbs/shared').Project[]; total?: number }>(`/api/v1/projects${suffix}`);
+    },
     get: (id: string) => request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}`),
     overview: (id: string) =>
       request<{
@@ -227,6 +344,9 @@ export const api = {
           downloadable: boolean;
           changeSupported: boolean;
           assetKey?: string;
+          expiresAt?: string;
+          available?: boolean;
+          studioPath?: string;
         }>;
         files: UserFile[];
         videos: Array<{ id: string; title: string; renderUrl?: string; createdAt: string }>;
@@ -235,6 +355,45 @@ export const api = {
         changeRequests: ChangeRequestRecord[];
         versionsByJob: Record<string, import('@ucbs/shared').DesignVersion[] | { id: string; version: number; imageUrl: string; changeRequest?: string }[]>;
         missing: string[];
+        studioPath?: string;
+        continuePath?: string;
+        activeJobs?: Array<{
+          id: string;
+          kind: string;
+          module: string;
+          status: string;
+          label: string;
+          createdAt: string;
+          error?: string;
+          fileId?: string;
+          href: string;
+          progressKnown: false;
+        }>;
+        failedJobs?: Array<{
+          id: string;
+          kind: string;
+          module: string;
+          status: string;
+          label: string;
+          createdAt: string;
+          error?: string;
+          href: string;
+          progressKnown: false;
+        }>;
+        completedJobs?: Array<{
+          id: string;
+          kind: string;
+          module: string;
+          status: string;
+          label: string;
+          createdAt: string;
+          href: string;
+          fileId?: string;
+          progressKnown: false;
+        }>;
+        streamset?: { completed: number; total: number; status: string; href: string } | null;
+        activity?: Array<{ id: string; kind: string; title: string; at: string }>;
+        errors?: { dna?: string; jobs?: string; files?: string; media?: string };
       }>(`/api/v1/projects/${id}/overview`),
     trash: () => request<{ projects: import('@ucbs/shared').Project[] }>('/api/v1/projects/trash'),
     create: (body: { name: string; description?: string; type: import('@ucbs/shared').ProjectType; dnaId?: string }) =>
@@ -275,6 +434,10 @@ export const api = {
     duplicate: (id: string) =>
       request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}/duplicate`, {
         method: 'POST',
+      }),
+    detachAsset: (id: string, assetId: string) =>
+      request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}/assets/${assetId}`, {
+        method: 'DELETE',
       }),
     rename: (id: string, name: string) =>
       request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}`, {
@@ -345,7 +508,23 @@ export const api = {
   coins: {
     balance: () => request<{ balance: number }>('/api/v1/coins/balance'),
     packages: () => request<{ packages: CoinPackage[] }>('/api/v1/coins/packages'),
-    transactions: () => request<{ transactions: CoinTransaction[] }>('/api/v1/coins/transactions'),
+    catalog: () =>
+      request<{ catalog: { currency: string; items: CoinCatalogItem[]; freeActions: CoinCatalogItem[] } }>(
+        '/api/v1/coins/catalog'
+      ),
+    quotes: () => request<{ quotes: CoinQuoteSummary[] }>('/api/v1/coins/quotes'),
+    transactions: (opts?: { limit?: number; offset?: number }) => {
+      const q = new URLSearchParams();
+      if (opts?.limit != null) q.set('limit', String(opts.limit));
+      if (opts?.offset != null) q.set('offset', String(opts.offset));
+      const qs = q.toString();
+      return request<{
+        transactions: CoinTransaction[];
+        total: number;
+        limit: number;
+        offset: number;
+      }>(`/api/v1/coins/transactions${qs ? `?${qs}` : ''}`);
+    },
   },
   stripe: {
     checkout: (packageId: string) =>
@@ -410,6 +589,51 @@ export const api = {
       }),
     generateBrandingPack: () =>
       request<GenerateResult>('/api/v1/branding/generate-pack', { method: 'POST' }),
+    getLogo: (id: string) => request<{ job: GenerationJob }>(`/api/v1/logo/${id}`),
+    downloadLogo: (id: string) =>
+      request<{ downloadUrl: string; expiresAt: string; fileId: string; filename: string }>(
+        `/api/v1/logo/${id}/download`
+      ),
+    logoVersions: (id: string) =>
+      request<{ versions: { id: string; version: number; imageUrl: string }[] }>(`/api/v1/logo/${id}/versions`),
+    retryLogo: (id: string) => request<{ ok?: boolean }>(`/api/v1/logo/${id}/retry`, { method: 'POST' }),
+    applyLogoDna: (id: string, confirm: boolean) =>
+      request<{ dna: unknown }>(`/api/v1/logo/${id}/apply-dna`, {
+        method: 'POST',
+        body: JSON.stringify({ confirm }),
+      }),
+    getBanner: (id: string) => request<{ job: GenerationJob }>(`/api/v1/banner/${id}`),
+    downloadBanner: (id: string) =>
+      request<{ downloadUrl: string; expiresAt: string; fileId: string; filename: string }>(
+        `/api/v1/banner/${id}/download`
+      ),
+    bannerVersions: (id: string) =>
+      request<{ versions: { id: string; version: number; imageUrl: string }[] }>(`/api/v1/banner/${id}/versions`),
+    retryBanner: (id: string) => request<{ ok?: boolean }>(`/api/v1/banner/${id}/retry`, { method: 'POST' }),
+    getFacecam: (id: string) => request<{ job: GenerationJob }>(`/api/v1/facecam/${id}`),
+    downloadFacecam: (id: string) =>
+      request<{ downloadUrl: string; expiresAt: string; fileId: string; filename: string }>(
+        `/api/v1/facecam/${id}/download`
+      ),
+    facecamVersions: (id: string) =>
+      request<{ versions: { id: string; version: number; imageUrl: string }[] }>(`/api/v1/facecam/${id}/versions`),
+    retryFacecam: (id: string) => request<{ ok?: boolean }>(`/api/v1/facecam/${id}/retry`, { method: 'POST' }),
+    getOverlay: (id: string) => request<{ job: GenerationJob }>(`/api/v1/overlay/${id}`),
+    downloadOverlay: (id: string) =>
+      request<{ downloadUrl: string; expiresAt: string; fileId: string; filename: string }>(
+        `/api/v1/overlay/${id}/download`
+      ),
+    overlayVersions: (id: string) =>
+      request<{ versions: { id: string; version: number; imageUrl: string }[] }>(`/api/v1/overlay/${id}/versions`),
+    retryOverlay: (id: string) => request<{ ok?: boolean }>(`/api/v1/overlay/${id}/retry`, { method: 'POST' }),
+    getSticker: (id: string) => request<{ job: GenerationJob }>(`/api/v1/sticker/${id}`),
+    downloadSticker: (id: string) =>
+      request<{ downloadUrl: string; expiresAt: string; fileId: string; filename: string }>(
+        `/api/v1/sticker/${id}/download`
+      ),
+    stickerVersions: (id: string) =>
+      request<{ versions: { id: string; version: number; imageUrl: string }[] }>(`/api/v1/sticker/${id}/versions`),
+    retrySticker: (id: string) => request<{ ok?: boolean }>(`/api/v1/sticker/${id}/retry`, { method: 'POST' }),
   },
   magik: {
     feedback: (body: {
@@ -507,11 +731,50 @@ export const api = {
       ),
   },
   files: {
-    list: (projectId?: string) =>
-      request<{ files: UserFile[] }>(
-        `/api/v1/files${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`
+    list: (query?: string | {
+      projectId?: string;
+      q?: string;
+      category?: string;
+      kind?: string;
+      source?: string;
+      sort?: string;
+      limit?: number;
+      offset?: number;
+    }) => {
+      const params = new URLSearchParams();
+      if (typeof query === 'string' && query) params.set('projectId', query);
+      else if (query && typeof query === 'object') {
+        if (query.projectId) params.set('projectId', query.projectId);
+        if (query.q) params.set('q', query.q);
+        if (query.category) params.set('category', query.category);
+        if (query.kind) params.set('kind', query.kind);
+        if (query.source) params.set('source', query.source);
+        if (query.sort) params.set('sort', query.sort);
+        if (query.limit != null) params.set('limit', String(query.limit));
+        if (query.offset != null) params.set('offset', String(query.offset));
+      }
+      const suffix = params.toString() ? `?${params.toString()}` : '';
+      return request<{
+        files: UserFile[];
+        total?: number;
+        counts?: { total: number; image: number; video: number; audio: number };
+        limit?: number;
+        offset?: number;
+      }>(`/api/v1/files${suffix}`);
+    },
+    get: (id: string) =>
+      request<{
+        file: UserFile & { dataUrl?: string };
+        expiresAt?: string;
+        expiresInMs?: number;
+        usage?: Array<{ projectId: string; projectName: string; assetId: string }>;
+        versions?: UserFile[];
+        references?: string[];
+      }>(`/api/v1/files/${id}`),
+    downloadUrl: (id: string) =>
+      request<{ downloadUrl: string; expiresAt: string; expiresInMs: number }>(
+        `/api/v1/files/${id}/download-url`
       ),
-    get: (id: string) => request<{ file: UserFile & { dataUrl: string } }>(`/api/v1/files/${id}`),
     upload: (body: {
       name: string;
       mimeType: string;
@@ -521,6 +784,8 @@ export const api = {
       rightsConfirmed: true;
     }) =>
       request<{ file: UserFile }>('/api/v1/files', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id: string, body: { name?: string; projectId?: string | null }) =>
+      request<{ file: UserFile }>(`/api/v1/files/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/api/v1/files/${id}`, { method: 'DELETE' }),
   },
   layout: {
@@ -535,18 +800,47 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ format }),
       }),
+    exportFile: (id: string) =>
+      request<{ fileId: string; downloadUrl: string; filename: string }>(`/api/v1/layout/${id}/export-file`, {
+        method: 'POST',
+      }),
+    duplicate: (id: string) =>
+      request<{ layout: StreamLayout }>(`/api/v1/layout/${id}/duplicate`, { method: 'POST' }),
+    delete: (id: string) => request<{ deleted: boolean }>(`/api/v1/layout/${id}`, { method: 'DELETE' }),
   },
   changeRequest: {
-    list: () => request<{ changeRequests: ChangeRequestRecord[]; availableJobs: GenerationJob[] }>('/api/v1/change-request'),
-    quote: (jobId: string, requestText: string, projectId?: string) =>
+    list: () =>
       request<{
+        changeRequests: ChangeRequestRecord[];
+        availableJobs: GenerationJob[];
+        sources?: ChangeableSource[];
+      }>('/api/v1/change-request'),
+    quote: (
+      jobIdOrInput: string | {
+        jobId?: string;
+        fileId?: string;
+        projectAssetId?: string;
+        request: string;
+        projectId?: string;
+        scope?: 'asset' | 'set' | 'dna';
+      },
+      requestText?: string,
+      projectId?: string
+    ) => {
+      const body =
+        typeof jobIdOrInput === 'string'
+          ? { jobId: jobIdOrInput, request: requestText, projectId }
+          : jobIdOrInput;
+      return request<{
         quote: { id: string; kind: string; coinCost: number; status: string };
         module: string;
         honestLabel: string;
+        source?: ChangeableSource;
       }>('/api/v1/change-request/quote', {
         method: 'POST',
-        body: JSON.stringify({ jobId, request: requestText, projectId }),
-      }),
+        body: JSON.stringify(body),
+      });
+    },
     create: (jobId: string, requestText: string) =>
       request<{ changeRequest: ChangeRequestRecord }>('/api/v1/change-request', {
         method: 'POST',
@@ -574,7 +868,7 @@ export const api = {
     getSession: () => request<{ session: NexterSessionDto }>('/api/v1/nexter/session'),
     newSession: () =>
       request<{ session: NexterSessionDto }>('/api/v1/nexter/session', { method: 'POST' }),
-    chat: (message: string, meta?: { path?: string; hint?: string; projectId?: string }) =>
+    chat: (message: string, meta?: { path?: string; hint?: string; projectId?: string; fileId?: string }) =>
       request<{ session: NexterSessionDto }>('/api/v1/nexter/chat', {
         method: 'POST',
         body: JSON.stringify({ message, ...meta }),
@@ -602,6 +896,23 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ text }),
       }),
+    voices: () =>
+      request<{ voices: import('@ucbs/shared').NexterVoiceCatalogEntry[] }>('/api/v1/nexter/voices'),
+    voicePreview: async (catalogId: string) => {
+      const token = await getToken();
+      let res: Response;
+      try {
+        res = await fetch(`${API_URL}/api/v1/nexter/voices/${encodeURIComponent(catalogId)}/preview`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+      } catch {
+        throw new ApiError('Server nicht erreichbar. Bitte kurz warten und erneut versuchen.', 'NETWORK_ERROR', 0);
+      }
+      if (!res.ok) {
+        throw new ApiError('Keine Stimmvorschau verfügbar', 'PREVIEW_UNAVAILABLE', res.status);
+      }
+      return res.blob();
+    },
     context: () => request<{ context: import('@ucbs/shared').NexterContextSnapshot }>('/api/v1/nexter/context'),
     clearSession: () => request('/api/v1/nexter/session', { method: 'DELETE' }),
   },
@@ -612,6 +923,14 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    get: (id: string) => request<{ job: import('@ucbs/shared').MockupJob }>(`/api/v1/mockups/${id}`),
+    download: (id: string) =>
+      request<{ downloadUrl: string; expiresAt: string; fileId: string; filename: string }>(
+        `/api/v1/mockups/${id}/download`
+      ),
+    versions: (id: string) =>
+      request<{ versions: { id: string; version: number; imageUrl: string }[] }>(`/api/v1/mockups/${id}/versions`),
+    retry: (id: string) => request<{ ok?: boolean }>(`/api/v1/mockups/${id}/retry`, { method: 'POST' }),
     saveFile: (id: string) =>
       request<{ file: UserFile }>(`/api/v1/mockups/${id}/save-file`, { method: 'POST' }),
     saveProject: (id: string, projectId: string) =>
@@ -636,9 +955,77 @@ export const api = {
         body: JSON.stringify(typeof input === 'string' ? { kind: input } : input),
       }),
     exportZip: (projectId?: string) =>
-      request<{ exportUrl: string; files: number; missing: string[]; exportedAt: string }>(
+      request<{
+        exportUrl: string;
+        files: number;
+        missing: string[];
+        exportedAt: string;
+        incomplete?: boolean;
+        fileName?: string;
+        completeLabel?: string;
+      }>(
         `/api/v1/streamset/export${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`
       ),
+    preview: (body: {
+      projectId?: string;
+      platform?: 'twitch' | 'tiktok' | 'youtube' | 'discord';
+      selectedKeys?: string[];
+      selectedSlotIds?: string[];
+      sourceLogoJobId?: string;
+      creatorName?: string;
+      includeCreatorName?: boolean;
+    }) =>
+      request<StreamsetDraft>('/api/v1/streamset/preview', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    quote: (body: {
+      draftId?: string;
+      projectId?: string;
+      platform?: 'twitch' | 'tiktok' | 'youtube' | 'discord';
+      selectedKeys?: string[];
+      selectedSlotIds?: string[];
+      sourceLogoJobId?: string;
+      creatorName?: string;
+      includeCreatorName?: boolean;
+    }) =>
+      request<{ quote: { id: string; coinCost: number; status: string; kind: string }; generated: boolean; charged: boolean }>(
+        '/api/v1/streamset/quote',
+        {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }
+      ),
+    confirm: (quoteId: string) =>
+      request<{
+        quote: { id: string; coinCost: number; status: string; kind: string };
+        batch?: GenerationJob;
+        jobs: GenerationJob[];
+        coinsSpent: number;
+        refundedCoins: number;
+        newBalance: number;
+        batchStatus: string;
+        generated: boolean;
+        charged: boolean;
+      }>(`/api/v1/streamset/quotes/${encodeURIComponent(quoteId)}/confirm`, {
+        method: 'POST',
+        body: JSON.stringify({ confirm: true }),
+      }),
+    retry: (body: { batchId: string; assetKey: string; variant?: boolean }) =>
+      request<{
+        started?: boolean;
+        charged?: boolean;
+        inFlight?: boolean;
+        requiresQuote?: boolean;
+        policy?: string;
+        job?: GenerationJob;
+        quote?: { id: string; coinCost: number; status: string };
+        coinCost?: number;
+        message?: string;
+      }>('/api/v1/streamset/retry', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
   },
   textStudio: {
     list: () => request<{ jobs: TextStudioJob[] }>('/api/v1/text'),
@@ -659,6 +1046,10 @@ export const api = {
       revisionInstruction?: string;
       variantCount?: number;
       wantLastShort?: boolean;
+      wantLastLogo?: boolean;
+      tone?: string;
+      goal?: string;
+      language?: string;
     }) =>
       request<{ quote: { id: string; kind: string; coinCost: number; status: string } }>('/api/v1/text/quote', {
         method: 'POST',
@@ -698,35 +1089,84 @@ export const api = {
   },
   feedback: {
     submit: (body: {
-      module: string;
+      module?: string;
       message: string;
       category?: string;
+      type?: string;
+      subject?: string;
       route?: string;
+      projectId?: string;
+      jobId?: string;
+      fileId?: string;
+      requestId?: string;
+      idempotencyKey?: string;
       screenshotDataUrl?: string;
     }) =>
       request<{ feedback: TesterFeedbackRow }>('/api/v1/feedback', {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    list: (query?: { limit?: number; offset?: number }) => {
+      const params = new URLSearchParams();
+      if (query?.limit != null) params.set('limit', String(query.limit));
+      if (query?.offset != null) params.set('offset', String(query.offset));
+      const suffix = params.toString() ? `?${params.toString()}` : '';
+      return request<{
+        feedback: TesterFeedbackRow[];
+        total: number;
+        limit: number;
+        offset: number;
+        hasMore: boolean;
+      }>(`/api/v1/feedback${suffix}`);
+    },
     get: (id: string) => request<{ feedback: TesterFeedbackRow }>(`/api/v1/feedback/${id}`),
   },
   legal: {
     page: (slug: 'impressum' | 'datenschutz' | 'agb' | 'widerruf' | 'cookies') =>
-      request<{ title: string; html: string; draft?: boolean; notice?: string }>(`/api/v1/legal/${slug}`),
+      request<{
+        title: string;
+        html: string;
+        draft?: boolean;
+        notice?: string;
+        status?: string;
+        seoTitle?: string;
+        seoDescription?: string;
+        blocks?: Array<
+          | { type: 'p'; text: string }
+          | { type: 'h2'; text: string }
+          | { type: 'h3'; text: string }
+          | { type: 'ul'; items: string[] }
+          | { type: 'note'; text: string }
+          | { type: 'links'; items: { href: string; label: string }[] }
+        >;
+      }>(`/api/v1/legal/${slug}`),
   },
   admin: {
     analytics: () => request<{ analytics: AdminAnalytics }>('/api/v1/admin/analytics'),
-    users: (q?: string) =>
-      request<{ users: UserProfile[] }>(`/api/v1/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
-    setRole: (userId: string, role: string, reason: string) =>
+    overview: () =>
+      request<{ analytics: AdminAnalytics; system: AdminSystemStatus }>('/api/v1/admin/overview'),
+    users: (q?: string, limit = 25, offset = 0) => {
+      const params = new URLSearchParams();
+      if (q) params.set('q', q);
+      params.set('limit', String(limit));
+      params.set('offset', String(offset));
+      return request<{
+        users: AdminUserSummary[];
+        total: number;
+        limit: number;
+        offset: number;
+        hasMore: boolean;
+      }>(`/api/v1/admin/users?${params.toString()}`);
+    },
+    setRole: (userId: string, role: string, reason: string, confirm: true) =>
       request(`/api/v1/admin/users/${userId}/role`, {
         method: 'PATCH',
-        body: JSON.stringify({ role, reason }),
+        body: JSON.stringify({ role, reason, confirm }),
       }),
-    disable: (userId: string, disabled: boolean, reason?: string) =>
+    disable: (userId: string, disabled: boolean, reason: string, confirm: true) =>
       request(`/api/v1/admin/users/${userId}/disable`, {
         method: 'POST',
-        body: JSON.stringify({ disabled, reason }),
+        body: JSON.stringify({ disabled, reason, confirm }),
       }),
     coins: (userId: string, amount: number, reason: string, confirm: true, idempotencyKey?: string) =>
       request(`/api/v1/admin/users/${userId}/coins`, {
@@ -734,16 +1174,105 @@ export const api = {
         body: JSON.stringify({ amount, reason, confirm, idempotencyKey }),
       }),
     user: (userId: string) =>
-      request<{ user: UserProfile; transactions: unknown[]; jobs: unknown[]; audit: unknown[] }>(
-        `/api/v1/admin/users/${userId}`
-      ),
+      request<{
+        user: AdminUserSummary;
+        transactions: Array<{ id: string; type: string; amount: number; description: string; createdAt?: string }>;
+        jobs: Array<{
+          id: string;
+          userId: string;
+          module?: string;
+          status: string;
+          errorCode?: string;
+          createdAt: string;
+          assetKey?: string;
+          parentJobId?: string;
+          batchId?: string;
+          refunded?: boolean;
+        }>;
+        audit: unknown[];
+        projects: Array<{ id: string; name: string; type?: string; createdAt?: string }>;
+        files: Array<{ id: string; name: string; mimeType?: string; size?: number; category?: string; createdAt?: string }>;
+        nexterSessionCount: number;
+      }>(`/api/v1/admin/users/${userId}`),
     audit: () => request<{ audit: Array<{ id: string; actorUserId: string; action: string; targetUserId?: string; reason?: string; createdAt: string }> }>('/api/v1/admin/audit'),
     payments: () =>
       request<{ stripe: Array<{ id: string; provider: string; status: string; packageId?: string; error?: string }>; paypal: Array<{ id: string; provider: string; status: string; packageId?: string; error?: string }> }>(
         '/api/v1/admin/payments'
       ),
     recoverJobs: () => request<{ recovery: unknown }>('/api/v1/admin/jobs/recover', { method: 'POST' }),
-    feedback: () => request<{ feedback: TesterFeedbackRow[] }>('/api/v1/admin/feedback'),
+    jobs: (status?: string) =>
+      request<{
+        jobs: Array<{
+          id: string;
+          userId: string;
+          module?: string;
+          status: string;
+          errorCode?: string;
+          createdAt: string;
+          assetKey?: string;
+          parentJobId?: string;
+          batchId?: string;
+          refunded?: boolean;
+        }>;
+      }>(
+        `/api/v1/admin/jobs${status ? `?status=${encodeURIComponent(status)}` : ''}`
+      ),
+    settings: () => request<{ settings: AdminSystemStatus['settings'] }>('/api/v1/admin/settings'),
+    updateSettings: (body: {
+      registrationMode?: 'closed' | 'invite_only' | 'public';
+      generationsEnabled?: boolean;
+      imageGenerationsEnabled?: boolean;
+      videoGenerationsEnabled?: boolean;
+      paymentsEnabled?: boolean;
+    }) =>
+      request<{ settings: AdminSystemStatus['settings'] }>('/api/v1/admin/settings', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+    invites: () =>
+      request<{
+        invites: Array<{
+          id: string;
+          code: string;
+          description: string;
+          assignedEmail?: string;
+          maximumUses: number;
+          currentUses: number;
+          expiresAt?: string;
+          isActive: boolean;
+          grantRole?: string;
+          createdAt: string;
+        }>;
+      }>('/api/v1/admin/invites'),
+    createInvite: (body: {
+      description: string;
+      assignedEmail?: string;
+      maximumUses?: number;
+      grantRole?: 'user' | 'tester';
+    }) =>
+      request<{ invite: { id: string; code: string } }>('/api/v1/admin/invites', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    deactivateInvite: (id: string) =>
+      request(`/api/v1/admin/invites/${id}/deactivate`, { method: 'POST' }),
+    feedback: (query?: { status?: string; type?: string; category?: string; limit?: number; offset?: number }) => {
+      const params = new URLSearchParams();
+      if (query?.status) params.set('status', query.status);
+      if (query?.type) params.set('type', query.type);
+      if (query?.category) params.set('category', query.category);
+      if (query?.limit != null) params.set('limit', String(query.limit));
+      if (query?.offset != null) params.set('offset', String(query.offset));
+      const suffix = params.toString() ? `?${params.toString()}` : '';
+      return request<{
+        feedback: TesterFeedbackRow[];
+        total?: number;
+        limit?: number;
+        offset?: number;
+        hasMore?: boolean;
+      }>(`/api/v1/admin/feedback${suffix}`);
+    },
+    getFeedback: (id: string) => request<{ feedback: TesterFeedbackRow }>(`/api/v1/admin/feedback/${id}`),
     updateFeedback: (id: string, status: string) =>
       request<{ feedback: TesterFeedbackRow }>(`/api/v1/admin/feedback/${id}`, {
         method: 'PATCH',
@@ -780,10 +1309,10 @@ export const api = {
   video: {
     list: () => request<{ projects: VideoProject[]; jobs: MediaJob[] }>('/api/v1/video'),
     get: (id: string) => request<{ project: VideoProject }>(`/api/v1/video/${id}`),
-    create: (title: string, duration?: number, format?: string) =>
+    create: (title: string, duration?: number, format?: string, brandProjectId?: string) =>
       request<{ project: VideoProject }>('/api/v1/video', {
         method: 'POST',
-        body: JSON.stringify({ title, duration, format }),
+        body: JSON.stringify({ title, duration, format, brandProjectId }),
       }),
     detectHighlights: (id: string) =>
       request<{ project: VideoProject }>(`/api/v1/video/${id}/highlights`, { method: 'POST' }),
@@ -797,6 +1326,7 @@ export const api = {
         end?: number;
         format?: string;
         crop?: VideoCrop;
+        fitMode?: 'crop' | 'fit' | 'center';
         burnSubtitles?: boolean;
       }
     ) =>
@@ -804,10 +1334,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
-    uploadSource: (id: string, dataUrl: string, duration?: number) =>
+    uploadSource: (id: string, dataUrl: string, duration?: number, fileName?: string) =>
       request<{ project: VideoProject }>(`/api/v1/video/${id}/source`, {
         method: 'POST',
-        body: JSON.stringify({ dataUrl, duration, rightsConfirmed: true as const }),
+        body: JSON.stringify({ dataUrl, duration, fileName, rightsConfirmed: true as const }),
       }),
     render: (id: string) =>
       request<{ project: VideoProject }>(`/api/v1/video/${id}/render`, { method: 'POST' }),
@@ -848,6 +1378,12 @@ export const api = {
   },
   animations: {
     list: () => request<{ jobs: MediaJob[] }>('/api/v1/animations'),
+    assets: () => request<{ files: UserFile[] }>('/api/v1/animations/assets'),
+    get: (id: string) => request<{ job: MediaJob }>(`/api/v1/animations/${id}`),
+    download: (id: string) =>
+      request<{ downloadUrl: string; expiresAt: string; fileId: string }>(`/api/v1/animations/${id}/download`),
+    versions: (id: string) =>
+      request<{ versions: { id: string; version: number; imageUrl: string }[] }>(`/api/v1/animations/${id}/versions`),
   },
   vtuber: {
     list: () => request<{ characters: MediaJob[] }>('/api/v1/vtuber'),
@@ -873,12 +1409,20 @@ export const api = {
   },
   aiMusic: {
     list: () => request<{ jobs: MediaJob[] }>('/api/v1/ai/music'),
+    assets: () => request<{ files: UserFile[] }>('/api/v1/ai/music/assets'),
     generate: (prompt?: string, title?: string, duration?: number) =>
       request<{ job: MediaJob; coinsSpent: number; newBalance: number }>('/api/v1/ai/music/generate', {
         method: 'POST',
         body: JSON.stringify({ prompt, title, duration }),
       }),
     getJob: (id: string) => request<{ job: MediaJob }>(`/api/v1/ai/music/${id}`),
+    download: (id: string) =>
+      request<{ downloadUrl: string; expiresAt: string; fileId: string; filename: string }>(
+        `/api/v1/ai/music/${id}/download`
+      ),
+    versions: (id: string) =>
+      request<{ versions: { id: string; version: number; imageUrl: string }[] }>(`/api/v1/ai/music/${id}/versions`),
+    retry: (id: string) => request<{ ok?: boolean }>(`/api/v1/ai/music/${id}/retry`, { method: 'POST' }),
   },
   aiVoice: {
     list: () => request<{ jobs: MediaJob[] }>('/api/v1/ai/voice'),
@@ -888,6 +1432,13 @@ export const api = {
         body: JSON.stringify({ prompt, title }),
       }),
     getJob: (id: string) => request<{ job: MediaJob }>(`/api/v1/ai/voice/${id}`),
+    download: (id: string) =>
+      request<{ downloadUrl: string; expiresAt: string; fileId: string; filename: string }>(
+        `/api/v1/ai/voice/${id}/download`
+      ),
+    versions: (id: string) =>
+      request<{ versions: { id: string; version: number; imageUrl: string }[] }>(`/api/v1/ai/voice/${id}/versions`),
+    retry: (id: string) => request<{ ok?: boolean }>(`/api/v1/ai/voice/${id}/retry`, { method: 'POST' }),
   },
   marketplace: {
     list: (category?: string) =>
@@ -927,14 +1478,39 @@ export const api = {
       packageId?: string;
       projectId?: string;
       status?: string;
+      contentType?: string;
     }) =>
       request<{ post: SocialPost }>('/api/v1/social', { method: 'POST', body: JSON.stringify(body) }),
-    update: (id: string, body: Partial<SocialPost>) =>
+    update: (id: string, body: Partial<SocialPost> & { clearSchedule?: boolean }) =>
       request<{ post: SocialPost }>(`/api/v1/social/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     delete: (id: string) => request(`/api/v1/social/${id}`, { method: 'DELETE' }),
   },
   calendar: {
-    list: () => request<{ events: CalendarEvent[]; upcoming: CalendarEvent[] }>('/api/v1/calendar'),
+    list: (query?: {
+      platform?: string;
+      contentType?: string;
+      status?: string;
+      q?: string;
+      from?: string;
+      to?: string;
+    }) => {
+      const qs = new URLSearchParams();
+      if (query?.platform) qs.set('platform', query.platform);
+      if (query?.contentType) qs.set('contentType', query.contentType);
+      if (query?.status) qs.set('status', query.status);
+      if (query?.q) qs.set('q', query.q);
+      if (query?.from) qs.set('from', query.from);
+      if (query?.to) qs.set('to', query.to);
+      const suffix = qs.toString() ? `?${qs.toString()}` : '';
+      return request<{
+        events: CalendarEvent[];
+        upcoming: CalendarEvent[];
+        items?: PlanningItemDto[];
+        today?: PlanningItemDto[];
+        upcomingItems?: PlanningItemDto[];
+        publishingAvailable?: boolean;
+      }>(`/api/v1/calendar${suffix}`);
+    },
     create: (body: CreateCalendarEventBody) =>
       request<{ event: CalendarEvent }>('/api/v1/calendar', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: Partial<CalendarEvent>) =>
@@ -1022,7 +1598,61 @@ export const api = {
     end: (sessionId: string) =>
       request<{ session: LiveStreamSession }>(`/api/v1/live-stream/sessions/${sessionId}/end`, { method: 'POST' }),
   },
+  dashboard: {
+    summary: () => request<{ dashboard: DashboardSummary }>('/api/v1/dashboard/summary'),
+  },
 };
+
+export interface DashboardSummary {
+  greetingName: string;
+  coinBalance: number;
+  coinHistory: Array<{ id: string; type: string; amount: number; description: string; createdAt: string }>;
+  dna: { id: string; name: string; styleDirection?: string; primaryColors: string[] } | null;
+  setup: { hasDna: boolean; hasNexterPersonalization: boolean; hasProject: boolean; hasFile: boolean };
+  projects: Array<{ id: string; name: string; type: string; status: string; updatedAt: string; continuePath: string }>;
+  projectCount: number;
+  files: Array<{
+    id: string;
+    name: string;
+    category: string;
+    createdAt: string;
+    mimeType: string;
+    downloadUrl?: string;
+    expiresAt?: string;
+    available?: boolean;
+  }>;
+  fileCount: number;
+  activeJobs: DashboardJobItem[];
+  recentCompletedJobs: DashboardJobItem[];
+  failedJobs: DashboardJobItem[];
+  activeJobCount: number;
+  streamset: { completed: number; total: number; status: string; href: string } | null;
+  today: Array<{ id: string; title: string; platform?: string; scheduledAt?: string; plannerLabel?: string; status?: string }>;
+  upcoming: Array<{ id: string; title: string; platform?: string; scheduledAt?: string; plannerLabel?: string; status?: string }>;
+  plannedCount: number;
+  activity: Array<{ id: string; kind: string; title: string; at: string; href: string }>;
+  errors: {
+    coins?: string;
+    dna?: string;
+    projects?: string;
+    files?: string;
+    jobs?: string;
+    calendar?: string;
+  };
+}
+
+export interface DashboardJobItem {
+  id: string;
+  kind: string;
+  module: string;
+  status: string;
+  label: string;
+  createdAt: string;
+  error?: string;
+  fileId?: string;
+  href: string;
+  progressKnown: false;
+}
 
 export interface UserProfile {
   id: string;
@@ -1030,10 +1660,16 @@ export interface UserProfile {
   displayName: string;
   avatarUrl?: string;
   role: string;
+  authProviders?: string[];
   coinBalance: number;
   subscriptionTier: string;
   disabled?: boolean;
+  locale?: string;
   onboardingCompleted: boolean;
+  nexterPreferences?: import('@ucbs/shared').NexterPreferences;
+  emailVerified?: boolean;
+  signInProvider?: string | null;
+  needsEmailVerification?: boolean;
 }
 
 export interface CreateDnaBody {
@@ -1104,11 +1740,38 @@ export interface CoinTransaction {
   type: string;
   amount: number;
   balanceAfter: number;
+  balanceBefore?: number;
   description: string;
   createdAt: string;
+  category?: string;
+  reason?: string;
+  sourceType?: string;
+  jobId?: string;
+  quoteId?: string;
+  refundOfTransactionId?: string;
   stripePaymentIntentId?: string;
   paypalOrderId?: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface CoinCatalogItem {
+  id: string;
+  category?: string;
+  label: string;
+  coins: number | null;
+  pricing: 'fixed' | 'quote';
+  note?: string;
+}
+
+export interface CoinQuoteSummary {
+  id: string;
+  kind: string;
+  coinCost: number;
+  status: string;
+  createdAt: string;
+  expiresAt: string;
+  projectId?: string;
+  expired: boolean;
 }
 
 export interface LogoVariantResult {
@@ -1142,13 +1805,18 @@ export interface GenerationJob {
   id: string;
   userId: string;
   module: string;
-  status: 'queued' | 'processing' | 'completed' | 'failed';
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'partial';
   prompt: string;
   imageUrl?: string;
   exports?: { png: string; hd?: string; svg?: string };
   provider?: string;
   dnaId?: string;
   assetKey?: string;
+  projectId?: string;
+  batchId?: string;
+  parentJobId?: string;
+  quoteId?: string;
+  fileId?: string;
   error?: string;
   createdAt: string;
   completedAt?: string;
@@ -1185,11 +1853,71 @@ export interface StreamsetStatus {
   assets: StreamsetStatusAsset[];
   missing: string[];
   jobs: GenerationJob[];
+  latestBatch?: {
+    id: string;
+    status: string;
+    batchStatus: string;
+    incomplete?: boolean;
+    selectedCount?: number;
+    completedCount?: number;
+    jobs: Array<{
+      id: string;
+      key?: string;
+      label: string;
+      status: string;
+      imageUrl?: string;
+      error?: string;
+      fileId?: string;
+      fileMissing?: boolean;
+      version?: number;
+      downloadName?: string;
+      retryPolicy?: string;
+      retryCoinCost?: number;
+      canRetry?: boolean;
+      canDownload?: boolean;
+    }>;
+  };
+}
+
+export interface StreamsetDraft {
+  id: string;
+  platform: string;
+  sourceLogoJobId: string | null;
+  sourceLogoPresent: boolean;
+  dna: (StreamsetStatus['dna'] & {
+    secondaryColors?: string[];
+    accentColors?: string[];
+    mascot?: string;
+    visualLanguage?: string;
+    brandingStyle?: string;
+    fonts?: string[];
+  }) | null;
+  creatorName: string;
+  includeCreatorName: boolean;
+  selectedKeys: string[];
+  includedAssets: Array<{
+    key: string;
+    label: string;
+    module: string;
+    catalogType?: string;
+    coinCost: number;
+    transparentBackground: boolean;
+    transparencyConstraint: string;
+  }>;
+  layoutPreset: { id: string; label: string; width: number; height: number; aspect: string };
+  estimatedCoins: number;
+  packDiscountApplied: boolean;
+  coinBalance: number;
+  canAfford: boolean;
+  insufficientCoins: boolean;
+  confirmationSummary: string;
+  generated: boolean;
+  charged: boolean;
 }
 
 export interface LayoutElement {
   id: string;
-  type: 'facecam' | 'chatbox' | 'alert' | 'widget' | 'logo' | 'text' | 'image' | 'frame' | 'overlay';
+  type: 'facecam' | 'chatbox' | 'alert' | 'widget' | 'logo' | 'text' | 'image' | 'frame' | 'overlay' | 'gameplay';
   x: number;
   y: number;
   width: number;
@@ -1202,18 +1930,47 @@ export interface LayoutElement {
   borderRadius?: number;
   borderColor?: string;
   opacity?: number;
+  visible?: boolean;
+  locked?: boolean;
+  zIndex?: number;
+  fontSize?: number;
+  fontWeight?: number | string;
+  textAlign?: 'left' | 'center' | 'right';
+  fileId?: string;
+  sourceFacecamJobId?: string;
+  sourceOverlayJobId?: string;
+  sourceStickerJobId?: string;
+  sourceLogoJobId?: string;
+  assetMissing?: boolean;
 }
 
 export interface StreamLayout {
   id: string;
   userId: string;
   name: string;
-  platform: 'obs' | 'streamlabs' | 'tiktok' | 'twitch';
+  platform: 'obs' | 'streamlabs' | 'tiktok' | 'twitch' | 'youtube' | 'custom';
   canvas: { width: number; height: number };
   elements: LayoutElement[];
+  background?: { mode: 'transparent' | 'solid'; color?: string };
+  projectId?: string;
   dnaId?: string;
+  version?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ChangeableSource {
+  id: string;
+  kind: string;
+  module: string;
+  label: string;
+  fileId?: string;
+  projectId?: string;
+  version?: number;
+  createdAt: string;
+  resultKind: 'image' | 'audio' | 'video' | 'other';
+  batchId?: string;
+  assetKey?: string;
 }
 
 export interface ChangeRequestRecord {
@@ -1224,8 +1981,12 @@ export interface ChangeRequestRecord {
   status: string;
   imageUrlBefore?: string;
   imageUrlAfter?: string;
+  fileIdBefore?: string;
+  fileIdAfter?: string;
   versionBefore?: string;
   versionAfter?: string;
+  quoteId?: string;
+  scope?: 'asset' | 'set' | 'dna';
   createdAt: string;
   completedAt?: string;
 }
@@ -1304,6 +2065,8 @@ export interface TextStudioJob {
   usedTranscript?: boolean;
   transcriptMissingNote?: string;
   revisions?: { at: string; field: string; instruction: string; before: string; after: string }[];
+  version?: number;
+  parentPackageId?: string;
   error?: string;
   createdAt: string;
   updatedAt?: string;
@@ -1312,25 +2075,81 @@ export interface TextStudioJob {
 export interface AdminAnalytics {
   users: number;
   testers: number;
+  disabledUsers?: number;
   generations: number;
   completed: number;
   failed: number;
+  pendingJobs?: number;
+  processingJobs?: number;
   failRate: number;
   popularModules: { module: string; count: number }[];
   coinsSpent: number;
   coinsBought: number;
   apiCostCents?: number;
   feedback: number;
+  inviteCount?: number;
+  activeInviteCount?: number;
+}
+
+export interface AdminUserSummary {
+  id: string;
+  displayName: string;
+  email: string;
+  role: string;
+  disabled: boolean;
+  coinBalance: number;
+  createdAt: string;
+  authProviders: string[];
+  onboardingCompleted: boolean;
+  emailVerified: boolean | null;
+}
+
+export interface AdminSystemStatus {
+  environment: string;
+  firebase: { adminConfigured: boolean; mode: string; projectConsistency?: 'ok' | 'mismatch' | 'not_verified' };
+  firestore?: {
+    configured: boolean;
+    liveChecked?: boolean;
+    available?: boolean | null;
+    mode?: string;
+  };
+  storage?: { configured: boolean; liveChecked?: boolean; available?: boolean | null };
+  email?: {
+    firebaseAuthEmail: 'available' | 'unavailable';
+    customProvider: string;
+    customProviderStatus: 'configured' | 'not_configured';
+  };
+  devStore: boolean;
+  checkedAt?: string;
+  processUptimeSec?: number;
+  payments: { envEnabled: boolean; settingsEnabled: boolean; enabled: boolean };
+  settings: {
+    registrationMode: 'closed' | 'invite_only' | 'public';
+    generationsEnabled: boolean;
+    imageGenerationsEnabled: boolean;
+    videoGenerationsEnabled: boolean;
+    paymentsEnabled: boolean;
+    activePricingVersion?: string;
+    updatedAt?: string;
+  };
+  providers: Record<string, { configured: boolean; liveChecked?: boolean; available?: boolean | null }>;
 }
 
 export interface TesterFeedbackRow {
   id: string;
   userId: string;
+  type?: string;
   module: string;
   route?: string;
   category?: string;
   status?: string;
+  subject?: string;
   message: string;
+  projectId?: string;
+  jobId?: string;
+  fileId?: string;
+  requestId?: string;
+  hasScreenshot?: boolean;
   screenshotDataUrl?: string;
   createdAt: string;
   updatedAt?: string;
@@ -1412,6 +2231,7 @@ export interface MediaJob {
   dnaId?: string;
   metadata?: Record<string, unknown>;
   error?: string;
+  fileMissing?: boolean;
   createdAt: string;
   completedAt?: string;
 }
@@ -1434,8 +2254,12 @@ export interface VideoProject {
   highlights: HighlightSegment[];
   shorts: MediaJob[];
   renderUrl?: string;
+  renderFileId?: string;
+  renderJobId?: string;
+  fileMissing?: boolean;
+  captionsNeedReview?: boolean;
   srtUrl?: string;
-  status: 'draft' | 'processing' | 'ready';
+  status: 'draft' | 'processing' | 'ready' | 'failed';
   createdAt: string;
   updatedAt: string;
 }
@@ -1450,7 +2274,13 @@ export interface UserFile {
   downloadUrl?: string;
   source?: 'upload' | 'generation';
   projectId?: string;
+  sourceJobId?: string;
+  sourceAssetId?: string;
+  version?: number;
   createdAt: string;
+  expiresAt?: string;
+  expiresInMs?: number;
+  available?: boolean;
 }
 
 export interface MarketplaceItem {
@@ -1499,6 +2329,7 @@ export interface SocialPost {
   mediaAssetId?: string;
   packageId?: string;
   projectId?: string;
+  contentType?: string;
   scheduledAt?: string;
   publishedAt?: string;
   status: 'draft' | 'scheduled' | 'published' | 'ready';
@@ -1507,8 +2338,29 @@ export interface SocialPost {
   publishingAvailable?: boolean;
   analyticsAvailable?: boolean;
   platformConnected?: boolean;
+  version?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PlanningItemDto {
+  id: string;
+  source: 'social' | 'event';
+  socialPostId?: string;
+  eventId?: string;
+  title: string;
+  content: string;
+  platform?: string;
+  contentType?: string;
+  scheduledAt?: string;
+  plannerStatus: 'draft' | 'scheduled' | 'ready';
+  plannerLabel: string;
+  projectId?: string;
+  packageId?: string;
+  mediaAssetId?: string;
+  mediaUrl?: string;
+  version?: number;
+  publishingAvailable: false;
 }
 
 export interface SocialStats {
@@ -1711,15 +2563,19 @@ export interface PlatformStatus {
   stripe: { configured: boolean; liveChecked?: boolean; available?: boolean | null; mode: 'live' | 'test' | 'disabled' };
   paypal: { configured: boolean; liveChecked?: boolean; available?: boolean | null; mode: 'live' | 'sandbox' | 'disabled' };
   resend?: { configured: boolean; liveChecked?: boolean; available?: boolean | null };
+  firebaseAuthEmail?: { status: 'available' | 'unavailable'; liveChecked?: boolean };
+  customEmailProvider?: { name: string; status: 'configured' | 'not_configured'; liveChecked?: boolean };
   rtmp: { server: string; appName: string; provider: string };
   ai: Record<string, { configured: boolean; liveChecked: boolean; available: boolean | null }>;
   features: { devLogin: boolean; devCoinPurchase: boolean; liveStreaming: boolean };
+  killSwitches?: { generationsEnabled: boolean; paymentsEnabled: boolean };
 }
 
 export function setAuthToken(token: string | null): void {
+  if (typeof localStorage === 'undefined') return;
   if (token) {
-    localStorage.setItem('auth_token', token);
+    localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
   } else {
-    localStorage.removeItem('auth_token');
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
   }
 }

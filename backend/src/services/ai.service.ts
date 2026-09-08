@@ -1,10 +1,10 @@
-import type { CreatorDNA, StudioExportUrls } from '@ucbs/shared';
+import type { BannerConfig, CreatorDNA, FacecamConfig, LogoConfig, MockupConfig, OverlayConfig, StickerConfig, StudioExportUrls } from '@ucbs/shared';
 import { CoinSpendCategory, applyLockedDnaToGeneration, buildDnaPromptContext } from '@ucbs/shared';
 import { randomUUID } from 'node:crypto';
-import { getOpenAiApiKey, getReplicateApiToken } from '../config/env.js';
+import { getOpenAiApiKey, getReplicateApiToken, areImageGenerationsEnabled } from '../config/env.js';
 import { getActiveDna, resolveDnaForRequest } from './dna.service.js';
 import { withCoinCharge, withCoinChargePack } from '../lib/billable-job.js';
-import { requireImageProvider } from '../lib/media-providers.js';
+import { requireImageProvider, isPaidProviderTestBlocked } from '../lib/media-providers.js';
 import { buildSvgExportFromImage } from '../lib/studio-export.js';
 import {
   buildBannerPrompt,
@@ -38,11 +38,70 @@ import { attachAssetToProject } from './project-assets.service.js';
 
 const JOBS_COLLECTION = 'generationJobs';
 
+export const LOGO_MOCK_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+export const BANNER_MOCK_PNG = LOGO_MOCK_PNG;
+export const FACECAM_MOCK_PNG = LOGO_MOCK_PNG;
+export const OVERLAY_MOCK_PNG = LOGO_MOCK_PNG;
+export const STICKER_MOCK_PNG = LOGO_MOCK_PNG;
+export const MOCKUP_MOCK_PNG = LOGO_MOCK_PNG;
+
+let logoTestHooks: { result?: 'success' | 'fail' } | undefined;
+let bannerTestHooks: { result?: 'success' | 'fail' } | undefined;
+let facecamTestHooks: { result?: 'success' | 'fail' } | undefined;
+let overlayTestHooks: { result?: 'success' | 'fail' } | undefined;
+let stickerTestHooks: { result?: 'success' | 'fail' } | undefined;
+let mockupTestHooks: { result?: 'success' | 'fail' } | undefined;
+
+export function setLogoTestHooks(hooks: typeof logoTestHooks | null): void {
+  logoTestHooks = hooks ?? undefined;
+}
+
+export function setBannerTestHooks(hooks: typeof bannerTestHooks | null): void {
+  bannerTestHooks = hooks ?? undefined;
+}
+
+export function setFacecamTestHooks(hooks: typeof facecamTestHooks | null): void {
+  facecamTestHooks = hooks ?? undefined;
+}
+
+export function setOverlayTestHooks(hooks: typeof overlayTestHooks | null): void {
+  overlayTestHooks = hooks ?? undefined;
+}
+
+export function setStickerTestHooks(hooks: typeof stickerTestHooks | null): void {
+  stickerTestHooks = hooks ?? undefined;
+}
+
+export function setMockupTestHooks(hooks: typeof mockupTestHooks | null): void {
+  mockupTestHooks = hooks ?? undefined;
+}
+
+export function assertImageProviderReadyForStudio(module: StudioModuleKey): void {
+  const hook =
+    module === 'logo'
+      ? logoTestHooks
+      : module === 'banner'
+        ? bannerTestHooks
+        : module === 'facecam'
+          ? facecamTestHooks
+          : module === 'overlay'
+            ? overlayTestHooks
+            : module === 'sticker'
+              ? stickerTestHooks
+              : module === 'mockup'
+                ? mockupTestHooks
+                : undefined;
+  if (hook) return;
+  requireImageProvider();
+}
+
 export interface GenerationJob {
   id: string;
   userId: string;
   module: string;
-  status: 'queued' | 'processing' | 'completed' | 'failed';
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'partial';
   prompt: string;
   imageUrl?: string;
   provider?: string;
@@ -50,10 +109,19 @@ export interface GenerationJob {
   dnaId?: string;
   assetKey?: string;
   projectId?: string;
+  batchId?: string;
+  parentJobId?: string;
+  quoteId?: string;
+  fileId?: string;
   error?: string;
   createdAt: string;
   updatedAt?: string;
   completedAt?: string;
+  width?: number;
+  height?: number;
+  mimeType?: string;
+  transparentBackground?: boolean;
+  metadata?: Record<string, unknown>;
 }
 
 export interface GenerateImageOptions {
@@ -65,6 +133,7 @@ export interface GenerateImageOptions {
     | 'profile-pic'
     | 'overlay'
     | 'sticker'
+    | 'mockup'
     | 'stream-start'
     | 'stream-end'
     | 'panel'
@@ -85,6 +154,7 @@ export function buildPromptFromDNA(dna: CreatorDNA, module: string, customPrompt
     facecam: `${dna.styleDirection} stream overlay frame for facecam, transparent-friendly border design`,
     overlay: `${dna.styleDirection} stream overlay graphic, HUD elements, transparent-friendly`,
     sticker: `${dna.styleDirection} creator sticker/emote, bold multicolor, transparent background`,
+    mockup: `${dna.styleDirection} photorealistic merch mockup, lifestyle product photography`,
     'stream-start': `${dna.styleDirection} stream starting soon screen, full screen graphic`,
     'stream-end': `${dna.styleDirection} stream ending screen, thank you graphic`,
     offline: `${dna.styleDirection} stream offline screen, clear offline status`,
@@ -107,26 +177,89 @@ function moduleImageSize(module: string): GenerateImageOptions['size'] {
 export async function generateImage(
   options: GenerateImageOptions
 ): Promise<{ imageUrl: string; provider: string; exports: StudioExportUrls }> {
+  const testBlocked = isPaidProviderTestBlocked();
+  if (options.module === 'logo' && logoTestHooks?.result === 'fail') {
+    throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
+  }
+  if (options.module === 'logo' && logoTestHooks?.result === 'success') {
+    return { imageUrl: LOGO_MOCK_PNG, provider: 'mock', exports: buildExports(LOGO_MOCK_PNG, 'logo') };
+  }
+  if (options.module === 'banner' && bannerTestHooks?.result === 'fail') {
+    throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
+  }
+  if (options.module === 'banner' && bannerTestHooks?.result === 'success') {
+    return { imageUrl: BANNER_MOCK_PNG, provider: 'mock', exports: buildExports(BANNER_MOCK_PNG, 'banner') };
+  }
+  if (options.module === 'facecam' && facecamTestHooks?.result === 'fail') {
+    throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
+  }
+  if (options.module === 'facecam' && facecamTestHooks?.result === 'success') {
+    return { imageUrl: FACECAM_MOCK_PNG, provider: 'mock', exports: buildExports(FACECAM_MOCK_PNG, 'facecam') };
+  }
+  if (options.module === 'overlay' && overlayTestHooks?.result === 'fail') {
+    throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
+  }
+  if (options.module === 'overlay' && overlayTestHooks?.result === 'success') {
+    return { imageUrl: OVERLAY_MOCK_PNG, provider: 'mock', exports: buildExports(OVERLAY_MOCK_PNG, 'overlay') };
+  }
+  if (options.module === 'sticker' && stickerTestHooks?.result === 'fail') {
+    throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
+  }
+  if (options.module === 'sticker' && stickerTestHooks?.result === 'success') {
+    return { imageUrl: STICKER_MOCK_PNG, provider: 'mock', exports: buildExports(STICKER_MOCK_PNG, 'sticker') };
+  }
+  if (options.module === 'mockup' && mockupTestHooks?.result === 'fail') {
+    throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
+  }
+  if (options.module === 'mockup' && mockupTestHooks?.result === 'success') {
+    return { imageUrl: MOCKUP_MOCK_PNG, provider: 'mock', exports: buildExports(MOCKUP_MOCK_PNG, 'mockup') };
+  }
+  if (testBlocked) {
+    throw new ServiceError(
+      503,
+      'AI_NOT_CONFIGURED',
+      'Bild-Generierung benötigt OPENAI_API_KEY oder REPLICATE_API_TOKEN'
+    );
+  }
+  if (!areImageGenerationsEnabled()) {
+    throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
+  }
+  if (
+    (options.module === 'logo' ||
+      options.module === 'banner' ||
+      options.module === 'facecam' ||
+      options.module === 'overlay' ||
+      options.module === 'sticker' ||
+      options.module === 'mockup') &&
+    !getOpenAiApiKey() &&
+    !getReplicateApiToken()
+  ) {
+    const mock =
+      options.module === 'banner'
+        ? BANNER_MOCK_PNG
+        : options.module === 'facecam'
+          ? FACECAM_MOCK_PNG
+          : options.module === 'overlay'
+            ? OVERLAY_MOCK_PNG
+            : options.module === 'sticker'
+              ? STICKER_MOCK_PNG
+              : options.module === 'mockup'
+                ? MOCKUP_MOCK_PNG
+              : LOGO_MOCK_PNG;
+    return { imageUrl: mock, provider: 'mock', exports: buildExports(mock, options.module) };
+  }
   const prompt = options.customPrompt ?? buildPromptFromDNA(options.dna, options.module);
   const size = options.size ?? (options.module === 'banner' ? '1792x1024' : '1024x1024');
   const quality = options.hd ? 'hd' : 'standard';
 
   if (getOpenAiApiKey()) {
-    try {
-      const url = await generateWithOpenAI(prompt, size, quality);
-      return { imageUrl: url, provider: 'openai', exports: buildExports(url, options.module) };
-    } catch (err) {
-      console.warn('[AI] OpenAI failed, trying Replicate:', err);
-    }
+    const url = await generateWithOpenAI(prompt, size, quality);
+    return { imageUrl: url, provider: 'openai', exports: buildExports(url, options.module) };
   }
 
   if (getReplicateApiToken()) {
-    try {
-      const url = await generateWithReplicate(prompt);
-      return { imageUrl: url, provider: 'replicate', exports: buildExports(url, options.module) };
-    } catch (err) {
-      console.warn('[AI] Replicate failed:', err);
-    }
+    const url = await generateWithReplicate(prompt);
+    return { imageUrl: url, provider: 'replicate', exports: buildExports(url, options.module) };
   }
 
   requireImageProvider();
@@ -271,8 +404,13 @@ export async function getJob(jobId: string): Promise<GenerationJob | null> {
   return job ? (job as unknown as GenerationJob) : null;
 }
 
-export async function getJobsByUser(userId: string): Promise<GenerationJob[]> {
-  const jobs = await dsList(JOBS_COLLECTION, { userId, orderBy: 'createdAt', order: 'desc' });
+export async function getJobsByUser(userId: string, limit?: number): Promise<GenerationJob[]> {
+  const jobs = await dsList(JOBS_COLLECTION, {
+    userId,
+    orderBy: 'createdAt',
+    order: 'desc',
+    ...(typeof limit === 'number' ? { limit } : {}),
+  });
   return jobs as unknown as GenerationJob[];
 }
 
@@ -281,7 +419,27 @@ export async function runGenerationJob(
   module: string,
   dna: CreatorDNA,
   customPrompt?: string,
-  genOptions?: { size?: GenerateImageOptions['size']; hd?: boolean; assetKey?: string; projectId?: string }
+  genOptions?: {
+    size?: GenerateImageOptions['size'];
+    hd?: boolean;
+    assetKey?: string;
+    projectId?: string;
+    batchId?: string;
+    parentJobId?: string;
+    quoteId?: string;
+    width?: number;
+    height?: number;
+    mimeType?: string;
+    transparentBackground?: boolean;
+    logoConfig?: Record<string, unknown> | LogoConfig;
+    bannerConfig?: Record<string, unknown> | BannerConfig;
+    facecamConfig?: Record<string, unknown> | FacecamConfig;
+    overlayConfig?: Record<string, unknown> | OverlayConfig;
+    stickerConfig?: Record<string, unknown> | StickerConfig;
+    mockupConfig?: Record<string, unknown> | MockupConfig;
+    creatorName?: string;
+    downloadName?: string;
+  }
 ): Promise<GenerationJob> {
   const job: GenerationJob = {
     id: randomUUID(),
@@ -289,9 +447,25 @@ export async function runGenerationJob(
     module,
     status: 'processing',
     prompt: customPrompt ?? buildPromptFromDNA(dna, module),
-    dnaId: dna.id,
+    dnaId: dna.id.startsWith('ephemeral-') ? undefined : dna.id,
     assetKey: genOptions?.assetKey,
     projectId: genOptions?.projectId,
+    batchId: genOptions?.batchId,
+    parentJobId: genOptions?.parentJobId,
+    quoteId: genOptions?.quoteId,
+    width: genOptions?.width,
+    height: genOptions?.height,
+    mimeType: genOptions?.mimeType,
+    transparentBackground: genOptions?.transparentBackground,
+    metadata: {
+      ...(genOptions?.logoConfig ?? {}),
+      ...(genOptions?.bannerConfig ?? {}),
+      ...(genOptions?.facecamConfig ?? {}),
+      ...(genOptions?.overlayConfig ?? {}),
+      ...(genOptions?.stickerConfig ?? {}),
+      ...(genOptions?.mockupConfig ?? {}),
+      creatorName: genOptions?.creatorName ?? dna.name,
+    },
     createdAt: new Date().toISOString(),
   };
 
@@ -310,11 +484,13 @@ export async function runGenerationJob(
     const persisted = await saveGeneratedAsset(userId, module, imageUrl, {
       projectId: genOptions?.projectId,
       sourceJobId: job.id,
+      name: genOptions?.downloadName,
     });
     const durableUrl = persisted?.downloadUrl || imageUrl;
 
     job.status = 'completed';
     job.imageUrl = durableUrl;
+    job.fileId = persisted?.id;
     job.provider = provider;
     job.exports = {
       png: durableUrl,
@@ -322,6 +498,11 @@ export async function runGenerationJob(
       svg: buildSvgExportFromImage(durableUrl, module),
     };
     job.completedAt = new Date().toISOString();
+    job.metadata = {
+      ...(job.metadata ?? {}),
+      fileId: persisted?.id,
+      mimeType: persisted?.mimeType ?? genOptions?.mimeType,
+    };
     const { recordApiCost } = await import('../lib/api-cost.js');
     await recordApiCost({
       userId,
@@ -330,6 +511,21 @@ export async function runGenerationJob(
       internalCostCents: 4,
     });
     void rawExports;
+
+    if (
+      (module === 'logo' || module === 'banner' || module === 'facecam' || module === 'overlay' || module === 'sticker') &&
+      (durableUrl || persisted?.id)
+    ) {
+      const { recordJobVersion } = await import('./change-request.service.js');
+      const rootId = genOptions?.parentJobId || job.id;
+      const version = await recordJobVersion(
+        userId,
+        rootId,
+        persisted?.id || durableUrl,
+        genOptions?.parentJobId ? 'Variante' : 'Original'
+      );
+      job.metadata = { ...(job.metadata ?? {}), version: version.version, parentJobId: rootId };
+    }
 
     if (genOptions?.projectId && durableUrl) {
       await attachAssetToProject(userId, genOptions.projectId, {
@@ -343,6 +539,7 @@ export async function runGenerationJob(
         sourceId: job.id,
         mimeType: persisted?.mimeType,
         assetKey: genOptions.assetKey,
+        parentAssetId: genOptions.parentJobId ?? genOptions.batchId,
       }).catch(() => undefined);
     }
   } catch (err) {
@@ -460,6 +657,8 @@ export async function generateStudioAsset(
   const lockedOptions = studioOptions
     ? applyLockedDnaToGeneration(activeDna, studioOptions as LogoGenerationOptions)
     : studioOptions;
+
+  assertImageProviderReadyForStudio(module);
 
   try {
     return await withCoinCharge(userId, coinCategory, `${moduleLabel} Generierung`, async () => {

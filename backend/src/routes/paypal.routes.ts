@@ -14,6 +14,7 @@ import {
 } from '../services/paypal.service.js';
 import { creditCoinsFromPackagePurchase } from '../services/payment-credit.service.js';
 import { isDevAuthEnabled, isProduction } from '../config/env.js';
+import { assertNewPaymentsAllowed } from '../lib/payments-gate.js';
 import { getPackageById } from '../services/payment-credit.service.js';
 import { addCoins } from '../services/coins.service.js';
 
@@ -67,6 +68,7 @@ paypalRoutes.post(
   requirePermission(Permission.PURCHASE_COINS),
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const { packageId } = checkoutSchema.parse(req.body);
+    await assertNewPaymentsAllowed();
 
     if (!isPayPalConfigured()) {
       if (isDevAuthEnabled()) {
@@ -92,6 +94,7 @@ paypalRoutes.post(
     if (isProduction() || !isDevAuthEnabled()) {
       throw new AppError(403, 'FORBIDDEN', 'Dev-Kauf ist in Production deaktiviert');
     }
+    await assertNewPaymentsAllowed();
 
     const body = checkoutSchema.extend({
       idempotencyKey: z.string().min(8).max(80).optional(),

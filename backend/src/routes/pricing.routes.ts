@@ -17,8 +17,7 @@ import {
   listLedgerEntries,
 } from '../services/ledger.service.js';
 import { createQuoteCheckoutSession, isStripeConfigured } from '../services/stripe.service.js';
-import { arePaymentsEnabled } from '../config/env.js';
-import { getSystemSettings } from '../services/system-settings.service.js';
+import { assertNewPaymentsAllowed } from '../lib/payments-gate.js';
 
 export const pricingRoutes = Router();
 
@@ -63,10 +62,7 @@ pricingRoutes.post(
       quoteId: z.string().uuid(),
     });
     const { quoteId } = schema.parse(req.body);
-    const settings = await getSystemSettings();
-    if (!settings.paymentsEnabled || !arePaymentsEnabled()) {
-      throw new AppError(503, 'PAYMENT_FAILED', 'Zahlungen sind derzeit deaktiviert');
-    }
+    await assertNewPaymentsAllowed();
 
     const quote = await assertQuoteValidForPayment(quoteId, req.user!.uid);
     const result = await chargeOrderFromBalance(
@@ -95,10 +91,7 @@ pricingRoutes.post(
       quoteId: z.string().uuid(),
     });
     const { quoteId } = schema.parse(req.body);
-    const settings = await getSystemSettings();
-    if (!settings.paymentsEnabled || !arePaymentsEnabled()) {
-      throw new AppError(503, 'PAYMENT_FAILED', 'Zahlungen sind derzeit deaktiviert');
-    }
+    await assertNewPaymentsAllowed();
     if (!isStripeConfigured()) {
       throw new AppError(503, 'PAYMENT_FAILED', 'Stripe ist nicht konfiguriert');
     }

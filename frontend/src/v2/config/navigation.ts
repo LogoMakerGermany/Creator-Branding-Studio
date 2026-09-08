@@ -11,12 +11,15 @@ import {
   Share2,
   Type,
   Shirt,
+  Music,
   FolderKanban,
   Cloud,
   LayoutTemplate,
   Settings,
   Coins,
   Shield,
+  Calendar,
+  CircleHelp,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -36,15 +39,19 @@ export const PRIMARY_NAV: NavItem[] = [
   { id: 'logo', label: 'Logo Studio', path: '/logo-studio', icon: PenTool, group: 'studios' },
   { id: 'streamset', label: 'Streamset Studio', path: '/streamset-studio', icon: Layers, group: 'studios' },
   { id: 'animation', label: 'Animation Studio', path: '/animation-studio', icon: Sparkles, group: 'studios' },
+  { id: 'music', label: 'Musik Studio', path: '/ai-music', icon: Music, group: 'studios' },
   { id: 'video', label: 'Video Studio', path: '/video-studio', icon: Film, group: 'studios' },
   { id: 'shorts', label: 'Shorts Studio', path: '/shorts-studio', icon: Smartphone, group: 'studios' },
   { id: 'social', label: 'Social Studio', path: '/social-studio', icon: Share2, group: 'studios' },
+  { id: 'calendar', label: 'Content-Kalender', path: '/content-calendar', icon: Calendar, group: 'studios' },
   { id: 'text', label: 'Text Studio', path: '/text-studio', icon: Type, group: 'studios' },
   { id: 'mockup', label: 'Mockup Studio', path: '/mockup-studio', icon: Shirt, group: 'studios', badge: 'NEU' },
   { id: 'projects', label: 'Projekte', path: '/projects', icon: FolderKanban, group: 'library' },
   { id: 'files', label: 'Dateien', path: '/file-cloud', icon: Cloud, group: 'library' },
+  { id: 'coins', label: 'Coins', path: '/coins', icon: Coins, group: 'library', description: 'Guthaben und Verlauf' },
   { id: 'templates', label: 'Vorlagen', path: '/templates', icon: LayoutTemplate, group: 'library' },
   { id: 'settings', label: 'Einstellungen', path: '/settings', icon: Settings, group: 'library' },
+  { id: 'support', label: 'Hilfe', path: '/support', icon: CircleHelp, group: 'library' },
 ];
 
 export interface HubModule {
@@ -71,6 +78,7 @@ export const AI_CREATOR_MODULES: HubModule[] = [
   { id: 'assistant', title: 'Nexter', description: 'Steuerung, Beratung, Aktionen', path: '/nexter', accent: 'cyan' },
   { id: 'text', title: 'Text Studio', description: 'Titel, Captions, Bios', path: '/text-studio', accent: 'purple' },
   { id: 'animation', title: 'Animation', description: 'Intro, Outro, Stinger', path: '/animation-studio', accent: 'green' },
+  { id: 'music', title: 'Musik', description: 'Introsongs, BGM, Jingles', path: '/ai-music', accent: 'cyan' },
   { id: 'changes', title: 'Änderungswünsche', description: 'Versionen & Anpassungen', path: '/change-request', accent: 'purple' },
 ];
 
@@ -87,7 +95,8 @@ export const PROJECTS_MODULES: HubModule[] = [
 
 export const SETTINGS_LINKS: HubModule[] = [
   { id: 'dna', title: 'Creator DNA', description: 'Farben, Stil, Plattformen', path: '/creator-dna', accent: 'cyan' },
-  { id: 'coins', title: 'Guthaben & Zahlung', description: 'Coins, Quotes & Stripe', path: '/coins', accent: 'purple' },
+  { id: 'coins', title: 'Guthaben & Coins', description: 'Coins, Verlauf und Kosten', path: '/coins', accent: 'purple' },
+  { id: 'support', title: 'Support & Feedback', description: 'Probleme, Feedback, Feature-Wünsche', path: '/support', accent: 'green' },
 ];
 
 export const AI_PROMPT_SUGGESTIONS = [

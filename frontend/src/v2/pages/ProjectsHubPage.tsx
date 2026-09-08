@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FolderKanban, Plus, Trash2, RotateCcw, Download, Upload } from 'lucide-react';
 import type { Project, ProjectType } from '@ucbs/shared';
+import { NEXTER_STUDIO_PATHS } from '@ucbs/shared';
 import { PageHeader, Badge, Button, NeonCard, Input } from '@/components/ui';
 import { HubPageLayout } from '@/v2/components/HubPageLayout';
+import { Skeleton } from '@/v2/components/Skeleton';
 import { PROJECTS_MODULES } from '@/v2/config/navigation';
 import { api, ApiError } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
@@ -27,30 +29,66 @@ const TYPES: ProjectType[] = [
 
 const MAX_ZIP_MB = 80;
 
+type SortKey = 'updated' | 'newest' | 'oldest' | 'name';
+
+function studioForType(type: string): string {
+  return NEXTER_STUDIO_PATHS[type] || '/projects';
+}
+
 export function ProjectsHubPage() {
-  const { refreshUser, activeDna } = useAuth();
+  const { user, refreshUser, activeDna } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeProjectId = useBrandProjectStore((s) => s.activeProjectId);
   const setActiveProjectId = useBrandProjectStore((s) => s.setActiveProjectId);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [total, setTotal] = useState(0);
   const [trash, setTrash] = useState<Project[]>([]);
   const [name, setName] = useState('');
   const [type, setType] = useState<ProjectType>('custom');
-  const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'' | ProjectType>('');
+  const [sort, setSort] = useState<SortKey>('updated');
+  const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+  const [trashError, setTrashError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [showTrash, setShowTrash] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<{ id: string; name: string; kind: 'delete' | 'purge' } | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   async function refresh() {
-    const [active, deleted] = await Promise.all([api.projects.list(), api.projects.trash()]);
-    setProjects(active.projects);
-    setTrash(deleted.projects);
+    setLoading(true);
+    setListError(null);
+    try {
+      const active = await api.projects.list({
+        q: query.trim() || undefined,
+        type: typeFilter || undefined,
+        sort,
+        filter: 'active',
+        limit: 50,
+      });
+      setProjects(active.projects);
+      setTotal(active.total ?? active.projects.length);
+    } catch (err) {
+      setListError(err instanceof ApiError ? err.message : 'Projekte konnten nicht geladen werden.');
+    } finally {
+      setLoading(false);
+    }
+    try {
+      const deleted = await api.projects.trash();
+      setTrash(deleted.projects);
+      setTrashError(null);
+    } catch (err) {
+      setTrashError(err instanceof ApiError ? err.message : 'Papierkorb nicht verfügbar.');
+    }
   }
 
   useEffect(() => {
-    refresh().catch(() => {});
-  }, []);
+    void refresh();
+  }, [user?.id, query, typeFilter, sort]);
 
   async function handleCreate() {
     if (!name.trim()) {
@@ -70,9 +108,29 @@ export function ProjectsHubPage() {
     }
   }
 
-  async function handleDelete(id: string) {
-    await api.projects.remove(id);
-    await refresh();
+  async function handleRename(id: string) {
+    if (!renameValue.trim()) return;
+    setError(null);
+    try {
+      await api.projects.rename(id, renameValue.trim());
+      setRenamingId(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Umbenennen fehlgeschlagen');
+    }
+  }
+
+  async function confirmDestructive() {
+    if (!confirmAction) return;
+    setError(null);
+    try {
+      if (confirmAction.kind === 'delete') await api.projects.remove(confirmAction.id);
+      else await api.projects.purge(confirmAction.id);
+      setConfirmAction(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Löschen fehlgeschlagen');
+    }
   }
 
   async function handleRestore(id: string) {
@@ -80,13 +138,7 @@ export function ProjectsHubPage() {
     await refresh();
   }
 
-  async function handlePurge(id: string) {
-    await api.projects.purge(id);
-    await refresh();
-  }
-
   async function handleExport(id: string) {
-    setLoading(true);
     setError(null);
     try {
       const result = await api.projects.export(id);
@@ -100,8 +152,6 @@ export function ProjectsHubPage() {
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'ZIP-Export fehlgeschlagen');
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -130,7 +180,6 @@ export function ProjectsHubPage() {
         reader.readAsDataURL(file);
       });
 
-      // Ensure MIME is zip even if browser omits it
       const normalized =
         zipDataUrl.startsWith('data:application/zip') ||
         zipDataUrl.startsWith('data:application/x-zip-compressed')
@@ -161,8 +210,10 @@ export function ProjectsHubPage() {
     }
   }
 
+  const visible = showTrash ? trash : projects;
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" aria-busy={loading}>
       <HubPageLayout
         title="Projekte"
         description="Projekte anlegen, ZIP exportieren/importieren und im Papierkorb wiederherstellen"
@@ -176,7 +227,9 @@ export function ProjectsHubPage() {
       />
 
       {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-red-300">{error}</div>
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-red-300" role="alert">
+          {error}
+        </div>
       )}
       {importStatus && (
         <div className="whitespace-pre-wrap rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 text-cyan-200">
@@ -190,11 +243,14 @@ export function ProjectsHubPage() {
             <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="z.B. Twitch Relaunch" />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-zinc-300">Typ</label>
+            <label className="mb-1.5 block text-sm font-medium text-zinc-300" htmlFor="project-type">
+              Typ
+            </label>
             <select
+              id="project-type"
               value={type}
               onChange={(e) => setType(e.target.value as ProjectType)}
-              className="rounded-lg border border-zinc-700 bg-surface-900 px-3 py-2.5 text-sm text-zinc-100"
+              className="min-h-11 rounded-lg border border-zinc-700 bg-surface-900 px-3 py-2.5 text-sm text-zinc-100"
             >
               {TYPES.map((t) => (
                 <option key={t} value={t}>
@@ -203,8 +259,8 @@ export function ProjectsHubPage() {
               ))}
             </select>
           </div>
-          <Button className="gap-2" onClick={handleCreate} loading={loading}>
-            <Plus className="h-4 w-4" />
+          <Button className="min-h-11 gap-2" onClick={handleCreate} loading={loading}>
+            <Plus className="h-4 w-4" aria-hidden />
             Anlegen
           </Button>
         </div>
@@ -227,106 +283,249 @@ export function ProjectsHubPage() {
             }}
           />
           <Button
-            className="gap-2"
+            className="min-h-11 gap-2"
             variant="secondary"
             loading={importing}
             onClick={() => fileInputRef.current?.click()}
           >
-            <Upload className="h-4 w-4" />
+            <Upload className="h-4 w-4" aria-hidden />
             ZIP auswählen &amp; importieren
           </Button>
           <span className="text-xs text-zinc-500">Max. {MAX_ZIP_MB} MB</span>
         </div>
       </NeonCard>
 
-      <div className="flex gap-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Input
+          label="Suche"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Projektname oder Asset"
+        />
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-zinc-300" htmlFor="project-filter-type">
+            Typfilter
+          </label>
+          <select
+            id="project-filter-type"
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value as '' | ProjectType)}
+            className="min-h-11 w-full rounded-lg border border-zinc-700 bg-surface-900 px-3 py-2.5 text-sm text-zinc-100"
+          >
+            <option value="">Alle Typen</option>
+            {TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-zinc-300" htmlFor="project-sort">
+            Sortierung
+          </label>
+          <select
+            id="project-sort"
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+            className="min-h-11 w-full rounded-lg border border-zinc-700 bg-surface-900 px-3 py-2.5 text-sm text-zinc-100"
+          >
+            <option value="updated">Zuletzt bearbeitet</option>
+            <option value="newest">Neueste</option>
+            <option value="oldest">Älteste</option>
+            <option value="name">Name A–Z</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
         <Button variant={!showTrash ? 'secondary' : 'outline'} onClick={() => setShowTrash(false)}>
-          Aktiv ({projects.length})
+          Aktiv ({total})
         </Button>
         <Button variant={showTrash ? 'secondary' : 'outline'} onClick={() => setShowTrash(true)}>
           Papierkorb ({trash.length})
         </Button>
       </div>
 
-      <div className="grid gap-3">
-        {(showTrash ? trash : projects).map((p) => (
-          <NeonCard key={p.id} accent="purple">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <FolderKanban className="h-5 w-5 text-[var(--ucbs-accent-purple)]" />
-                <div>
-                  <Link to={`/projects/${p.id}`} className="font-medium text-zinc-100 hover:underline" data-testid="project-open">
-                    {p.name}
-                  </Link>
-                  <p className="text-xs text-zinc-500">
-                    {p.type} · {p.status}
-                    {p.dnaId ? ' · DNA verknüpft' : ''}
-                    {` · ${p.assets?.length ?? 0} Assets`}
-                    {` · ${p.updatedAt.slice(0, 10)}`}
-                  </p>
+      {confirmAction && (
+        <div
+          role="dialog"
+          aria-labelledby="project-delete-title"
+          aria-modal="true"
+          className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4"
+        >
+          <h2 id="project-delete-title" className="font-medium text-amber-100">
+            {confirmAction.kind === 'delete' ? 'Projekt in den Papierkorb legen?' : 'Projekteintrag endgültig entfernen?'}
+          </h2>
+          <p className="mt-1 text-sm text-zinc-300">
+            „{confirmAction.name}“ — Dateien, DNA und Coins bleiben erhalten.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button className="min-h-11" onClick={() => void confirmDestructive()}>
+              Bestätigen
+            </Button>
+            <Button className="min-h-11" variant="outline" onClick={() => setConfirmAction(null)}>
+              Abbrechen
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {showTrash && trashError && (
+        <p className="text-sm text-amber-200" role="alert">
+          {trashError}
+        </p>
+      )}
+      {!showTrash && listError && (
+        <p className="text-sm text-amber-200" role="alert">
+          {listError}
+        </p>
+      )}
+
+      {loading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          {visible.map((p) => (
+            <NeonCard key={p.id} accent="purple">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <FolderKanban className="h-5 w-5 shrink-0 text-[var(--ucbs-accent-purple)]" aria-hidden />
+                  <div className="min-w-0">
+                    {renamingId === p.id ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Input
+                          label="Neuer Name"
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                        />
+                        <Button size="sm" className="min-h-11" onClick={() => void handleRename(p.id)}>
+                          Speichern
+                        </Button>
+                        <Button size="sm" variant="outline" className="min-h-11" onClick={() => setRenamingId(null)}>
+                          Abbrechen
+                        </Button>
+                      </div>
+                    ) : (
+                      <Link to={`/projects/${p.id}`} className="font-medium text-zinc-100 hover:underline" data-testid="project-open">
+                        {p.name}
+                      </Link>
+                    )}
+                    <p className="text-xs text-zinc-500">
+                      {p.type} · {p.status}
+                      {p.dnaId ? ' · DNA verknüpft' : ''}
+                      {` · ${p.assets?.length ?? 0} Assets`}
+                      {` · ${p.updatedAt.slice(0, 10)}`}
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-2">
-                {!showTrash ? (
-                  <>
-                    <Button variant="outline" size="sm" className="gap-1" loading={loading} onClick={() => handleExport(p.id)}>
-                      <Download className="h-3.5 w-3.5" />
-                      ZIP
-                    </Button>
-                    <Button
-                      variant={activeProjectId === p.id ? 'secondary' : 'outline'}
-                      size="sm"
-                      onClick={() => setActiveProjectId(p.id)}
-                    >
-                      {activeProjectId === p.id ? 'Aktiv für Nexter' : 'Für Nexter nutzen'}
-                    </Button>
-                    {activeDna && p.dnaId !== activeDna.id && (
+                <div className="flex flex-wrap gap-2">
+                  {!showTrash ? (
+                    <>
+                      <Link to={`/projects/${p.id}`} className="inline-flex min-h-11 items-center text-sm text-[var(--ucbs-accent-cyan)] hover:underline">
+                        Weiterarbeiten
+                      </Link>
+                      <Link
+                        to={`${studioForType(p.type)}?projectId=${encodeURIComponent(p.id)}`}
+                        onClick={() => setActiveProjectId(p.id)}
+                        className="inline-flex min-h-11 items-center text-sm text-zinc-300 hover:underline"
+                      >
+                        Studio
+                      </Link>
+                      <Button variant="outline" size="sm" className="min-h-11 gap-1" onClick={() => void handleExport(p.id)}>
+                        <Download className="h-3.5 w-3.5" aria-hidden />
+                        ZIP
+                      </Button>
+                      <Button
+                        variant={activeProjectId === p.id ? 'secondary' : 'outline'}
+                        size="sm"
+                        className="min-h-11"
+                        onClick={() => setActiveProjectId(p.id)}
+                      >
+                        {activeProjectId === p.id ? 'Aktiv für Nexter' : 'Für Nexter nutzen'}
+                      </Button>
+                      {activeDna && p.dnaId !== activeDna.id && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-11"
+                          onClick={() => void api.projects.update(p.id, { dnaId: activeDna.id }).then(() => refresh())}
+                        >
+                          DNA verknüpfen
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => void api.projects.update(p.id, { dnaId: activeDna.id }).then(() => refresh())}
+                        className="min-h-11"
+                        onClick={() => {
+                          setRenamingId(p.id);
+                          setRenameValue(p.name);
+                        }}
                       >
-                        DNA verknüpfen
+                        Umbenennen
                       </Button>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void api.projects.duplicate(p.id).then(() => refresh())}
-                      title="Dupliziert nur die Projektstruktur (Name, Typ, DNA). Assets und Dateien werden nicht kopiert."
-                    >
-                      Struktur duplizieren
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDelete(p.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button variant="outline" size="sm" className="gap-1" onClick={() => handleRestore(p.id)}>
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      Wiederherstellen
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handlePurge(p.id)}
-                      title="Löscht nur den Projekteintrag. Dateien, Jobs und DNA bleiben."
-                    >
-                      Eintrag löschen
-                    </Button>
-                  </>
-                )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="min-h-11"
+                        onClick={() => void api.projects.duplicate(p.id).then(() => refresh())}
+                        title="Dupliziert nur die Projektstruktur (Name, Typ, DNA). Assets und Dateien werden nicht kopiert."
+                      >
+                        Struktur duplizieren
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="min-h-11"
+                        aria-label={`Projekt ${p.name} in den Papierkorb legen`}
+                        onClick={() => setConfirmAction({ id: p.id, name: p.name, kind: 'delete' })}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button variant="outline" size="sm" className="min-h-11 gap-1" onClick={() => void handleRestore(p.id)}>
+                        <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                        Wiederherstellen
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="min-h-11"
+                        onClick={() => setConfirmAction({ id: p.id, name: p.name, kind: 'purge' })}
+                        title="Löscht nur den Projekteintrag. Dateien, Jobs und DNA bleiben."
+                      >
+                        Eintrag löschen
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
+            </NeonCard>
+          ))}
+          {visible.length === 0 && (
+            <div>
+              <p className="text-sm text-zinc-500">
+                {showTrash ? 'Papierkorb ist leer' : 'Noch keine Projekte'}
+              </p>
+              {!showTrash && (
+                <button
+                  type="button"
+                  className="mt-2 inline-block min-h-11 text-sm text-[var(--ucbs-accent-cyan)] hover:underline"
+                  onClick={() => document.getElementById('project-type')?.focus()}
+                >
+                  Erstes Projekt erstellen
+                </button>
+              )}
             </div>
-          </NeonCard>
-        ))}
-        {(showTrash ? trash : projects).length === 0 && (
-          <p className="text-sm text-zinc-500">
-            {showTrash ? 'Papierkorb ist leer' : 'Noch keine Projekte'}
-          </p>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

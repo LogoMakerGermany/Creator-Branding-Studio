@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { PageHeader, Badge, Button, NeonCard, Input, StatCard } from '@/components/ui';
 import { Video, Sparkles, CheckCircle2, Download, History } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api, ApiError, type MediaJob } from '@/services/api';
+import { api, type MediaJob } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
+import { useNexterStore } from '@/v2/store/nexter-store';
 import { MediaJobPreview, getMediaDownloadUrl } from '@/components/media/MediaJobPreview';
 import {
   DnaRequiredBanner,
@@ -14,7 +15,8 @@ import {
 } from '@/components/studio';
 
 export function AIVideoPage() {
-  const { user, activeDna, refreshUser } = useAuth();
+  const { user, activeDna } = useAuth();
+  const queueNexterPrompt = useNexterStore((s) => s.queueNexterPrompt);
   const [prompt, setPrompt] = useState('');
   const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,16 +34,9 @@ export function AIVideoPage() {
       return;
     }
     setLoading(true);
-    setError(null);
-    try {
-      const res = await api.aiVideo.generate(prompt || undefined, title || undefined, 30);
-      setCurrentJob(res.job);
-      await refreshUser();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Generierung fehlgeschlagen');
-    } finally {
-      setLoading(false);
-    }
+    setError('KI-Video startet nicht direkt. Nutze das Video-Studio oder ein bestätigtes Nexter-Angebot.');
+    queueNexterPrompt(prompt.trim() ? `Ich brauche ein Video: ${prompt.trim()}` : 'Öffne das Video Studio.');
+    setLoading(false);
   }
 
   const downloadUrl = getMediaDownloadUrl(currentJob);
@@ -50,7 +45,7 @@ export function AIVideoPage() {
     <div>
       <PageHeader
         title="KI Video Generator"
-        description="Werbevideos, Shorts und Social Media Clips basierend auf deiner Creator DNA"
+        description="Lokales Video-Studio und Nexter — direkte KI-Video-Provider nur nach Bestätigung"
         badge={<Badge variant="brand">Runway · Replicate</Badge>}
         actions={<Badge variant="default">{formatCoins(25)} Coins</Badge>}
       />

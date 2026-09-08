@@ -10,6 +10,7 @@ import {
 } from '../config/env.js';
 import { COIN_PACKAGES } from './coins.service.js';
 import { getPackageById } from './payment-credit.service.js';
+import { assertNewPaymentsAllowed } from '../lib/payments-gate.js';
 
 export { isPayPalConfigured, getPayPalMode, isPayPalLiveMode };
 
@@ -40,8 +41,7 @@ async function getAccessToken(): Promise<string> {
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`PayPal OAuth fehlgeschlagen: ${text}`);
+    throw new Error(`PayPal OAuth fehlgeschlagen (${res.status})`);
   }
 
   const data = (await res.json()) as { access_token: string; expires_in: number };
@@ -78,6 +78,7 @@ export async function createPayPalOrder(
   userId: string,
   packageId: string
 ): Promise<{ url: string; orderId: string }> {
+  await assertNewPaymentsAllowed();
   const pkg = getPackageById(packageId);
   if (!pkg) throw new Error('Paket nicht gefunden');
 
@@ -116,8 +117,7 @@ export async function createPayPalOrder(
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`PayPal Order fehlgeschlagen: ${text}`);
+    throw new Error(`PayPal Order fehlgeschlagen (${res.status})`);
   }
 
   const order = (await res.json()) as {
@@ -151,8 +151,7 @@ export async function getPayPalOrder(orderId: string): Promise<PayPalOrderDetail
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`PayPal Order abrufen fehlgeschlagen: ${text}`);
+    throw new Error(`PayPal Order abrufen fehlgeschlagen (${res.status})`);
   }
 
   const order = (await res.json()) as {
@@ -197,8 +196,7 @@ export async function capturePayPalOrder(orderId: string): Promise<PayPalOrderDe
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`PayPal Capture fehlgeschlagen: ${text}`);
+    throw new Error(`PayPal Capture fehlgeschlagen (${res.status})`);
   }
 
   return getPayPalOrder(orderId);
@@ -251,7 +249,7 @@ export async function verifyPayPalWebhookEvent(
   });
 
   if (!res.ok) {
-    console.error('[PayPal] Webhook verify failed:', await res.text());
+    console.error('[PayPal] Webhook verify failed:', res.status);
     return false;
   }
 

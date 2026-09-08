@@ -14,7 +14,7 @@ export function AppShell() {
   const location = useLocation();
   const { mobileNavOpen, setMobileNavOpen } = useUiStore();
   const panelOpen = useNexterStore((s) => s.panelOpen);
-  const studioPage = /studio|nexter|creator-dna|social|text-studio|animation|shorts|streamset|mockup/.test(
+  const studioPage = /studio|nexter|creator-dna|social|text-studio|animation|shorts|streamset|mockup|ai-music|content-calendar/.test(
     location.pathname
   );
 

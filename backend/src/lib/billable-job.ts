@@ -8,7 +8,24 @@ import {
 import { assertBillableJobCapacity } from '../services/job-limits.service.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { isAcceptingWork } from './runtime.js';
+import { assertGenerationsKillSwitch } from './provider-gate.js';
+import { ServiceError } from './errors.js';
 import type { CoinSpendCategory } from '@ucbs/shared';
+
+async function assertChargeAllowed(userId: string): Promise<void> {
+  if (!isAcceptingWork()) {
+    throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Server fährt herunter — bitte später erneut versuchen');
+  }
+  try {
+    await assertGenerationsKillSwitch();
+  } catch (err) {
+    if (err instanceof ServiceError) {
+      throw new AppError(err.statusCode, err.code, err.message);
+    }
+    throw err;
+  }
+  await assertBillableJobCapacity(userId);
+}
 
 export interface BillableJob {
   status: string;
@@ -33,11 +50,7 @@ export async function withCoinCharge<T extends BillableJob>(
   run: () => Promise<T>,
   options?: CoinChargeOptions
 ): Promise<{ job: T; coinsSpent: number; newBalance: number }> {
-  if (!isAcceptingWork()) {
-    throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Server fährt herunter — bitte später erneut versuchen');
-  }
-
-  await assertBillableJobCapacity(userId);
+  await assertChargeAllowed(userId);
 
   const chargeId = options?.chargeId ?? newChargeId();
   const coinResult = await deductCoins(userId, category, description, {
@@ -97,11 +110,7 @@ export async function withCoinChargePack<T extends BillableJob>(
   run: () => Promise<T[]>,
   options?: CoinChargeOptions
 ): Promise<{ jobs: T[]; coinsSpent: number; newBalance: number }> {
-  if (!isAcceptingWork()) {
-    throw new AppError(503, 'SERVICE_UNAVAILABLE', 'Server fährt herunter — bitte später erneut versuchen');
-  }
-
-  await assertBillableJobCapacity(userId);
+  await assertChargeAllowed(userId);
 
   const chargeId = options?.chargeId ?? newChargeId();
   const coinResult = await deductCoins(userId, category, description, {

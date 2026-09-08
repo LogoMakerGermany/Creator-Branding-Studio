@@ -6,8 +6,12 @@ import { requirePermission } from '../middleware/rbac.js';
 import { asyncHandler, sendSuccess, AppError } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import {
+  downloadMockup,
   generateCompositeMockup,
+  getMockup,
   listMockups,
+  listMockupVersions,
+  retryMockupJob,
   saveMockupToFiles,
   saveMockupToProject,
 } from '../services/mockup.service.js';
@@ -38,9 +42,15 @@ mockupRoutes.post(
         modelLabel: z.string().min(1).max(80),
         placement: z.enum(['front', 'wrap', 'corner', 'center']),
         scalePercent: z.number().min(40).max(140),
-        designUrl: z.string().min(1),
+        designUrl: z.string().min(1).optional(),
+        sourceLogoJobId: z.string().min(1).max(80).optional(),
+        sourceStickerJobId: z.string().min(1).max(80).optional(),
+        sourceBannerJobId: z.string().min(1).max(80).optional(),
+        sourceFileId: z.string().min(1).max(80).optional(),
         lifestyle: z.boolean().optional(),
         projectId: z.string().min(1).optional(),
+        parentJobId: z.string().min(1).max(80).optional(),
+        request: z.string().max(500).optional(),
       })
       .parse(req.body);
 
@@ -62,6 +72,49 @@ mockupRoutes.post(
     } catch (err) {
       mapErr(err);
     }
+  })
+);
+
+mockupRoutes.get(
+  '/:id/download',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    try {
+      sendSuccess(res, await downloadMockup(String(req.params.id), req.user!.uid));
+    } catch (err) {
+      mapErr(err);
+    }
+  })
+);
+
+mockupRoutes.get(
+  '/:id/versions',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    try {
+      sendSuccess(res, { versions: await listMockupVersions(String(req.params.id), req.user!.uid) });
+    } catch (err) {
+      mapErr(err);
+    }
+  })
+);
+
+mockupRoutes.post(
+  '/:id/retry',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    try {
+      await retryMockupJob(String(req.params.id), req.user!.uid);
+      sendSuccess(res, {});
+    } catch (err) {
+      mapErr(err);
+    }
+  })
+);
+
+mockupRoutes.get(
+  '/:id',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const job = await getMockup(String(req.params.id), req.user!.uid);
+    if (!job) throw new AppError(404, 'NOT_FOUND', 'Mockup nicht gefunden');
+    sendSuccess(res, { job });
   })
 );
 

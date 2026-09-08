@@ -1,6 +1,7 @@
 import { Outlet, Link } from 'react-router-dom';
 import { Dna, Palette, Film } from 'lucide-react';
 import { NexterMark } from '@/components/nexter/NexterMark';
+import { LegalFooter } from '@/components/legal/LegalFooter';
 
 const highlights = [
   { icon: Dna, text: 'Creator DNA als Basis für alles' },
@@ -46,6 +47,7 @@ export function AuthLayout() {
           </ul>
         </div>
         <p className="relative text-sm text-zinc-600">© {year} NEXTER Creator Studio</p>
+        <LegalFooter className="relative mt-3" />
       </div>
       <div className="flex flex-1 flex-col items-center justify-center p-6 sm:p-8">
         <div className="mb-8 text-center lg:hidden">
@@ -57,6 +59,9 @@ export function AuthLayout() {
         </div>
         <div className="w-full max-w-md">
           <Outlet />
+        </div>
+        <div className="mt-8 lg:hidden">
+          <LegalFooter className="justify-center" />
         </div>
       </div>
     </div>

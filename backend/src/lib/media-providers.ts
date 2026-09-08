@@ -6,14 +6,86 @@ import {
   getSunoApiKey,
   getRunwayApiKey,
   getReplicateVideoModel,
+  getMusicProviderPreference,
   hasImageAiProvider,
+  areGenerationsEnabled,
+  areImageGenerationsEnabled,
+  areVideoGenerationsEnabled,
 } from '../config/env.js';
 import { ServiceError } from './errors.js';
+import {
+  MUSIC_PROVIDERS,
+  checkMusicDuration,
+  clampVoiceSetting,
+  defaultVoiceSettings,
+  type MusicProviderId,
+  type VoiceSettings,
+} from '@ucbs/shared';
+
+const UNOFFICIAL_SUNO_DISABLED_MESSAGE =
+  'Der inoffizielle Suno-Endpunkt ist deaktiviert. Es ist kein offizieller Suno-Endpunkt konfiguriert. Musik läuft über MusicGen, wenn REPLICATE_API_TOKEN gesetzt ist.';
+
+export type MusicProviderLimits =
+  | { ok: true; id: MusicProviderId; maxDurationSec: number; label: string }
+  | { ok: false; message: string; code: 'MUSIC_PROVIDER_DISABLED' | 'AI_NOT_CONFIGURED' };
+
+export function getMusicProviderLimits(): MusicProviderLimits {
+  const pref = getMusicProviderPreference()?.toLowerCase();
+  if (pref === 'suno') {
+    return { ok: false, message: UNOFFICIAL_SUNO_DISABLED_MESSAGE, code: 'MUSIC_PROVIDER_DISABLED' };
+  }
+  if (pref && pref !== 'replicate' && pref !== 'replicate-musicgen') {
+    return {
+      ok: false,
+      message: `Unbekannter MUSIC_PROVIDER „${pref}“. Unterstützt: replicate (MusicGen). Offizielles Suno ist nicht konfiguriert.`,
+      code: 'MUSIC_PROVIDER_DISABLED',
+    };
+  }
+  if (!getReplicateApiToken()) {
+    if (getSunoApiKey()) {
+      return { ok: false, message: UNOFFICIAL_SUNO_DISABLED_MESSAGE, code: 'MUSIC_PROVIDER_DISABLED' };
+    }
+    return {
+      ok: false,
+      message: 'Musik-Generierung benötigt REPLICATE_API_TOKEN (MusicGen).',
+      code: 'AI_NOT_CONFIGURED',
+    };
+  }
+  const spec = MUSIC_PROVIDERS['replicate-musicgen'];
+  return { ok: true, id: spec.id, maxDurationSec: spec.maxDurationSec, label: spec.label };
+}
+
+function requireMusicProvider(): Extract<MusicProviderLimits, { ok: true }> {
+  const limits = getMusicProviderLimits();
+  if (!limits.ok) {
+    throw new ServiceError(503, limits.code, limits.message);
+  }
+  return limits;
+}
+
+export function assertMusicDurationSupported(durationSec: number): number {
+  const limits = requireMusicProvider();
+  const check = checkMusicDuration(durationSec, limits.maxDurationSec);
+  if (!check.ok) {
+    throw new ServiceError(400, 'MUSIC_DURATION_UNSUPPORTED', check.message);
+  }
+  return durationSec;
+}
 
 export async function generateSpeech(
   text: string,
-  options?: { voiceId?: string }
+  options?: { voiceId?: string; settings?: VoiceSettings }
 ): Promise<{ audioUrl: string; provider: string }> {
+  if (isPaidProviderTestBlocked()) {
+    throw new ServiceError(
+      503,
+      'AI_NOT_CONFIGURED',
+      'TTS-Generierung ist provider-gated und in Tests blockiert'
+    );
+  }
+  if (!areGenerationsEnabled()) {
+    throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
+  }
   const apiKey = getElevenLabsApiKey();
   if (!apiKey) {
     if (isProduction()) {
@@ -23,6 +95,7 @@ export async function generateSpeech(
   }
 
   const voiceId = options?.voiceId || getElevenLabsVoiceId();
+  const settings = options?.settings ?? defaultVoiceSettings();
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
     method: 'POST',
     headers: {
@@ -33,11 +106,17 @@ export async function generateSpeech(
     body: JSON.stringify({
       text,
       model_id: 'eleven_multilingual_v2',
+      voice_settings: {
+        stability: clampVoiceSetting('stability', settings.stability),
+        similarity_boost: clampVoiceSetting('similarity', settings.similarity),
+        style: clampVoiceSetting('style', settings.style),
+        speed: clampVoiceSetting('speed', settings.speed),
+      },
     }),
   });
 
   if (!res.ok) {
-    throw new Error(`ElevenLabs error: ${await res.text()}`);
+    throw new Error(`ElevenLabs TTS failed (${res.status})`);
   }
 
   const buffer = Buffer.from(await res.arrayBuffer());
@@ -49,27 +128,29 @@ export async function generateMusic(
   prompt: string,
   options?: { duration?: number; title?: string }
 ): Promise<{ audioUrl: string; provider: string; duration: number }> {
-  if (getReplicateApiToken()) {
-    try {
-      return await generateMusicWithReplicate(prompt, options?.duration ?? 30);
-    } catch (err) {
-      console.warn('[Media] Replicate music failed:', err);
-    }
-  }
-
-  if (getSunoApiKey()) {
-    return generateMusicWithSuno(prompt, options);
-  }
-
-  if (isProduction()) {
+  if (isPaidProviderTestBlocked()) {
     throw new ServiceError(
       503,
       'AI_NOT_CONFIGURED',
-      'Musik-Generierung benötigt REPLICATE_API_TOKEN oder SUNO_API_KEY'
+      'Musik-Generierung ist provider-gated und in Tests blockiert'
     );
   }
+  if (!areGenerationsEnabled()) {
+    throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
+  }
+  const limits = requireMusicProvider();
+  const requested = options?.duration ?? limits.maxDurationSec;
+  const duration = assertMusicDurationSupported(requested);
 
-  throw new Error('Kein Musik-Provider konfiguriert');
+  if (limits.id === 'replicate-musicgen') {
+    return generateMusicWithReplicate(prompt, duration);
+  }
+
+  throw new ServiceError(
+    503,
+    'MUSIC_PROVIDER_DISABLED',
+    'Kein unterstützter Musik-Provider aktiv. Offizielle zusätzliche Provider können später über MUSIC_PROVIDER gewählt werden.'
+  );
 }
 
 async function generateMusicWithReplicate(
@@ -87,7 +168,7 @@ async function generateMusicWithReplicate(
     body: JSON.stringify({
       input: {
         prompt,
-        duration: Math.min(duration, 30),
+        duration,
         model_version: 'stereo-large',
       },
     }),
@@ -125,6 +206,9 @@ async function generateMusicWithSuno(
   prompt: string,
   options?: { duration?: number; title?: string }
 ): Promise<{ audioUrl: string; provider: string; duration: number }> {
+  throw new ServiceError(503, 'MUSIC_PROVIDER_DISABLED', UNOFFICIAL_SUNO_DISABLED_MESSAGE);
+
+  // Retained unofficial request shape for a future official adapter — never executed.
   const res = await fetch('https://api.sunoapi.org/api/v1/generate', {
     method: 'POST',
     headers: {
@@ -149,7 +233,7 @@ async function generateMusicWithSuno(
   }
 
   return {
-    audioUrl,
+    audioUrl: audioUrl as string,
     provider: 'suno',
     duration: options?.duration || 120,
   };
@@ -158,6 +242,16 @@ async function generateMusicWithSuno(
 export async function generateVideoThumbnail(
   prompt: string
 ): Promise<{ imageUrl: string; provider: string }> {
+  if (isPaidProviderTestBlocked()) {
+    throw new ServiceError(
+      503,
+      'AI_NOT_CONFIGURED',
+      'Video-Thumbnails sind provider-gated und in Tests blockiert'
+    );
+  }
+  if (!areImageGenerationsEnabled()) {
+    throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
+  }
   const token = getReplicateApiToken();
   if (!token) {
     if (isProduction()) {
@@ -201,7 +295,23 @@ export async function generateVideoThumbnail(
   return { imageUrl, provider: 'replicate-flux' };
 }
 
+export function isPaidProviderTestBlocked(): boolean {
+  return (
+    Boolean(process.env.NODE_TEST) ||
+    process.execArgv.includes('--test') ||
+    process.argv.includes('--test') ||
+    process.argv.some((arg) => /\.test\.[cm]?ts$/.test(arg.replace(/\\/g, '/')))
+  );
+}
+
 export function requireImageProvider(): void {
+  if (isPaidProviderTestBlocked()) {
+    throw new ServiceError(
+      503,
+      'AI_NOT_CONFIGURED',
+      'Bild-Generierung benötigt OPENAI_API_KEY oder REPLICATE_API_TOKEN'
+    );
+  }
   if (!hasImageAiProvider()) {
     throw new ServiceError(
       503,
@@ -217,31 +327,27 @@ export async function generateVideo(
   prompt: string,
   options?: { aspectRatio?: VideoAspectRatio; duration?: number; imageUrl?: string }
 ): Promise<{ videoUrl: string; provider: string; imageToVideo?: boolean }> {
-  if (getRunwayApiKey()) {
-    try {
-      return await generateVideoWithRunway(prompt, options);
-    } catch (err) {
-      console.warn('[Media] Runway video failed:', err);
-    }
-  }
-
-  if (getReplicateApiToken()) {
-    try {
-      return await generateVideoWithReplicate(prompt, options);
-    } catch (err) {
-      console.warn('[Media] Replicate video failed:', err);
-    }
-  }
-
-  if (isProduction()) {
+  if (isPaidProviderTestBlocked()) {
     throw new ServiceError(
       503,
       'AI_NOT_CONFIGURED',
-      'Video-Generierung benötigt RUNWAY_API_KEY oder REPLICATE_API_TOKEN'
+      'Video-Generierung ist provider-gated und in Tests blockiert'
     );
   }
-
-  throw new Error('Kein Video-Provider konfiguriert');
+  if (!areVideoGenerationsEnabled()) {
+    throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
+  }
+  if (getRunwayApiKey()) {
+    return generateVideoWithRunway(prompt, options);
+  }
+  if (getReplicateApiToken()) {
+    return generateVideoWithReplicate(prompt, options);
+  }
+  throw new ServiceError(
+    503,
+    'AI_NOT_CONFIGURED',
+    'Video-Generierung benötigt RUNWAY_API_KEY oder REPLICATE_API_TOKEN'
+  );
 }
 
 async function generateVideoWithReplicate(

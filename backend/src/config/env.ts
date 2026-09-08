@@ -48,11 +48,16 @@ export function getDefaultFreeCoins(): number {
 
 export type RegistrationModeEnv = 'closed' | 'invite_only' | 'public';
 
+/** Only an explicit "public" opens signup. Missing, empty, or unknown → invite_only. */
+export function normalizeRegistrationMode(raw: string | undefined | null): RegistrationModeEnv {
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  if (value === 'closed' || value === 'invite_only' || value === 'public') return value;
+  return 'invite_only';
+}
+
 /** Default for closed beta: invite_only. Overridable via env or system_settings. */
 export function getRegistrationModeEnv(): RegistrationModeEnv {
-  const raw = readEnv('REGISTRATION_MODE')?.toLowerCase();
-  if (raw === 'closed' || raw === 'invite_only' || raw === 'public') return raw;
-  return 'invite_only';
+  return normalizeRegistrationMode(readEnv('REGISTRATION_MODE'));
 }
 
 export function getPriceQuoteTtlMinutes(): number {
@@ -75,7 +80,7 @@ export function areVideoGenerationsEnabled(): boolean {
 }
 
 export function arePaymentsEnabled(): boolean {
-  return readEnv('PAYMENTS_ENABLED') !== 'false';
+  return readEnv('PAYMENTS_ENABLED')?.toLowerCase() === 'true';
 }
 
 export function getDailyProviderBudgetCents(): number | null {
@@ -132,8 +137,16 @@ export function getFirebasePrivateKey(): string | undefined {
   return raw.replace(/\\n/g, '\n');
 }
 
+/** Strip `gs://` and trailing slashes. Admin SDK wants `bucket.firebasestorage.app`. */
+export function normalizeFirebaseStorageBucket(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  return trimmed.replace(/^gs:\/\//i, '').replace(/\/+$/, '');
+}
+
 export function getFirebaseStorageBucket(): string | undefined {
-  return readEnv('FIREBASE_STORAGE_BUCKET');
+  return normalizeFirebaseStorageBucket(readEnv('FIREBASE_STORAGE_BUCKET'));
 }
 
 export function getFirebaseDatabaseUrl(): string | undefined {
@@ -186,16 +199,11 @@ export function isDevAuthEnabled(): boolean {
 
 export function getFrontendUrls(): string[] {
   const raw = readEnv('FRONTEND_URLS') || readEnv('FRONTEND_URL') || 'http://localhost:5173';
-  const known = [
-    'https://creatorbrandingstudioultimate-production.up.railway.app',
-    'https://creatorstudio-519eb.web.app',
-    'https://creatorstudio-519eb.firebaseapp.com',
-  ];
   const urls = raw
     .split(',')
     .map((u) => u.trim().replace(/\/+$/, ''))
     .filter(Boolean);
-  return [...new Set([...urls, ...known])];
+  return [...new Set(urls)];
 }
 
 export function getPrimaryFrontendUrl(): string {
@@ -303,12 +311,26 @@ export function getElevenLabsVoiceId(): string {
   return readEnv('ELEVENLABS_VOICE_ID') || '21m00Tcm4TlvDq8ikWAM';
 }
 
+/**
+ * Optional extra Nexter voices from env only (never invented in code).
+ * Format: catalogId:providerVoiceId:label:gender:language|...
+ * Frontend never receives providerVoiceId.
+ */
+export function getNexterVoiceCatalogExtra(): string | undefined {
+  return readEnv('NEXTER_VOICE_CATALOG_EXTRA');
+}
+
 export function getSunoApiKey(): string | undefined {
   return readEnv('SUNO_API_KEY');
 }
 
 export function getReplicateVideoModel(): string {
   return readEnv('REPLICATE_VIDEO_MODEL') || 'minimax/video-01';
+}
+
+/** Optional selector: `replicate` / `replicate-musicgen`. `suno` is rejected (unofficial endpoint disabled). */
+export function getMusicProviderPreference(): string | undefined {
+  return readEnv('MUSIC_PROVIDER');
 }
 
 export function getJwtSecret(): string | undefined {
@@ -341,12 +363,38 @@ export function hasImageAiProvider(): boolean {
   return Boolean(getOpenAiApiKey() || getReplicateApiToken());
 }
 
+export function getResendApiKey(): string | undefined {
+  return readEnv('RESEND_API_KEY');
+}
+
 export function isResendConfigured(): boolean {
-  return Boolean(readEnv('RESEND_API_KEY'));
+  return Boolean(getResendApiKey());
 }
 
 export function getEmailFrom(): string | undefined {
   return readEnv('EMAIL_FROM');
+}
+
+export type FirebaseProjectConsistency = 'ok' | 'mismatch' | 'not_verified';
+
+/** Compares non-secret project IDs only. Never logs the values. */
+export function getFirebaseProjectConsistency(): FirebaseProjectConsistency {
+  const adminId = getFirebaseProjectId();
+  const publicId = getPublicFirebaseProjectId();
+  if (!adminId || !publicId) return 'not_verified';
+  return adminId === publicId ? 'ok' : 'mismatch';
+}
+
+export type EmailProviderStatusLabel = 'available' | 'unavailable';
+
+export function getFirebaseAuthEmailStatus(): EmailProviderStatusLabel {
+  return isFirebaseAdminConfigured() || Boolean(getPublicFirebaseProjectId())
+    ? 'available'
+    : 'unavailable';
+}
+
+export function getCustomEmailProviderStatus(): 'configured' | 'not_configured' {
+  return isResendConfigured() ? 'configured' : 'not_configured';
 }
 
 // ─── Public client config (safe for browser) ────────────────────────────────
@@ -364,7 +412,7 @@ export function getPublicFirebaseAuthDomain(): string | undefined {
 }
 
 export function getPublicFirebaseStorageBucket(): string | undefined {
-  return readEnv('PUBLIC_FIREBASE_STORAGE_BUCKET');
+  return normalizeFirebaseStorageBucket(readEnv('PUBLIC_FIREBASE_STORAGE_BUCKET'));
 }
 
 export function getPublicFirebaseMessagingSenderId(): string | undefined {
@@ -395,7 +443,7 @@ export function getPublicFirebaseConfig(): {
     apiKey,
     authDomain: getPublicFirebaseAuthDomain() || `${projectId}.firebaseapp.com`,
     projectId,
-    storageBucket: getPublicFirebaseStorageBucket() || `${projectId}.appspot.com`,
+    storageBucket: getPublicFirebaseStorageBucket() || `${projectId}.firebasestorage.app`,
     messagingSenderId: getPublicFirebaseMessagingSenderId() || '',
     appId: getPublicFirebaseAppId() || '',
   };
@@ -491,44 +539,39 @@ export function collectProductionConfigIssues(): ConfigValidationIssue[] {
     });
   }
 
-  if (!getStripeSecretKey()) {
-    issues.push({ variable: 'STRIPE_SECRET_KEY', message: 'is missing' });
-  } else if (!getStripeSecretKey()!.startsWith('sk_')) {
-    issues.push({
-      variable: 'STRIPE_SECRET_KEY',
-      message: 'has an invalid format (expected sk_…)',
-    });
-  }
-
-  if (!getStripeWebhookSecret()) {
-    issues.push({ variable: 'STRIPE_WEBHOOK_SECRET', message: 'is missing' });
-  } else if (!getStripeWebhookSecret()!.startsWith('whsec_')) {
-    issues.push({
-      variable: 'STRIPE_WEBHOOK_SECRET',
-      message: 'has an invalid format (expected whsec_…)',
-    });
-  }
-
-  if (isPayPalConfigured()) {
-    if (getPayPalMode() !== 'live') {
+  if (arePaymentsEnabled()) {
+    if (!getStripeSecretKey()) {
+      issues.push({ variable: 'STRIPE_SECRET_KEY', message: 'is missing' });
+    } else if (!getStripeSecretKey()!.startsWith('sk_')) {
       issues.push({
-        variable: 'PAYPAL_MODE',
-        message: 'must be "live" when PayPal is configured in production',
+        variable: 'STRIPE_SECRET_KEY',
+        message: 'has an invalid format (expected sk_…)',
       });
     }
-    if (!getPayPalWebhookId()) {
+
+    if (!getStripeWebhookSecret()) {
+      issues.push({ variable: 'STRIPE_WEBHOOK_SECRET', message: 'is missing' });
+    } else if (!getStripeWebhookSecret()!.startsWith('whsec_')) {
       issues.push({
-        variable: 'PAYPAL_WEBHOOK_ID',
-        message: 'is required when PayPal is configured in production',
+        variable: 'STRIPE_WEBHOOK_SECRET',
+        message: 'has an invalid format (expected whsec_…)',
       });
     }
-  }
 
-  if (!hasImageAiProvider()) {
-    issues.push({
-      variable: 'OPENAI_API_KEY',
-      message: 'at least one image AI provider is required (OPENAI_API_KEY or REPLICATE_API_TOKEN)',
-    });
+    if (isPayPalConfigured()) {
+      if (getPayPalMode() !== 'live') {
+        issues.push({
+          variable: 'PAYPAL_MODE',
+          message: 'must be "live" when PayPal is configured in production',
+        });
+      }
+      if (!getPayPalWebhookId()) {
+        issues.push({
+          variable: 'PAYPAL_WEBHOOK_ID',
+          message: 'is required when PayPal is configured in production',
+        });
+      }
+    }
   }
 
   if (requiresPublicClientConfig() && !isPublicClientConfigReady()) {

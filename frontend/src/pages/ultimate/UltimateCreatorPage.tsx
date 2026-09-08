@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Sparkles, Loader2, ChevronRight, AlertCircle } from 'lucide-react';
 import {
   ULTIMATE_WIZARD_STYLES,
@@ -10,9 +10,8 @@ import {
   type UltimateCreatorWizardInput,
   type UltimatePlatformId,
 } from '@ucbs/shared';
-import { api, ApiError } from '@/services/api';
+import { useNexterStore } from '@/v2/store/nexter-store';
 import { useAuth } from '@/context/AuthContext';
-import { useProjectStore } from '@/v2/store/project-store';
 import { LivePreviewStage } from '@/components/ultimate';
 import { Button, Input } from '@/components/ui';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -33,9 +32,8 @@ function defaultColors(activeDna: { primaryColors?: string[]; secondaryColors?: 
 }
 
 export function UltimateCreatorPage() {
-  const navigate = useNavigate();
-  const { user, activeDna, refreshUser } = useAuth();
-  const upsertProject = useProjectStore((s) => s.upsertProject);
+  const { user, activeDna } = useAuth();
+  const queueNexterPrompt = useNexterStore((s) => s.queueNexterPrompt);
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,17 +81,13 @@ export function UltimateCreatorPage() {
       return;
     }
     setLoading(true);
-    setError(null);
-    try {
-      const res = await api.ultimateCreator.create(form);
-      upsertProject(res.project);
-      await refreshUser();
-      navigate(`/export-center?project=${res.project.id}`);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Erstellung fehlgeschlagen');
-    } finally {
-      setLoading(false);
-    }
+    setError('Ultimate-Creator-Paket startet nur über Nexter nach Bestätigung (Streamset / Für X Coins erstellen).');
+    queueNexterPrompt(
+      form.name.trim()
+        ? `Mach mir ein komplettes Streamset für ${form.name.trim()}.`
+        : 'Mach mir ein komplettes Streamset.'
+    );
+    setLoading(false);
   }
 
   const canNext = step === 0 ? form.name.trim().length >= 2 : step === 1 ? !!form.style : true;

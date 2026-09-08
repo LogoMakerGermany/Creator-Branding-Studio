@@ -11,7 +11,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const defaultSa = path.join(
   process.env.USERPROFILE || process.env.HOME || '',
   'Downloads',
-  'creatorstudio-519eb-firebase-adminsdk-fbsvc-7b469ebd30.json'
+  'nexter-creator-studio-firebase-adminsdk.json'
 );
 const saPath = process.argv[2] ? path.resolve(process.argv[2]) : defaultSa;
 const envPath = path.join(root, 'backend', '.env.railway');

@@ -42,10 +42,13 @@ export function Header({ onMenuClick }: HeaderProps) {
           </Link>
         )}
 
-        <Link to="/coins">
-          <Button variant="outline" size="sm" className="gap-1.5 px-2 sm:px-3">
-            <Coins className="h-4 w-4" />
-            <span className="hidden sm:inline">{formatCoins(user?.coinBalance ?? 0)} Coins</span>
+        <Link
+          to="/coins"
+          aria-label={user ? `Coins: ${formatCoins(user.coinBalance)}` : 'Coins-Übersicht'}
+        >
+          <Button variant="outline" size="sm" className="min-h-11 gap-1.5 px-2 sm:px-3">
+            <Coins className="h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">{user ? `${formatCoins(user.coinBalance)} Coins` : '…'}</span>
             <span className="sm:hidden">Coins</span>
           </Button>
         </Link>

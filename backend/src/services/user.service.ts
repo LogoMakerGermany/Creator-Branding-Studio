@@ -1,7 +1,17 @@
-import { UserRole, SubscriptionTier } from '@ucbs/shared';
+import {
+  UserRole,
+  SubscriptionTier,
+  resolveNexterPreferences,
+  defaultNexterPreferences,
+  isNexterLanguage,
+  type NexterPreferences,
+  type LegalAcceptanceRecord,
+} from '@ucbs/shared';
 import { getDefaultFreeCoins } from '../config/env.js';
 import { devStore, isDevMode } from '../lib/dev-store.js';
 import { getFirestore } from '../config/firebase.js';
+import { ServiceError } from '../lib/errors.js';
+import { userLockKey, withDevLock } from '../lib/dev-mutex.js';
 
 export interface UserProfile {
   id: string;
@@ -16,13 +26,36 @@ export interface UserProfile {
   subscriptionTier: SubscriptionTier;
   locale: string;
   onboardingCompleted: boolean;
+  nexterPreferences: NexterPreferences;
   inviteCodeId?: string;
   disabled?: boolean;
+  legalAcceptance?: LegalAcceptanceRecord;
   createdAt: string;
   updatedAt: string;
 }
 
 const DEFAULT_COINS = getDefaultFreeCoins();
+export const DISPLAY_NAME_MAX = 100;
+const PROFILE_PATCHABLE = new Set(['displayName', 'locale']);
+
+export function sanitizeDisplayName(name: unknown): string {
+  if (typeof name !== 'string') {
+    throw new ServiceError(400, 'INVALID_DISPLAY_NAME', 'Anzeigename erforderlich');
+  }
+  const cleaned = name.replace(/[\u0000-\u001F\u007F]/g, '').trim();
+  if (!cleaned) {
+    throw new ServiceError(400, 'INVALID_DISPLAY_NAME', 'Anzeigename darf nicht leer sein');
+  }
+  if (cleaned.length > DISPLAY_NAME_MAX) {
+    throw new ServiceError(400, 'INVALID_DISPLAY_NAME', 'Anzeigename zu lang');
+  }
+  return cleaned;
+}
+
+function cleanDisplayNameOrFallback(name: string | undefined, email: string): string {
+  const cleaned = (name ?? '').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, DISPLAY_NAME_MAX);
+  return cleaned || email.split('@')[0] || 'Creator';
+}
 
 /**
  * Existing documents without coinBalance must not receive a silent welcome grant.
@@ -52,11 +85,15 @@ function normalizeRole(raw: unknown): UserRole {
 
 function normalizeUserProfile(uid: string, data: Record<string, unknown>): UserProfile {
   const coinBalance = normalizeCoinBalance(data);
+  const locale = typeof data.locale === 'string' && data.locale.trim() ? data.locale : 'de';
+  const displayName = typeof data.displayName === 'string' ? data.displayName : '';
   return {
     id: uid,
     ...data,
     role: normalizeRole(data.role),
     coinBalance,
+    locale,
+    nexterPreferences: resolveNexterPreferences(data.nexterPreferences, { locale, displayName }),
   } as UserProfile;
 }
 
@@ -67,10 +104,11 @@ function createDefaultUser(
   role: UserRole = UserRole.USER
 ): UserProfile {
   const now = new Date().toISOString();
+  const name = cleanDisplayNameOrFallback(displayName, email);
   return {
     id: uid,
     email,
-    displayName: displayName || email.split('@')[0],
+    displayName: name,
     role,
     authProviders: [],
     coinBalance: DEFAULT_COINS,
@@ -78,6 +116,7 @@ function createDefaultUser(
     subscriptionTier: SubscriptionTier.FREE,
     locale: 'de',
     onboardingCompleted: false,
+    nexterPreferences: defaultNexterPreferences({ locale: 'de', displayName: name, now }),
     createdAt: now,
     updatedAt: now,
   };
@@ -87,6 +126,7 @@ export interface CreateUserOptions {
   authProvider?: string;
   role?: UserRole;
   inviteCodeId?: string;
+  legalAcceptance?: LegalAcceptanceRecord;
 }
 
 export async function getOrCreateUser(
@@ -101,45 +141,22 @@ export async function getOrCreateUser(
       : authProviderOrOptions || {};
 
   if (isDevMode()) {
-    const existing = devStore.getUser(uid);
-    if (existing) {
-      return normalizeUserProfile(uid, existing);
-    }
-    const user = createDefaultUser(uid, email, displayName, options.role || UserRole.USER);
-    if (options.authProvider) {
-      user.authProviders = [options.authProvider];
-    }
-    if (options.inviteCodeId) {
-      user.inviteCodeId = options.inviteCodeId;
-    }
-    devStore.saveUser(uid, user as unknown as Record<string, unknown>);
-
-    if (DEFAULT_COINS > 0) {
-      const { writeWelcomeLedgerOnly } = await import('./coins.service.js');
-      await writeWelcomeLedgerOnly({
-        userId: uid,
-        amount: DEFAULT_COINS,
-        createdAt: user.createdAt,
-      });
-    }
-
-    return user;
+    return withDevLock(userLockKey(uid), async () => createOrLoadUserDev(uid, email, displayName, options));
   }
 
-  const db = getFirestore();
-  const ref = db.collection('users').doc(uid);
-  const doc = await ref.get();
+  return createOrLoadUserFirestore(uid, email, displayName, options);
+}
 
-  if (doc.exists) {
-    const user = normalizeUserProfile(uid, doc.data() as Record<string, unknown>);
-    if (options.authProvider && !user.authProviders.includes(options.authProvider)) {
-      const authProviders = [...user.authProviders, options.authProvider];
-      await ref.update({ authProviders, updatedAt: new Date().toISOString() });
-      user.authProviders = authProviders;
-    }
-    return user;
+async function createOrLoadUserDev(
+  uid: string,
+  email: string,
+  displayName: string | undefined,
+  options: CreateUserOptions
+): Promise<UserProfile> {
+  const existing = devStore.getUser(uid);
+  if (existing) {
+    return normalizeUserProfile(uid, existing);
   }
-
   const user = createDefaultUser(uid, email, displayName, options.role || UserRole.USER);
   if (options.authProvider) {
     user.authProviders = [options.authProvider];
@@ -147,7 +164,10 @@ export async function getOrCreateUser(
   if (options.inviteCodeId) {
     user.inviteCodeId = options.inviteCodeId;
   }
-  await ref.set(user);
+  if (options.legalAcceptance) {
+    user.legalAcceptance = options.legalAcceptance;
+  }
+  devStore.saveUser(uid, user as unknown as Record<string, unknown>);
 
   if (DEFAULT_COINS > 0) {
     const { writeWelcomeLedgerOnly } = await import('./coins.service.js');
@@ -158,7 +178,52 @@ export async function getOrCreateUser(
     });
   }
 
-  return user;
+  return normalizeUserProfile(uid, user as unknown as Record<string, unknown>);
+}
+
+async function createOrLoadUserFirestore(
+  uid: string,
+  email: string,
+  displayName: string | undefined,
+  options: CreateUserOptions
+): Promise<UserProfile> {
+  const db = getFirestore();
+  const ref = db.collection('users').doc(uid);
+  const { profile, created } = await db.runTransaction(async (t) => {
+    const doc = await t.get(ref);
+    if (doc.exists) {
+      const user = normalizeUserProfile(uid, doc.data() as Record<string, unknown>);
+      if (options.authProvider && !user.authProviders.includes(options.authProvider)) {
+        const authProviders = [...user.authProviders, options.authProvider];
+        t.update(ref, { authProviders, updatedAt: new Date().toISOString() });
+        user.authProviders = authProviders;
+      }
+      return { profile: user, created: false };
+    }
+    const user = createDefaultUser(uid, email, displayName, options.role || UserRole.USER);
+    if (options.authProvider) {
+      user.authProviders = [options.authProvider];
+    }
+    if (options.inviteCodeId) {
+      user.inviteCodeId = options.inviteCodeId;
+    }
+    if (options.legalAcceptance) {
+      user.legalAcceptance = options.legalAcceptance;
+    }
+    t.set(ref, user);
+    return { profile: user, created: true };
+  });
+
+  if (created && DEFAULT_COINS > 0) {
+    const { writeWelcomeLedgerOnly } = await import('./coins.service.js');
+    await writeWelcomeLedgerOnly({
+      userId: uid,
+      amount: DEFAULT_COINS,
+      createdAt: profile.createdAt,
+    });
+  }
+
+  return profile;
 }
 
 export async function userExists(uid: string): Promise<boolean> {
@@ -182,6 +247,40 @@ export async function getUserById(uid: string): Promise<UserProfile | null> {
   return normalizeUserProfile(uid, doc.data() as Record<string, unknown>);
 }
 
+export async function updateOwnProfile(
+  uid: string,
+  raw: Record<string, unknown>
+): Promise<UserProfile> {
+  const user = await getUserById(uid);
+  if (!user) throw new ServiceError(404, 'NOT_FOUND', 'Nutzer nicht gefunden');
+
+  for (const key of Object.keys(raw)) {
+    if (key === 'email' || key === 'coinBalance' || key === 'role' || key === 'id') {
+      throw new ServiceError(400, 'FORBIDDEN_FIELD', 'Dieses Feld darf nicht über das Profil geändert werden');
+    }
+    if (!PROFILE_PATCHABLE.has(key)) {
+      throw new ServiceError(400, 'UNKNOWN_FIELD', `Unbekanntes Profil-Feld: ${key}`);
+    }
+  }
+
+  const updates: Partial<UserProfile> = {};
+  if (raw.displayName !== undefined) {
+    updates.displayName = sanitizeDisplayName(raw.displayName);
+  }
+  if (raw.locale !== undefined) {
+    if (!isNexterLanguage(raw.locale)) {
+      throw new ServiceError(400, 'INVALID_LANGUAGE', 'Sprache wird nicht unterstützt');
+    }
+    updates.locale = raw.locale;
+    updates.nexterPreferences = resolveNexterPreferences(
+      { ...user.nexterPreferences, language: raw.locale, updatedAt: new Date().toISOString() },
+      { locale: raw.locale, displayName: updates.displayName ?? user.displayName }
+    );
+  }
+  if (Object.keys(updates).length === 0) return user;
+  return updateUser(uid, updates);
+}
+
 export async function updateUser(
   uid: string,
   updates: Partial<UserProfile>
@@ -194,7 +293,7 @@ export async function updateUser(
     if (!existing) throw new Error('User not found');
     const updated = { ...existing, ...payload };
     devStore.saveUser(uid, updated as unknown as Record<string, unknown>);
-    return updated;
+    return normalizeUserProfile(uid, updated as unknown as Record<string, unknown>);
   }
 
   const db = getFirestore();

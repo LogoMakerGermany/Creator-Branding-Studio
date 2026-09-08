@@ -12,13 +12,17 @@ import {
   sendEmailVerification,
   sendPasswordResetEmail,
   signOut,
-  onAuthStateChanged,
+  onIdTokenChanged,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword,
   type Auth,
   type User,
   type AuthProvider,
 } from 'firebase/auth';
 import { getFirebaseClientConfig, isFirebaseConfigured } from './runtime-config';
 import type { AuthProviderId } from './auth-providers';
+import { authActionContinueUrl } from './auth-action-url';
 
 export { isFirebaseConfigured };
 export type { AuthProviderId };
@@ -144,9 +148,12 @@ export async function registerWithEmail(email: string, password: string): Promis
   if (!a) throw new Error('Firebase nicht konfiguriert');
   const result = await createUserWithEmailAndPassword(a, email, password);
   try {
-    await sendEmailVerification(result.user);
-  } catch (err) {
-    console.warn('[Auth] E-Mail-Verifizierung konnte nicht gesendet werden:', err);
+    await sendEmailVerification(result.user, {
+      url: authActionContinueUrl('/verify-email'),
+      handleCodeInApp: false,
+    });
+  } catch {
+    /* Registration still succeeds; VerifyEmailPage can resend. Do not claim the mail was sent. */
   }
   return result.user;
 }
@@ -154,13 +161,34 @@ export async function registerWithEmail(email: string, password: string): Promis
 export async function resetPassword(email: string): Promise<void> {
   const a = getFirebaseAuth();
   if (!a) throw new Error('Firebase nicht konfiguriert');
-  await sendPasswordResetEmail(a, email);
+  try {
+    await sendPasswordResetEmail(a, email, {
+      url: authActionContinueUrl('/login'),
+      handleCodeInApp: false,
+    });
+  } catch (err) {
+    const code = (err as { code?: string })?.code ?? '';
+    if (code === 'auth/user-not-found') return;
+    throw err;
+  }
 }
 
 export async function resendEmailVerification(): Promise<void> {
   const a = getFirebaseAuth();
-  if (!a?.currentUser) throw new Error('Nicht angemeldet');
-  await sendEmailVerification(a.currentUser);
+  if (!a?.currentUser) {
+    const err = new Error('Sitzung abgelaufen. Bitte erneut anmelden.');
+    (err as Error & { code: string }).code = 'AUTH_REQUIRED';
+    throw err;
+  }
+  if (a.currentUser.emailVerified) {
+    const err = new Error('Diese E-Mail ist bereits bestätigt.');
+    (err as Error & { code: string }).code = 'EMAIL_ALREADY_VERIFIED';
+    throw err;
+  }
+  await sendEmailVerification(a.currentUser, {
+    url: authActionContinueUrl('/verify-email'),
+    handleCodeInApp: false,
+  });
 }
 
 export async function logoutFirebase(): Promise<void> {
@@ -168,19 +196,42 @@ export async function logoutFirebase(): Promise<void> {
   if (a) await signOut(a);
 }
 
+/**
+ * Subscribe to sign-in, sign-out, and ID-token refresh.
+ * `onIdTokenChanged` is the Firebase-supported hook for long-lived sessions.
+ */
 export function subscribeToAuth(callback: (user: User | null) => void): () => void {
   const a = getFirebaseAuth();
   if (!a) {
     callback(null);
     return () => {};
   }
-  return onAuthStateChanged(a, callback);
+  return onIdTokenChanged(a, callback);
 }
 
+/** Cached Firebase ID token; SDK refreshes when expired. Never force-refresh here. */
 export async function getIdToken(): Promise<string | null> {
   const a = getFirebaseAuth();
-  if (!a?.currentUser) return localStorage.getItem('auth_token');
+  if (!a?.currentUser) return null;
   return a.currentUser.getIdToken();
+}
+
+/** Verification-page only: reload Auth user and mint a fresh ID token. */
+export async function reloadCurrentUserAndToken(): Promise<{ emailVerified: boolean }> {
+  const a = getFirebaseAuth();
+  if (!a?.currentUser) throw new Error('Nicht angemeldet');
+  await a.currentUser.reload();
+  await a.currentUser.getIdToken(true);
+  return { emailVerified: a.currentUser.emailVerified };
+}
+
+export async function changeAccountPassword(currentPassword: string, newPassword: string): Promise<void> {
+  const a = getFirebaseAuth();
+  const user = a?.currentUser;
+  if (!user?.email) throw new Error('Passwort ändern ist nur für E-Mail-Konten verfügbar.');
+  const cred = EmailAuthProvider.credential(user.email, currentPassword);
+  await reauthenticateWithCredential(user, cred);
+  await updatePassword(user, newPassword);
 }
 
 export const OAUTH_PROVIDERS = {

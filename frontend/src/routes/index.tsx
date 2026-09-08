@@ -5,6 +5,7 @@ import { DashboardLayout, AuthLayout } from '@/components/layout';
 import { ProtectedRoute, PublicOnlyRoute, AdminRoute } from '@/components/auth/ProtectedRoute';
 import { LandingPage } from '@/pages/landing/LandingPage';
 import { LoginPage } from '@/pages/auth/LoginPage';
+import { VerifyEmailPage } from '@/pages/auth/VerifyEmailPage';
 import { CreatorDNAPage } from '@/pages/creator-dna/CreatorDNAPage';
 import { LogoStudioPage, BannerStudioPage, FacecamStudioPage, OverlayStudioPage, StickerStudioPage } from '@/pages/studios';
 import { BrandingGeneratorPage } from '@/pages/branding/BrandingGeneratorPage';
@@ -17,6 +18,7 @@ import { IntroOutroPage } from '@/pages/intro-outro/IntroOutroPage';
 import { VTuberStudioPage } from '@/pages/vtuber/VTuberStudioPage';
 import { AIVideoPage } from '@/pages/ai/AIVideoPage';
 import { AIVoicePage } from '@/pages/ai/AIVoicePage';
+import { AIMusicPage } from '@/pages/ai/AIMusicPage';
 import { MarketplacePage } from '@/pages/marketplace/MarketplacePage';
 import { ContentCalendarPage } from '@/pages/calendar/ContentCalendarPage';
 import { TeamChatPage } from '@/pages/chat/TeamChatPage';
@@ -38,6 +40,7 @@ import { TemplatesPage } from '@/pages/templates/TemplatesPage';
 import { AdminPage } from '@/pages/admin/AdminPage';
 import { LegalPage } from '@/pages/legal/LegalPage';
 import { OnboardingPage } from '@/pages/onboarding/OnboardingPage';
+import { NexterSetupPage } from '@/pages/onboarding/NexterSetupPage';
 import { NexterStudioLayout } from '@/components/nexter';
 import { CREATOR_MODULES } from '@ucbs/shared';
 import { Skeleton } from '@/v2/components/Skeleton';
@@ -46,6 +49,7 @@ const DashboardV2Page = lazy(() => import('@/v2/pages/DashboardV2Page').then((m)
 const ProjectsHubPage = lazy(() => import('@/v2/pages/ProjectsHubPage').then((m) => ({ default: m.ProjectsHubPage })));
 const ProjectDetailPage = lazy(() => import('@/v2/pages/ProjectDetailPage').then((m) => ({ default: m.ProjectDetailPage })));
 const SettingsHubPage = lazy(() => import('@/v2/pages/SettingsHubPage').then((m) => ({ default: m.SettingsHubPage })));
+const SupportPage = lazy(() => import('@/pages/support/SupportPage').then((m) => ({ default: m.SupportPage })));
 
 function PageLoader() {
   return (
@@ -82,6 +86,7 @@ const IMPLEMENTED_PATHS = new Set([
   '/vtuber-studio',
   '/ai-video',
   '/ai-voice',
+  '/ai-music',
   '/marketplace',
   '/social-media',
   '/content-calendar',
@@ -130,6 +135,7 @@ const IMPLEMENTED_ROUTES: Record<string, ReactNode> = {
   '/vtuber-studio': <VTuberStudioPage />,
   '/ai-video': <AIVideoPage />,
   '/ai-voice': <AIVoicePage />,
+  '/ai-music': <AIMusicPage />,
   '/marketplace': <MarketplacePage />,
   '/content-calendar': <ContentCalendarPage />,
   '/team-chat': <TeamChatPage />,
@@ -155,10 +161,28 @@ export function AppRoutes() {
       </Route>
 
       <Route
+        path="/verify-email"
+        element={
+          <ProtectedRoute>
+            <VerifyEmailPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/onboarding"
         element={
           <ProtectedRoute>
             <OnboardingPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/nexter-setup"
+        element={
+          <ProtectedRoute>
+            <NexterSetupPage />
           </ProtectedRoute>
         }
       />
@@ -177,10 +201,10 @@ export function AppRoutes() {
         <Route path="/projects" element={<Lazy><ProjectsHubPage /></Lazy>} />
         <Route path="/projects/:projectId" element={<Lazy><ProjectDetailPage /></Lazy>} />
         <Route path="/settings" element={<Lazy><SettingsHubPage /></Lazy>} />
+        <Route path="/support" element={<Lazy><SupportPage /></Lazy>} />
         <Route path="/ultimate-creator" element={<UltimateCreatorPage />} />
         <Route path="/export-center" element={<ExportCenterPage />} />
         <Route path="/settings/magik-assistant" element={<Navigate to="/settings" replace />} />
-        <Route path="/ai-music" element={<Navigate to="/nexter" replace />} />
         <Route path="/marketplace" element={<Navigate to="/dashboard" replace />} />
         <Route path="/social-media" element={<Navigate to="/social-studio" replace />} />
         <Route path="/team-chat" element={<Navigate to="/dashboard" replace />} />
@@ -199,7 +223,7 @@ export function AppRoutes() {
         <Route path="/text-studio" element={<TextStudioPage />} />
         <Route path="/templates" element={<TemplatesPage />} />
         <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
-        {CREATOR_MODULES.filter((m) => m.id !== 'dashboard' && m.id !== 'coins' && m.id !== 'ai-music').map((mod) => (
+        {CREATOR_MODULES.filter((m) => m.id !== 'dashboard' && m.id !== 'coins').map((mod) => (
           <Route
             key={mod.id}
             path={mod.path}

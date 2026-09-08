@@ -58,7 +58,7 @@ export function initializeFirebase(): void {
   } catch (err) {
     initialized = true;
     firebaseReady = false;
-    console.error('[Firebase] Admin SDK initialization failed:', err);
+    console.error('[Firebase] Admin SDK initialization failed:', err instanceof Error ? err.message : 'error');
   }
 }
 

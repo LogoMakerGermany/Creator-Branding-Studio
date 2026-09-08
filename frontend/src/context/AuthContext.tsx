@@ -4,6 +4,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react';
 import {
@@ -19,15 +20,20 @@ import {
 } from '@/lib/firebase';
 import { resolveAuthProvider } from '@/lib/auth-providers';
 import { formatAuthError } from '@/lib/auth-errors';
-import { api, setAuthToken, type UserProfile, type CreatorDNA } from '@/services/api';
+import { api, ApiError, setAuthToken, type UserProfile, type CreatorDNA } from '@/services/api';
+import { applyNexterAppearance, resetNexterAppearance } from '@/lib/nexter-appearance';
+import { AUTH_TOKEN_STORAGE_KEY } from '@/lib/auth-session';
 
 const PENDING_INVITE_KEY = 'pending_invite_code';
+const PENDING_LEGAL_KEY = 'pending_legal_acceptance';
 
 interface AuthContextValue {
   user: UserProfile | null;
   activeDna: CreatorDNA | null;
   loading: boolean;
   isDevMode: boolean;
+  hasFirebaseSession: boolean;
+  profileLoadError: string | null;
   loginProvider: (provider: AuthProviderId) => Promise<void>;
   loginEmail: (email: string, password: string) => Promise<void>;
   registerEmail: (email: string, password: string, inviteCode?: string) => Promise<void>;
@@ -37,16 +43,58 @@ interface AuthContextValue {
   refreshUser: () => Promise<void>;
 }
 
+function applyMeProfile(
+  profile: UserProfile,
+  me: {
+    needsEmailVerification?: boolean;
+    emailVerified?: boolean;
+    signInProvider?: string | null;
+  }
+): UserProfile {
+  return {
+    ...profile,
+    needsEmailVerification: me.needsEmailVerification === true,
+    emailVerified: me.emailVerified === true,
+    signInProvider: me.signInProvider ?? undefined,
+  };
+}
+
+function isFatalAuthError(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false;
+  return (
+    err.status === 401 ||
+    err.code === 'AUTH_REQUIRED' ||
+    err.code === 'INVALID_TOKEN' ||
+    err.code === 'ACCESS_DENIED' ||
+    err.code === 'ACCOUNT_DISABLED'
+  );
+}
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 async function syncProfile(displayName?: string, authProvider?: string) {
   const inviteCode = sessionStorage.getItem(PENDING_INVITE_KEY) || undefined;
+  let legal: { termsVersion: string; privacyVersion: string } | undefined;
   try {
-    await api.auth.sync(displayName, authProvider, inviteCode);
+    const raw = sessionStorage.getItem(PENDING_LEGAL_KEY);
+    if (raw) legal = JSON.parse(raw) as { termsVersion: string; privacyVersion: string };
+  } catch {
+    legal = undefined;
+  }
+  try {
+    await api.auth.sync(displayName, authProvider, inviteCode, legal);
     sessionStorage.removeItem(PENDING_INVITE_KEY);
+    sessionStorage.removeItem(PENDING_LEGAL_KEY);
   } catch (err) {
     const msg = formatAuthError(err);
-    if (msg.toLowerCase().includes('einladung') || msg.toLowerCase().includes('registrierung')) {
+    const code = err instanceof ApiError ? err.code : '';
+    if (
+      code === 'ACCESS_DENIED' ||
+      code === 'LEGAL_ACCEPTANCE_REQUIRED' ||
+      msg.toLowerCase().includes('einladung') ||
+      msg.toLowerCase().includes('registrierung') ||
+      msg.toLowerCase().includes('nutzungsbedingungen')
+    ) {
       sessionStorage.setItem('auth_error', msg);
       await logoutFirebase();
       setAuthToken(null);
@@ -59,99 +107,124 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [activeDna, setActiveDna] = useState<CreatorDNA | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hasFirebaseSession, setHasFirebaseSession] = useState(false);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
   const isDevMode = !isFirebaseConfigured();
 
   const refreshUser = useCallback(async () => {
     try {
-      const { user: profile, activeDna: dna } = await api.auth.me();
-      setUser(profile);
-      setActiveDna(dna);
-    } catch {
-      setUser(null);
-      setActiveDna(null);
-      setAuthToken(null);
+      const me = await api.auth.me();
+      setUser(applyMeProfile(me.user, me));
+      setActiveDna(me.activeDna);
+      setProfileLoadError(null);
+      applyNexterAppearance(me.user.nexterPreferences);
+    } catch (err) {
+      if (isFatalAuthError(err)) {
+        setUser(null);
+        setActiveDna(null);
+        setAuthToken(null);
+        setProfileLoadError(null);
+        resetNexterAppearance();
+        return;
+      }
+      setProfileLoadError(formatAuthError(err));
     }
   }, []);
 
-  useEffect(() => {
-    async function init() {
-      const storedToken = localStorage.getItem('auth_token');
-      if (storedToken) {
-        await refreshUser();
-        setLoading(false);
-        return;
-      }
+  const lastFirebaseUid = useRef<string | null>(null);
 
+  useEffect(() => {
+    const prefs = user?.nexterPreferences;
+    applyNexterAppearance(prefs);
+    if (prefs?.uiTheme !== 'system') return;
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const onChange = () => applyNexterAppearance(prefs);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [user?.nexterPreferences]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function init(): Promise<(() => void) | void> {
       if (isFirebaseConfigured()) {
         const unsub = subscribeToAuth(async (firebaseUser) => {
+          if (cancelled) return;
+
           if (firebaseUser) {
-            const token = await firebaseUser.getIdToken();
-            setAuthToken(token);
-            try {
-              await syncProfile(
-                firebaseUser.displayName || undefined,
-                resolveAuthProvider(firebaseUser)
-              );
-              await refreshUser();
-            } catch {
-              setUser(null);
-              setActiveDna(null);
+            setHasFirebaseSession(true);
+            const uidChanged = lastFirebaseUid.current !== firebaseUser.uid;
+            lastFirebaseUid.current = firebaseUser.uid;
+            if (uidChanged) {
+              setAuthToken(null);
+              try {
+                await syncProfile(
+                  firebaseUser.displayName || undefined,
+                  resolveAuthProvider(firebaseUser)
+                );
+                await refreshUser();
+              } catch (err) {
+                if (isFatalAuthError(err)) {
+                  setUser(null);
+                  setActiveDna(null);
+                  setProfileLoadError(null);
+                } else {
+                  setProfileLoadError(formatAuthError(err));
+                }
+              }
             }
           } else {
+            lastFirebaseUid.current = null;
+            setHasFirebaseSession(false);
             setUser(null);
             setActiveDna(null);
+            setAuthToken(null);
+            setProfileLoadError(null);
+            resetNexterAppearance();
           }
           setLoading(false);
         });
 
         try {
-          const redirectUser = await completeRedirectLogin();
-          if (redirectUser) {
-            const token = await redirectUser.getIdToken();
-            setAuthToken(token);
-            await syncProfile(
-              redirectUser.displayName || undefined,
-              resolveAuthProvider(redirectUser)
-            );
-            await refreshUser();
-          }
+          await completeRedirectLogin();
         } catch (err) {
           sessionStorage.setItem('auth_error', formatAuthError(err));
-          setLoading(false);
         }
-
-        const refreshInterval = setInterval(async () => {
-          const a = (await import('@/lib/firebase')).getFirebaseAuth();
-          if (a?.currentUser) {
-            const token = await a.currentUser.getIdToken(true);
-            setAuthToken(token);
-          }
-        }, 55 * 60 * 1000);
 
         return () => {
           unsub();
-          clearInterval(refreshInterval);
         };
       }
 
-      setLoading(false);
+      const storedToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+      if (storedToken) {
+        await refreshUser();
+      }
+      if (!cancelled) setLoading(false);
     }
 
-    const cleanup = init();
+    const cleanupPromise = init();
     return () => {
-      cleanup?.then?.((unsub) => unsub?.());
+      cancelled = true;
+      void cleanupPromise.then((unsub) => unsub?.());
     };
   }, [refreshUser]);
 
   async function handleFirebaseLogin(loginFn: () => Promise<import('firebase/auth').User>) {
     const firebaseUser = await loginFn();
-    const token = await firebaseUser.getIdToken();
-    setAuthToken(token);
+    lastFirebaseUid.current = firebaseUser.uid;
+    setHasFirebaseSession(true);
+    setAuthToken(null);
     await syncProfile(firebaseUser.displayName || undefined, resolveAuthProvider(firebaseUser));
     await refreshUser();
   }
 
   const loginProvider = async (provider: AuthProviderId) => {
+    if (provider !== 'google') {
+      const err = new Error('Dieser Anmeldeanbieter ist derzeit nicht verfügbar.');
+      (err as { code?: string }).code = 'auth/operation-not-allowed';
+      throw err;
+    }
     await handleFirebaseLogin(() => loginWithProvider(provider));
   };
 
@@ -171,19 +244,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const loginDev = async () => {
-    const { token, user: profile } = await api.auth.devLogin(undefined, 'Dev Creator');
+    const { token } = await api.auth.devLogin(undefined, 'Dev Creator');
     setAuthToken(token);
-    setUser(profile);
-    const { activeDna: dna } = await api.auth.me();
-    setActiveDna(dna);
+    await refreshUser();
   };
 
   const logout = async () => {
+    lastFirebaseUid.current = null;
+    setHasFirebaseSession(false);
+    setProfileLoadError(null);
     await logoutFirebase();
     setAuthToken(null);
     setUser(null);
     setActiveDna(null);
     sessionStorage.removeItem(PENDING_INVITE_KEY);
+    sessionStorage.removeItem(PENDING_LEGAL_KEY);
+    sessionStorage.removeItem('nexter-onboarding-draft');
+    sessionStorage.removeItem('nexter-setup-draft');
+    resetNexterAppearance();
   };
 
   return (
@@ -193,6 +271,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         activeDna,
         loading,
         isDevMode,
+        hasFirebaseSession,
+        profileLoadError,
         loginProvider,
         loginEmail,
         registerEmail,

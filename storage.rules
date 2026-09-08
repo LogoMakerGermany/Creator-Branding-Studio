@@ -4,14 +4,12 @@ service firebase.storage {
 
   match /b/{bucket}/o {
 
+    // Private creator files. Client SDK must not read or write.
+    // Access is Admin SDK upload + short-lived backend signed URLs after auth + ownership.
+
     match /users/{userId}/{allPaths=**} {
 
-      allow read: if request.auth != null && request.auth.uid == userId;
-
-      allow write: if request.auth != null
-        && request.auth.uid == userId
-        && request.resource.size < 50 * 1024 * 1024
-        && request.resource.contentType.matches('image/png|image/jpeg|image/webp|image/gif|video/mp4|audio/.*|application/pdf');
+      allow read, write: if false;
 
     }
 
@@ -23,9 +21,7 @@ service firebase.storage {
 
     match /exports/{userId}/{allPaths=**} {
 
-      allow read: if request.auth != null && request.auth.uid == userId;
-
-      allow write: if false;
+      allow read, write: if false;
 
     }
 

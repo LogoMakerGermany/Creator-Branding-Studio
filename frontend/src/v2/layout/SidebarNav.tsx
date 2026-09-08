@@ -83,6 +83,7 @@ export function SidebarNav() {
         {showAdmin && (
           <NavLink
             to="/admin"
+            aria-label="Admin"
             onClick={() => setMobileNavOpen(false)}
             className={({ isActive }) =>
               cn(

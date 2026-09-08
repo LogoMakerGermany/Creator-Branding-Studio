@@ -176,30 +176,21 @@ export async function redeemInviteCode(
 export async function validateInviteCode(
   code: string,
   email?: string
-): Promise<{ valid: boolean; grantRole?: 'user' | 'tester'; message?: string }> {
+): Promise<{ valid: boolean }> {
   try {
     const invite = await getInviteByCode(code);
-    if (!invite || !invite.isActive) {
-      return { valid: false, message: 'Ungültiger oder inaktiver Einladungscode' };
-    }
-    if (invite.expiresAt && new Date(invite.expiresAt).getTime() < Date.now()) {
-      return { valid: false, message: 'Einladungscode ist abgelaufen' };
-    }
-    if (invite.currentUses >= invite.maximumUses) {
-      return { valid: false, message: 'Einladungscode wurde bereits zu oft verwendet' };
-    }
+    if (!invite || !invite.isActive) return { valid: false };
+    if (invite.expiresAt && new Date(invite.expiresAt).getTime() < Date.now()) return { valid: false };
+    if (invite.currentUses >= invite.maximumUses) return { valid: false };
     if (
       email &&
       invite.assignedEmail &&
       invite.assignedEmail.toLowerCase() !== email.toLowerCase()
     ) {
-      return {
-        valid: false,
-        message: 'Dieser Einladungscode ist einer anderen E-Mail-Adresse zugeordnet',
-      };
+      return { valid: false };
     }
-    return { valid: true, grantRole: invite.grantRole || 'tester' };
+    return { valid: true };
   } catch {
-    return { valid: false, message: 'Einladungscode konnte nicht geprüft werden' };
+    return { valid: false };
   }
 }

@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { getStorage } from '../config/firebase.js';
 import { isDevMode } from '../config/env.js';
+import { ServiceError } from './errors.js';
 
-const SIGNED_URL_TTL_MS = 60 * 60 * 1000; // 1 hour
+/** Short-lived signed read URLs. Not an authorization token beyond expiry. */
+export const SIGNED_URL_TTL_MS = 60 * 60 * 1000;
 
 export async function uploadAssetFromUrl(
   userId: string,
@@ -87,7 +89,7 @@ async function uploadBuffer(
     public: false,
   });
 
-  return getSignedDownloadUrl(path);
+  return signOwnedStoragePath(userId, path);
 }
 
 /** Create a time-limited signed download URL for a storage object path. */
@@ -126,6 +128,22 @@ export function isOwnedStoragePath(userId: string, storagePath: string): boolean
   if (!storagePath.startsWith(prefix)) return false;
   if (storagePath.includes('..') || storagePath.includes('\\') || storagePath.includes('\0')) return false;
   return true;
+}
+
+/**
+ * Sign a storage path only after ownership is verified.
+ * The signer is never invoked for a foreign or malformed path.
+ */
+export async function signOwnedStoragePath(
+  userId: string,
+  storagePath: string,
+  sign: (path: string, ttlMs?: number) => Promise<string> = getSignedDownloadUrl,
+  ttlMs = SIGNED_URL_TTL_MS
+): Promise<string> {
+  if (!isOwnedStoragePath(userId, storagePath)) {
+    throw new ServiceError(403, 'FORBIDDEN', 'Zugriff auf diesen Storage-Pfad ist nicht erlaubt');
+  }
+  return sign(storagePath, ttlMs);
 }
 
 export async function deleteStorageObject(storagePath: string): Promise<void> {

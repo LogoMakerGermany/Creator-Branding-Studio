@@ -1,22 +1,24 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Permission, CoinSpendCategory, UserRole } from '@ucbs/shared';
+import { Permission } from '@ucbs/shared';
 import { authenticate, authenticateAllowUnprovisioned } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { asyncHandler, sendSuccess, AppError } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
-import { getOrCreateUser, getUserById, updateUser } from '../services/user.service.js';
+import { getOrCreateUser, getUserById, updateUser, updateOwnProfile, sanitizeDisplayName } from '../services/user.service.js';
+import { updateNexterPreferencesForUser } from '../services/nexter/preferences.service.js';
 import { getActiveDna } from '../services/dna.service.js';
-import { buildBrandingModulePrompt, getJobsByUser, runGenerationJob } from '../services/ai.service.js';
+import { getJobsByUser } from '../services/ai.service.js';
 import { listProjects } from '../services/project.service.js';
 import { listUserFiles } from '../services/file-cloud.service.js';
 import { getRegistrationMode } from '../services/system-settings.service.js';
-import { redeemInviteCode, validateInviteCode } from '../services/invite.service.js';
+import { validateInviteCode } from '../services/invite.service.js';
+import { syncAuthenticatedAppUser } from '../services/auth-registration.service.js';
+import { exportAccountData, requestAccountDeletion } from '../services/account.service.js';
 import { randomUUID } from 'node:crypto';
 import { isProduction, isDevAuthEnabled } from '../config/env.js';
-import { withCoinChargePack } from '../lib/billable-job.js';
-import { dispatchTransactionalEmail, welcomeEmail } from '../services/email.service.js';
-import { exportAccountData, requestAccountDeletion } from '../services/account.service.js';
+import { passwordProviderNeedsEmailVerification } from '../lib/email-verification.js';
+import { authorizeVerificationResend } from '../services/email-verification-resend.service.js';
 
 export const authRoutes = Router();
 
@@ -27,7 +29,7 @@ authRoutes.get(
     sendSuccess(res, {
       registrationMode: mode,
       registrationOpen: mode !== 'closed',
-      inviteRequired: mode === 'invite_only',
+      inviteRequired: mode !== 'public' && mode !== 'closed',
     });
   })
 );
@@ -80,53 +82,30 @@ authRoutes.post(
           'email',
         ])
         .optional(),
+      acceptedTermsVersion: z.string().min(1).max(64).optional(),
+      acceptedPrivacyVersion: z.string().min(1).max(64).optional(),
     });
     const body = schema.parse(req.body);
     const token = req.authToken!;
     const email = token.email;
     const uid = token.uid;
 
-    const existing = await getUserById(uid);
-    if (existing) {
-      const user = await getOrCreateUser(uid, email, body.displayName || existing.displayName, {
-        authProvider: body.authProvider,
-      });
-      sendSuccess(res, { user });
-      return;
-    }
-
-    const mode = await getRegistrationMode();
-    if (mode === 'closed') {
-      throw new AppError(403, 'ACCESS_DENIED', 'Registrierung ist derzeit geschlossen');
-    }
-
-    let role = UserRole.USER;
-    let inviteCodeId: string | undefined;
-
-    if (mode === 'invite_only') {
-      if (!body.inviteCode) {
-        throw new AppError(
-          403,
-          'ACCESS_DENIED',
-          'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich'
-        );
-      }
-      const redeemed = await redeemInviteCode(body.inviteCode, email, uid);
-      role = redeemed.grantRole === 'tester' ? UserRole.TESTER : UserRole.USER;
-      inviteCodeId = redeemed.invite.id;
-    }
-
-    const user = await getOrCreateUser(uid, email, body.displayName || token.name, {
+    const { user, created } = await syncAuthenticatedAppUser({
+      uid,
+      email,
+      displayName: body.displayName || token.name,
+      inviteCode: body.inviteCode,
       authProvider: body.authProvider,
-      role,
-      inviteCodeId,
+      legalAcceptance:
+        body.acceptedTermsVersion || body.acceptedPrivacyVersion
+          ? {
+              termsVersion: body.acceptedTermsVersion,
+              privacyVersion: body.acceptedPrivacyVersion,
+            }
+          : undefined,
     });
 
-    void dispatchTransactionalEmail(`welcome:${uid}`, welcomeEmail(user.email, user.displayName)).catch(
-      () => undefined
-    );
-
-    sendSuccess(res, { user }, 201);
+    sendSuccess(res, { user }, created ? 201 : 200);
   })
 );
 
@@ -136,7 +115,28 @@ authRoutes.get(
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const user = await getUserById(req.user!.uid);
     const activeDna = await getActiveDna(req.user!.uid);
-    sendSuccess(res, { user, activeDna });
+    const emailVerified = req.authToken?.emailVerified === true;
+    const signInProvider = req.authToken?.signInProvider;
+    sendSuccess(res, {
+      user,
+      activeDna,
+      emailVerified,
+      signInProvider: signInProvider ?? null,
+      needsEmailVerification: passwordProviderNeedsEmailVerification(signInProvider, emailVerified),
+    });
+  })
+);
+
+authRoutes.post(
+  '/email-verification/resend',
+  authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const result = await authorizeVerificationResend({
+      uid: req.user!.uid,
+      emailVerified: req.authToken?.emailVerified === true,
+      signInProvider: req.authToken?.signInProvider,
+    });
+    sendSuccess(res, result);
   })
 );
 
@@ -144,12 +144,18 @@ authRoutes.patch(
   '/me',
   authenticate,
   asyncHandler(async (req: AuthenticatedRequest, res) => {
-    const schema = z.object({
-      displayName: z.string().min(1).max(100).optional(),
-      locale: z.string().optional(),
-    });
-    const body = schema.parse(req.body);
-    const user = await updateUser(req.user!.uid, body);
+    const body = z.record(z.string(), z.unknown()).parse(req.body ?? {});
+    const user = await updateOwnProfile(req.user!.uid, body);
+    sendSuccess(res, { user });
+  })
+);
+
+authRoutes.patch(
+  '/me/nexter-preferences',
+  authenticate,
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const body = z.record(z.string(), z.unknown()).parse(req.body ?? {});
+    const user = await updateNexterPreferencesForUser(req.user!.uid, body);
     sendSuccess(res, { user });
   })
 );
@@ -163,8 +169,12 @@ authRoutes.post(
         displayName: z.string().min(1).max(100).optional(),
       })
       .parse(req.body ?? {});
+    const dna = await getActiveDna(req.user!.uid);
+    if (!dna) {
+      throw new AppError(400, 'NO_DNA', 'Creator DNA muss gespeichert sein, bevor das Onboarding abgeschlossen wird');
+    }
     const patch: { onboardingCompleted: true; displayName?: string } = { onboardingCompleted: true };
-    if (body.displayName) patch.displayName = body.displayName;
+    if (body.displayName) patch.displayName = sanitizeDisplayName(body.displayName);
     const user = await updateUser(req.user!.uid, patch);
     sendSuccess(res, { user });
   })
@@ -228,62 +238,11 @@ brandingRoutes.use(authenticate, requirePermission(Permission.USE_BANNER_STUDIO)
 
 brandingRoutes.post(
   '/generate-pack',
-  asyncHandler(async (req: AuthenticatedRequest, res) => {
-    const activeDna = await getActiveDna(req.user!.uid);
-    if (!activeDna) {
-      throw new AppError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
-    }
-
-    const packModules = [
-      'profile-pic',
-      'banner',
-      'facecam',
-      'overlay',
-      'stream-start',
-      'stream-end',
-      'offline',
-      'panel',
-      'alert',
-    ] as const;
-
-    const { jobs, coinsSpent, newBalance } = await withCoinChargePack(
-      req.user!.uid,
-      CoinSpendCategory.BRANDING_PACK,
-      'Branding-Paket Generierung',
-      async () => {
-        return Promise.all(
-          packModules.map(async (module) => {
-            const prompt = buildBrandingModulePrompt(activeDna, module);
-            const hd = ['profile-pic', 'banner', 'overlay', 'stream-start', 'stream-end', 'offline'].includes(
-              module
-            );
-            const size = module === 'banner' ? '1792x1024' : moduleImageSizeForPack(module);
-            return runGenerationJob(req.user!.uid, module, activeDna, prompt, { size, hd });
-          })
-        );
-      }
-    );
-
-    const failed = jobs.filter((j) => j.status === 'failed');
-    sendSuccess(
-      res,
-      {
-        jobId: jobs[0]?.id ?? `branding_${Date.now()}`,
-        status: failed.length ? 'partial' : 'completed',
-        dnaId: activeDna.id,
-        jobs,
-        failedCount: failed.length,
-        coinsSpent,
-        newBalance,
-      },
-      201
+  asyncHandler(async (_req: AuthenticatedRequest, res) => {
+    throw new AppError(
+      400,
+      'BRANDING_REQUIRES_QUOTE',
+      'Branding-Paket startet nur über Nexter nach Bestätigung (Streamset / Für X Coins erstellen).'
     );
   })
 );
-
-function moduleImageSizeForPack(module: string): '1024x1024' | '1792x1024' | '1024x1792' {
-  if (['banner', 'stream-start', 'stream-end', 'offline', 'panel', 'overlay'].includes(module)) {
-    return '1792x1024';
-  }
-  return '1024x1024';
-}

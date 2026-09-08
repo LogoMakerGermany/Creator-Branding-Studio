@@ -4,7 +4,7 @@ import { dsGet, dsSet, dsDelete, dsList } from '../lib/data-store.js';
 import { uploadAssetFromDataUrl } from '../lib/firebase-storage.js';
 import { parseAndValidateDataUrl } from '../lib/upload-validation.js';
 import { ServiceError } from '../lib/errors.js';
-import { createCalendarEvent } from './calendar.service.js';
+import { parseCalendarIsoDate, upsertLinkedSocialCalendarEvent } from './calendar.service.js';
 import { getContentPackage } from './text.service.js';
 import { getMediaJob, getVideoProject } from './media.service.js';
 import { getUserFile } from './file-cloud.service.js';
@@ -30,6 +30,8 @@ export interface SocialPost {
   scheduledAt?: string;
   publishedAt?: string;
   status: SocialPostStatus;
+  version?: number;
+  contentType?: string;
   /** Legacy field — never treat as platform analytics. */
   engagement?: { likes: number; comments: number; shares: number; views: number };
   createdAt: string;
@@ -97,7 +99,7 @@ export async function resolveOwnedMediaUrl(
     if (!video) throw new ServiceError(404, 'NOT_FOUND', 'Video nicht gefunden');
     return video.renderUrl || video.sourceUrl;
   }
-  if (kind === 'short' || kind === 'animation' || kind === 'mockup') {
+  if (kind === 'short' || kind === 'animation' || kind === 'mockup' || kind === 'sticker' || kind === 'banner') {
     const job = await getMediaJob(input.mediaAssetId, userId);
     if (!job) {
       const jobs = await getJobsByUser(userId);
@@ -122,8 +124,10 @@ export async function getSocialPost(id: string, userId: string): Promise<SocialP
 }
 
 function coerceWriteStatus(raw?: string, scheduledAt?: string): 'draft' | 'scheduled' | 'ready' {
+  const normalized = normalizePlannerStatus(raw);
+  if (normalized === 'ready') return 'ready';
   if (scheduledAt) return 'scheduled';
-  return normalizePlannerStatus(raw);
+  return normalized;
 }
 
 export async function createSocialPost(
@@ -139,6 +143,7 @@ export async function createSocialPost(
     packageId?: string;
     projectId?: string;
     status?: string;
+    contentType?: string;
   }
 ): Promise<SocialPostView> {
   const now = new Date().toISOString();
@@ -164,6 +169,21 @@ export async function createSocialPost(
     });
   }
 
+  if (data.scheduledAt) {
+    data = { ...data, scheduledAt: parseCalendarIsoDate(data.scheduledAt, 'scheduledAt') };
+  }
+
+  if (data.scheduledAt) {
+    const existing = (await listSocialPosts(userId)).find(
+      (p) =>
+        p.platform === data.platform &&
+        p.content === data.content &&
+        p.scheduledAt === data.scheduledAt &&
+        (data.packageId ? p.packageId === data.packageId : true)
+    );
+    if (existing) return existing;
+  }
+
   const status = coerceWriteStatus(data.status, data.scheduledAt);
 
   const post: SocialPost = {
@@ -178,19 +198,15 @@ export async function createSocialPost(
     projectId: data.projectId,
     scheduledAt: data.scheduledAt,
     status,
+    version: 1,
+    contentType: data.contentType,
     createdAt: now,
     updatedAt: now,
   };
   await dsSet(POSTS_COLLECTION, post.id, post as unknown as Record<string, unknown>);
 
   if (data.scheduledAt) {
-    await createCalendarEvent(userId, {
-      title: `[Intern] [${data.platform}] ${data.content.slice(0, 80)}`,
-      description: `${data.content}\n\nNEXTER veröffentlicht diesen Beitrag noch nicht automatisch auf der Plattform.`,
-      type: 'post',
-      platform: data.platform,
-      startAt: data.scheduledAt,
-    }).catch(() => undefined);
+    await upsertLinkedSocialCalendarEvent(userId, post).catch(() => undefined);
   }
 
   return presentSocialPost(post);
@@ -200,11 +216,12 @@ export async function updateSocialPost(
   id: string,
   userId: string,
   data: Partial<
-    Pick<SocialPost, 'content' | 'platform' | 'scheduledAt' | 'status' | 'mediaUrl' | 'packageId' | 'projectId'>
+    Pick<SocialPost, 'content' | 'platform' | 'scheduledAt' | 'status' | 'mediaUrl' | 'packageId' | 'projectId' | 'contentType'>
   > & {
     mediaDataUrl?: string;
     mediaAssetId?: string;
     mediaKind?: string;
+    clearSchedule?: boolean;
   }
 ): Promise<SocialPostView> {
   const post = await dsGet(POSTS_COLLECTION, id);
@@ -232,22 +249,56 @@ export async function updateSocialPost(
     });
   }
 
-  const nextStatus = data.status != null || data.scheduledAt
-    ? coerceWriteStatus(data.status ?? String(post.status), data.scheduledAt ?? (post.scheduledAt as string | undefined))
-    : (post.status as SocialPostStatus);
+  let nextScheduledAt = post.scheduledAt as string | undefined;
+  if (data.clearSchedule || data.scheduledAt === '') {
+    nextScheduledAt = undefined;
+  } else if (data.scheduledAt) {
+    nextScheduledAt = parseCalendarIsoDate(data.scheduledAt, 'scheduledAt');
+  }
+
+  const nextStatus =
+    data.clearSchedule || data.scheduledAt === ''
+      ? data.status === 'ready' || data.status === 'published'
+        ? 'ready'
+        : 'draft'
+      : coerceWriteStatus(data.status ?? String(post.status), nextScheduledAt);
+
+  const contentChanged = data.content != null && data.content !== post.content;
+  const scheduleChanged = nextScheduledAt !== post.scheduledAt;
+  const nextVersion =
+    contentChanged || scheduleChanged
+      ? (typeof post.version === 'number' ? post.version : 1) + 1
+      : typeof post.version === 'number'
+        ? post.version
+        : 1;
 
   const updated: Record<string, unknown> = {
     ...post,
     ...data,
     mediaUrl,
+    scheduledAt: nextScheduledAt,
     status: nextStatus,
+    version: nextVersion,
     updatedAt: new Date().toISOString(),
   };
   delete updated.mediaDataUrl;
   delete updated.engagement;
+  delete updated.clearSchedule;
+  if (!nextScheduledAt) delete updated.scheduledAt;
 
   await dsSet(POSTS_COLLECTION, id, updated);
-  return presentSocialPost(updated as unknown as SocialPost);
+  const view = presentSocialPost(updated as unknown as SocialPost);
+  await upsertLinkedSocialCalendarEvent(userId, {
+    id: view.id,
+    content: view.content,
+    platform: view.platform,
+    scheduledAt: view.scheduledAt,
+    status: view.status,
+    packageId: view.packageId,
+    projectId: view.projectId,
+    contentType: view.contentType,
+  }).catch(() => undefined);
+  return view;
 }
 
 export async function deleteSocialPost(id: string, userId: string): Promise<void> {
@@ -255,6 +306,16 @@ export async function deleteSocialPost(id: string, userId: string): Promise<void
   if (!post || post.userId !== userId) {
     throw new ServiceError(404, 'NOT_FOUND', 'Post nicht gefunden');
   }
+  await upsertLinkedSocialCalendarEvent(userId, {
+    id,
+    content: String(post.content ?? ''),
+    platform: String(post.platform ?? 'tiktok'),
+    scheduledAt: undefined,
+    status: 'draft',
+    packageId: post.packageId as string | undefined,
+    projectId: post.projectId as string | undefined,
+    contentType: post.contentType as string | undefined,
+  }).catch(() => undefined);
   await dsDelete(POSTS_COLLECTION, id);
 }
 

@@ -1,5 +1,5 @@
 import type { RegistrationMode } from '@ucbs/shared';
-import { getRegistrationModeEnv } from '../config/env.js';
+import { getRegistrationModeEnv, normalizeRegistrationMode } from '../config/env.js';
 import { dsGet, dsSet } from '../lib/data-store.js';
 
 const SETTINGS_COLLECTION = 'system_settings';
@@ -42,7 +42,7 @@ export async function getSystemSettings(): Promise<SystemSettings> {
 
 export async function getRegistrationMode(): Promise<RegistrationMode> {
   const settings = await getSystemSettings();
-  return settings.registrationMode;
+  return normalizeRegistrationMode(settings.registrationMode);
 }
 
 export async function updateSystemSettings(

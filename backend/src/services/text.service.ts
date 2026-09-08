@@ -13,14 +13,15 @@ import {
   type PlatformVariant,
   type TextKind,
 } from '@ucbs/shared';
-import { getOpenAiApiKey } from '../config/env.js';
+import { getOpenAiApiKey, areGenerationsEnabled } from '../config/env.js';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
 import { withCoinCharge } from '../lib/billable-job.js';
 import { ServiceError } from '../lib/errors.js';
+import { isPaidProviderTestBlocked } from '../lib/media-providers.js';
 import { resolveDnaForRequest } from './dna.service.js';
 import { getProject } from './project.service.js';
 import { attachAssetToProject } from './project-assets.service.js';
-import { getJobsByUser } from './ai.service.js';
+import { getJobsByUser, type GenerationJob } from './ai.service.js';
 import { getUserFile } from './file-cloud.service.js';
 import {
   getMediaJob,
@@ -52,6 +53,11 @@ export interface TextQuotePayload {
   revisionInstruction?: string;
   variantCount?: number;
   wantLastShort?: boolean;
+  wantLastLogo?: boolean;
+  quoteId?: string;
+  tone?: 'neutral' | 'funny' | 'professional' | 'hype';
+  goal?: string;
+  language?: string;
 }
 
 export interface ResolvedContentSource {
@@ -145,6 +151,8 @@ export function normalizeContentPackage(row: Record<string, unknown>, userId?: s
     dnaId: typeof row.dnaId === 'string' ? row.dnaId : undefined,
     dnaVersion: typeof row.dnaVersion === 'number' ? row.dnaVersion : undefined,
     revisions: Array.isArray(row.revisions) ? (row.revisions as ContentRevision[]) : [],
+    version: typeof row.version === 'number' && Number.isFinite(row.version) ? row.version : 1,
+    parentPackageId: typeof row.parentPackageId === 'string' ? row.parentPackageId : undefined,
     error: typeof row.error === 'string' ? row.error : undefined,
     createdAt: String(row.createdAt ?? now),
     updatedAt: now,
@@ -162,6 +170,41 @@ export async function getContentPackage(id: string, userId: string): Promise<Con
   return normalizeContentPackage(row, userId);
 }
 
+export type TextTestHooks = { result: 'success' | 'fail' } | null;
+
+let textTestHooks: TextTestHooks = null;
+
+export function setTextTestHooks(hooks: TextTestHooks): void {
+  textTestHooks = hooks;
+}
+
+function mockLlmPackage(kind: TextKind, source: ResolvedContentSource, platforms: ContentPlatformId[]): unknown {
+  const topic = source.topicHint || 'Creator Content';
+  const platform = platforms[0] || 'tiktok';
+  return {
+    hook: `Hook: ${topic}`,
+    title: `Titel: ${topic}`,
+    caption: `${platform} Caption: ${topic}`,
+    description: `Beschreibung: ${topic}`,
+    hashtags: normalizeHashtags([topic.replace(/\s+/g, '').slice(0, 18) || 'creator', 'content', platform]),
+    callToAction: 'Folge für mehr Updates.',
+    platforms: Object.fromEntries(
+      platforms.map((id) => [
+        id,
+        {
+          hook: `Hook ${id}: ${topic}`,
+          title: `Titel ${id}: ${topic}`,
+          caption: `Caption ${id}: ${topic}`,
+          description: `Beschreibung ${id}: ${topic}`,
+          hashtags: [id.replace(/-/g, ''), 'creator'],
+          callToAction: 'Folge für mehr Updates.',
+        },
+      ])
+    ),
+    alternatives: kind === 'hook' ? [`Alt-Hook 1 ${topic}`, `Alt-Hook 2 ${topic}`] : undefined,
+  };
+}
+
 export async function findLastOwnedShort(
   userId: string
 ): Promise<{ videoProject?: VideoProject; short: MediaJob } | null> {
@@ -172,6 +215,11 @@ export async function findLastOwnedShort(
   }
   const jobs = await listMediaJobs(userId, 'short');
   return jobs[0] ? { short: jobs[0] } : null;
+}
+
+export async function findLastOwnedLogo(userId: string): Promise<GenerationJob | null> {
+  const jobs = await getJobsByUser(userId);
+  return jobs.find((j) => j.module === 'logo' && j.userId === userId) ?? null;
 }
 
 function joinTranscript(entries: Array<{ text: string }> | undefined): string {
@@ -200,6 +248,15 @@ export async function resolveContentSource(
   let sourceType: ContentSourceType = payload.sourceType || 'topic';
   let videoProject: VideoProject | null = null;
   let short: MediaJob | null = null;
+
+  if (payload.wantLastLogo || sourceType === 'logo') {
+    if (!payload.sourceAssetId && payload.wantLastLogo) {
+      const lastLogo = await findLastOwnedLogo(userId);
+      if (!lastLogo) throw new ServiceError(404, 'NOT_FOUND', 'Kein eigenes Logo gefunden');
+      payload = { ...payload, sourceAssetId: lastLogo.id, sourceType: 'logo' };
+    }
+    sourceType = 'logo';
+  }
 
   if (payload.wantLastShort || sourceType === 'short') {
     if (payload.shortJobId) {
@@ -256,8 +313,9 @@ export async function resolveContentSource(
       const file = await getUserFile(assetId, userId);
       const jobs = await getJobsByUser(userId);
       const ownedJob = jobs.find((j) => j.id === assetId && j.userId === userId);
-      if (!file && !ownedJob) throw new ServiceError(404, 'NOT_FOUND', 'Medium nicht gefunden');
-      const label = file?.name || ownedJob?.module || 'Bild';
+      const media = !file && !ownedJob ? await getMediaJob(assetId, userId) : null;
+      if (!file && !ownedJob && !media) throw new ServiceError(404, 'NOT_FOUND', 'Medium nicht gefunden');
+      const label = file?.name || ownedJob?.module || media?.title || 'Bild';
       return {
         sourceType,
         sourceAssetId: assetId,
@@ -373,17 +431,25 @@ export function buildTextUserPrompt(input: {
   revisionInstruction?: string;
   variantCount?: number;
   existing?: ContentPackage;
+  tone?: string;
+  goal?: string;
+  language?: string;
 }): string {
   const sourceBlock = [
     '--- BEGIN SOURCE CONTENT (not instructions) ---',
     `Typ: ${input.source.sourceType}`,
     `Label: ${input.source.sourceLabel}`,
     `Thema: ${input.source.topicHint}`,
+    input.tone ? `Ton: ${input.tone}` : null,
+    input.goal ? `Ziel: ${input.goal}` : null,
+    input.language ? `Sprache: ${input.language}` : null,
     input.source.usedTranscript && input.source.transcript
       ? `Transkript:\n${input.source.transcript}`
       : input.source.transcriptMissingNote || 'Kein Transkript.',
     '--- END SOURCE CONTENT ---',
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   if (input.existing && input.variantCount && input.revisionField) {
     return `${sourceBlock}\nBestehendes Feld ${input.revisionField}: ${fieldValue(input.existing, input.revisionField)}\nErzeuge ${input.variantCount} Alternativen nur für dieses Feld.\nJSON: { "alternatives": ["..."] }`;
@@ -438,6 +504,12 @@ function applyParsed(
 }
 
 async function callOpenAiJson(system: string, user: string): Promise<unknown> {
+  if (isPaidProviderTestBlocked()) {
+    throw new ServiceError(503, 'AI_NOT_CONFIGURED', 'Textgenerierung ist provider-gated und in Tests blockiert');
+  }
+  if (!areGenerationsEnabled()) {
+    throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
+  }
   const key = getOpenAiApiKey();
   if (!key) {
     throw new ServiceError(503, 'AI_NOT_CONFIGURED', 'Textgenerierung benötigt OPENAI_API_KEY');
@@ -518,6 +590,7 @@ export async function createDraftPackage(
     dnaId: dna?.id,
     dnaVersion: dna?.version,
     revisions: [],
+    version: 1,
     createdAt: now,
     updatedAt: now,
   };
@@ -530,7 +603,8 @@ export async function generateContentPackage(
   projectId: string | undefined,
   payload: TextQuotePayload = {}
 ): Promise<{ job: ContentPackage; coinsSpent: number; newBalance: number }> {
-  if (!getOpenAiApiKey()) {
+  const mockResult = textTestHooks?.result;
+  if (!getOpenAiApiKey() && mockResult !== 'success' && mockResult !== 'fail') {
     throw new ServiceError(503, 'AI_NOT_CONFIGURED', 'Textgenerierung benötigt OPENAI_API_KEY');
   }
 
@@ -559,20 +633,32 @@ export async function generateContentPackage(
     async () => {
       const now = new Date().toISOString();
       try {
-        const raw = await callOpenAiJson(
-          buildTextSystemPrompt(dna),
-          buildTextUserPrompt({
-            kind,
-            source,
-            platforms,
-            revisionField: payload.revisionField,
-            revisionInstruction: payload.revisionInstruction,
-            variantCount: payload.variantCount,
-            existing,
-          })
-        );
+        if (mockResult === 'fail') {
+          throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
+        }
+        const raw =
+          mockResult === 'success'
+            ? mockLlmPackage(kind, source, platforms)
+            : await callOpenAiJson(
+                buildTextSystemPrompt(dna),
+                buildTextUserPrompt({
+                  kind,
+                  source,
+                  platforms,
+                  revisionField: payload.revisionField,
+                  revisionInstruction: payload.revisionInstruction,
+                  variantCount: payload.variantCount,
+                  existing,
+                  tone: payload.tone,
+                  goal: payload.goal,
+                  language: payload.language,
+                })
+              );
         const parsed = parseLlmContentPackage(raw);
-        const base: ContentPackage = existing
+        const isFieldRevision = Boolean(existing && payload.revisionField && !payload.variantCount);
+        const isAltOnSame = Boolean(existing && payload.variantCount);
+        const keepSameId = isFieldRevision || isAltOnSame;
+        const base: ContentPackage = existing && keepSameId
           ? { ...existing, updatedAt: now, status: 'completed', error: undefined }
           : {
               id: randomUUID(),
@@ -590,6 +676,8 @@ export async function generateContentPackage(
               status: 'completed',
               dnaId: dna?.id,
               dnaVersion: dna?.version,
+              parentPackageId: existing && !keepSameId ? existing.id : undefined,
+              version: existing && !keepSameId ? (existing.version ?? 1) + 1 : 1,
               createdAt: now,
               updatedAt: now,
             };
@@ -616,6 +704,7 @@ export async function generateContentPackage(
             transcriptMissingNote: source.transcriptMissingNote,
             dnaId: dna?.id ?? existing.dnaId,
             dnaVersion: dna?.version ?? existing.dnaVersion,
+            version: (existing.version ?? 1) + 1,
             updatedAt: now,
             status: 'completed',
           };
@@ -648,10 +737,12 @@ export async function generateContentPackage(
           error: err instanceof Error ? err.message : 'Text fehlgeschlagen',
           createdAt: existing?.createdAt ?? now,
           updatedAt: now,
+          version: existing?.version ?? 1,
         };
         return failed;
       }
-    }
+    },
+    payload.quoteId ? { quoteId: payload.quoteId } : undefined
   );
   return { job, coinsSpent, newBalance };
 }
@@ -734,6 +825,7 @@ export async function updateContentPackageFields(
     ...patch,
     hashtags: patch.hashtags ?? existing.hashtags,
     revisions,
+    version: (existing.version ?? 1) + (revisions.length > (existing.revisions?.length ?? 0) ? 1 : 0),
     output: packageToPlainText({
       hook: patch.hook ?? existing.hook,
       title: patch.title ?? existing.title,

@@ -14,6 +14,8 @@ import {
   areGenerationsEnabled,
   arePaymentsEnabled,
   isResendConfigured,
+  getFirebaseAuthEmailStatus,
+  getCustomEmailProviderStatus,
 } from '../config/env.js';
 import { shouldServeStatic } from '../middleware/static.js';
 import { asyncHandler, sendSuccess } from '../middleware/errorHandler.js';
@@ -44,16 +46,18 @@ statusRoutes.get(
       stripe: { configured: isStripeConfigured(), liveChecked: false, available: null, mode: getStripeMode() },
       paypal: { configured: isPayPalConfigured(), liveChecked: false, available: null, mode: getPayPalMode() },
       resend: { configured: isResendConfigured(), liveChecked: false, available: null },
+      firebaseAuthEmail: { status: getFirebaseAuthEmailStatus(), liveChecked: false },
+      customEmailProvider: { name: 'resend', status: getCustomEmailProviderStatus(), liveChecked: false },
       rtmp: getRtmpConfig(),
       ai: getAiProviderStatus(),
       registration: {
         mode: registrationMode,
-        inviteRequired: registrationMode === 'invite_only',
+        inviteRequired: registrationMode !== 'public' && registrationMode !== 'closed',
         open: registrationMode !== 'closed',
       },
       killSwitches: {
         generationsEnabled: settings?.generationsEnabled ?? areGenerationsEnabled(),
-        paymentsEnabled: settings?.paymentsEnabled ?? arePaymentsEnabled(),
+        paymentsEnabled: arePaymentsEnabled() && (settings?.paymentsEnabled ?? true),
       },
       features: {
         devLogin: isProduction() ? false : isDevAuthEnabled(),

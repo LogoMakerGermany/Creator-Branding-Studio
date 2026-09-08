@@ -3,6 +3,14 @@ import {
   COIN_COSTS,
   CoinSpendCategory,
   NEXTER_STUDIO_PATHS,
+  detectMusicQuoteIntent,
+  detectVoiceQuoteIntent,
+  detectStudioChangeScope,
+  detectCalendarPlanningIntent,
+  detectSocialPlannerIntent,
+  platformFormatHint,
+  parseVideoStudioPrep,
+  parseVideoClosureCommand,
   type NexterAction,
   type NexterContextSnapshot,
   type NexterQuoteKind,
@@ -18,6 +26,9 @@ export const QUOTE_KIND_CATEGORY: Record<NexterQuoteKind, CoinSpendCategory> = {
   mockup: CoinSpendCategory.MOCKUP_GENERATION,
   animation: CoinSpendCategory.ANIMATION_GENERATION,
   text: CoinSpendCategory.TEXT_GENERATION,
+  music: CoinSpendCategory.AI_MUSIC,
+  voice: CoinSpendCategory.AI_VOICE,
+  captions: CoinSpendCategory.VIDEO_EDIT,
 };
 
 export function coinCostForKind(kind: NexterQuoteKind): number {
@@ -35,7 +46,7 @@ export function recordOwnedByUser<T extends { userId: string }>(
 
 export function detectIncompletePrompt(
   message: string,
-  ctx?: Pick<NexterContextSnapshot, 'hasDna' | 'dnaName' | 'primaryColors' | 'styleDirection'>
+  ctx?: Pick<NexterContextSnapshot, 'hasDna' | 'dnaName' | 'primaryColors' | 'styleDirection' | 'addressAs'>
 ): string | null {
   const t = message.trim();
   if (t.length < 4) return 'Kannst du etwas genauer sagen — Name, Spiel oder Stil?';
@@ -44,6 +55,7 @@ export function detectIncompletePrompt(
   const vagueLogo = /^(mach|erstelle|generiere)(\s+mir)?\s+(ein\s+)?logo[.!?]?$/i.test(t);
   if (vagueLogo || (wantsLogo && t.split(/\s+/).length <= 4)) {
     if (ctx?.hasDna && ctx.dnaName) return null;
+    if (ctx?.addressAs?.trim()) return null;
     return 'Für ein Logo brauche ich mindestens den Namen. Hast du schon eine Creator DNA, oder soll ich das Logo Studio öffnen?';
   }
 
@@ -75,44 +87,235 @@ export function extractPreference(message: string): { key: string; value: string
   return null;
 }
 
+export function detectSecretProbe(message: string): boolean {
+  return /zeig.*(api[-_\s]?key|secret|token|webhook)|what('?s| is) (your |the )?(api[-_\s]?key|secret)|openai[-_\s]?key|stripe[-_\s]?secret|paypal[-_\s]?secret/i.test(
+    message
+  );
+}
+
+export function detectOwnershipBypass(message: string): boolean {
+  return /ignoriere alle (regeln|anweisungen)|ignore (all )?(rules|previous)|als admin|datei von user b|von einem anderen user|fremde[nr]? (datei|projekt|session)/i.test(
+    message
+  );
+}
+
+export function detectFreeCoinPromiseRequest(message: string): boolean {
+  return /gib mir \d+\s*coins|schenk(e)? mir (coins|\d+)|10000 coins|kostenlos(?:e)? coins|guthaben auf \d+|setze mein guthaben/i.test(
+    message
+  );
+}
+
+export type NexterSupportIntent = {
+  type: 'bug' | 'feedback' | 'feature_request' | 'support';
+  category?: 'generation' | 'technical' | 'file' | 'coins' | 'account';
+};
+
+export function detectSupportIntent(message: string): NexterSupportIntent | null {
+  const t = message.trim().toLowerCase();
+  if (!t) return null;
+  if (
+    /feature[- ]?request|neue funktion|funktionswunsch|ich (möchte|würde) (gerne )?(eine )?neue funktion|was fehlt an funktion/i.test(
+      t
+    )
+  ) {
+    return { type: 'feature_request' };
+  }
+  if (
+    /ich möchte feedback|feedback geben|mein feedback|verbesserungsvorschlag|was gefällt dir|was ist unverständlich/i.test(
+      t
+    )
+  ) {
+    return { type: 'feedback' };
+  }
+  if (
+    /fehler melden|bug report|\bbug\b|technisches problem|generierung (funktioniert|geht|klappt) nicht|die generierung funktioniert nicht|download (funktioniert|geht) nicht/i.test(
+      t
+    )
+  ) {
+    const category = /generierung/.test(t) ? 'generation' : /download|datei/.test(t) ? 'file' : 'technical';
+    return { type: 'bug', category };
+  }
+  if (
+    /ich habe ein problem|support[- ]?(anfrage|ticket)|hilfe beim (login|konto|account)|problem melden/i.test(
+      t
+    )
+  ) {
+    const category = /\bcoins?\b|guthaben/.test(t)
+      ? 'coins'
+      : /login|konto|account/.test(t)
+        ? 'account'
+        : undefined;
+    return { type: 'support', category };
+  }
+  return null;
+}
+
+export function detectCoinQuestion(message: string): boolean {
+  if (detectFreeCoinPromiseRequest(message)) return false;
+  return /wie viele coins|mein guthaben|coin[- ]?bestand|was kosten|was kostet|nicht genug coins|zu wenig coins/i.test(
+    message
+  );
+}
+
+export function detectChatConfirmIntent(message: string): boolean {
+  return /angebot bestätig|bestätig(e|en) (das |dieses )?angebot|jetzt (erstellen|generieren)$/i.test(message.trim());
+}
+
+export function detectContinueProject(message: string): boolean {
+  return /weiter (an|am|bei) (meinem |dem )?(letzten )?projekt|mach bei meinem projekt weiter|letztes projekt/i.test(
+    message
+  );
+}
+
+export function detectEphemeralLanguage(message: string): string | null {
+  const t = message.toLowerCase();
+  if (/speicher|ab jetzt dauerhaft|als bevorzugte sprache/.test(t)) return null;
+  if (/auf englisch|in english|speak english/.test(t)) return 'en';
+  if (/auf deutsch|in german|auf german/.test(t)) return 'de';
+  return null;
+}
+
+export function detectLanguagePreferenceWrite(message: string): 'de' | 'en' | null {
+  const t = message.toLowerCase();
+  if (!/speicher|ab jetzt|als bevorzugte sprache|dauerhaft/.test(t)) return null;
+  if (/englisch|english/.test(t)) return 'en';
+  if (/deutsch|german/.test(t)) return 'de';
+  return null;
+}
+
+export function looksLikeConstraintFollowUp(message: string): boolean {
+  const t = message.trim();
+  if (t.length < 2 || t.length > 140) return false;
+  if (detectQuoteKind(t) || detectOpenStudio(t) || detectCoinQuestion(t) || detectChatConfirmIntent(t)) {
+    return false;
+  }
+  if (detectFileCloudIntent(t) || detectCalendarPlanningIntent(t)) return false;
+  const words = t.split(/\s+/).filter(Boolean);
+  return (
+    /blau|schwarz|rot|grün|lila|violett|neon|dunkel|hell|weiß|weiss|gold|silber|minimal|aggressiv|und |,/.test(
+      t.toLowerCase()
+    ) || words.length <= 6
+  );
+}
+
+export function pendingKindFromHistory(
+  messages: Array<{ role: string; content: string }>
+): NexterQuoteKind | null {
+  const window = messages.slice(-10);
+  for (let i = window.length - 1; i >= 0; i--) {
+    const row = window[i];
+    if (row.role === 'user') {
+      const kind = detectQuoteKind(row.content);
+      if (kind) return kind;
+    }
+    if (row.role === 'assistant') {
+      if (/\blogo\b/i.test(row.content) && /name|farbe|stil|brauche/i.test(row.content)) return 'logo';
+      if (/\bbanner\b/i.test(row.content) && /plattform|nachfragen|brauche/i.test(row.content)) return 'banner';
+      if (/\bfacecam\b/i.test(row.content) && /brauche|rahmen/i.test(row.content)) return 'facecam';
+    }
+  }
+  return null;
+}
+
+export function detectFileCloudIntent(message: string): boolean {
+  const lower = String(message ?? '').toLowerCase();
+  if (detectLayoutStudioIntent(message)) return false;
+  if (/(erstell|generier)\b/.test(lower) && !/nimm mein|letzten? dateien|file[- ]?cloud/.test(lower)) {
+    return false;
+  }
+  return /letzten? dateien|meine dateien|file[- ]?cloud|wo ist mein letztes|öffne mein letztes|dateien gehören|welche dateien|nimm mein letztes logo|nimm ein logo|verwende mein logo|streamset[- ]?dateien|letzten files/.test(
+    lower
+  );
+}
+
+export function detectLayoutStudioIntent(message: string): boolean {
+  const lower = String(message ?? '').toLowerCase();
+  if (/neues logo dafür|(erstell|generier).*(logo|overlay|facecam)/.test(lower) && !/layout studio|ins layout/.test(lower)) {
+    return false;
+  }
+  if (/\boverlay\b|gaming[- ]?layout|stream[- ]?overlay/.test(lower) && !/layout studio|ins layout|für das layout/.test(lower)) {
+    return false;
+  }
+  return (
+    /layout[- ]?studio/.test(lower) ||
+    /mach mir ein (tiktok|twitch|youtube) layout/.test(lower) ||
+    /facecam oben.{0,80}gameplay.{0,80}chat/.test(lower) ||
+    /setz mein logo/.test(lower) ||
+    /mach (die )?facecam kleiner/.test(lower) ||
+    /verschiebe den chat/.test(lower) ||
+    /mach das logo gr(ö|oe)sser/.test(lower) ||
+    /blende den sticker aus/.test(lower) ||
+    /hintergrund (schwarz|transparent)/.test(lower) ||
+    /mach daraus ein twitch layout/.test(lower) ||
+    /nimm mein letztes facecam/.test(lower) ||
+    /nimm mein letztes logo.{0,24}(layout|oben)/.test(lower)
+  );
+}
+
 export function detectQuoteKind(message: string): NexterQuoteKind | null {
+  if (detectFileCloudIntent(message)) return null;
+  if (detectLayoutStudioIntent(message)) return null;
   const lower = message.toLowerCase();
+  if (parseVideoClosureCommand(message)?.wantTranscribe) return 'captions';
   if (/streamset|komplettes?\s+(twitch|stream)|vollst(ä|a)ndiges?\s+(stream)?set|daraus ein.*streamset/.test(lower)) {
     return 'streamset';
   }
+  if (detectMusicQuoteIntent(message)) {
+    return 'music';
+  }
+  if (detectVoiceQuoteIntent(message)) {
+    return 'voice';
+  }
   if (
     /animier(?:e|en|t)?\b|logo[- ]?loop|(mach|erstell|generier).*(intro|outro|stinger|alert)/.test(lower) ||
-    /(intro|outro|stinger).*(sek|s\b|animation)/.test(lower)
+    /(intro|outro|stinger).*(sek|s\b|animation)/.test(lower) ||
+    /um die eigene achse|langsam einblend|version für tiktok/.test(lower)
   ) {
     return 'animation';
   }
   if (
-    /lifestyle[- ]?(ai|foto|bild|mockup)/.test(lower) ||
-    /(zeig mir|erstell|generier).*(tasse|t-?shirt|hoodie|cap|poster|mockup|phone)/.test(lower) ||
-    /(tasse|mockup).*(lifestyle|foto)/.test(lower)
+    /lifestyle[- ]?(ai|foto|bild|mockup|version|ki)/.test(lower) ||
+    /realistische[ns]? lifestyle/.test(lower) ||
+    /(zeig mir|erstell|generier|zeig).*(tasse|t-?shirt|hoodie|\bcap\b|poster|\bmockup\b|\bphone\b)/.test(lower) ||
+    /(tasse|\bmockup\b).*(lifestyle|foto)/.test(lower) ||
+    /auf einem (hoodie|t-?shirt|shirt)|auf einer .{0,24}tasse|handy-mockup|phone[- ]?mockup|\bmockup\b/.test(lower)
   ) {
     return 'mockup';
   }
   if (detectTextQuoteIntent(lower)) return 'text';
-  if (/\blogo\b/.test(lower)) return 'logo';
   if (/\bbanner\b/.test(lower)) return 'banner';
-  if (/\bfacecam|webcam-rahmen/.test(lower)) return 'facecam';
-  if (/\bsticker|emote/.test(lower)) return 'sticker';
-  if (/\boverlay|starting soon|offline/.test(lower)) return 'overlay';
+  if (
+    /\boverlay|starting soon|\boffline\b|gaming[- ]?layout|stream[- ]?overlay|twitch layout|tiktok layout|youtube layout|twitch overlay|tiktok overlay|youtube overlay|oben facecam.{0,40}gameplay.{0,40}chat|facecam oben.{0,20}gameplay/.test(
+      lower
+    )
+  ) {
+    return 'overlay';
+  }
+  if (/\bfacecam|webcam[- ]?rahmen|gesichtsrahmen/.test(lower)) return 'facecam';
+  if (/\bsticker|emote|\bbadge\b/.test(lower)) return 'sticker';
+  if (/\blogo\b|gamerlogo|gaminglogo/.test(lower)) return 'logo';
   return null;
 }
 
 export function detectTextQuoteIntent(message: string): boolean {
+  if (parseVideoClosureCommand(message)?.caption) return false;
+  if (detectSocialPlannerIntent(message) || detectCalendarPlanningIntent(message)) return false;
   const lower = message.toLowerCase();
   if (/öffne|open|geh(e)? zu/.test(lower) && /\btext\b|social/.test(lower)) return false;
-  if (
-    /tiktok[- ]?text|content[- ]?paket|content daf(ü|u)r|titel.{0,40}caption.{0,40}hashtag|mach (die )?caption|caption\s+k(ü|u)rzer|\d+\s*(neue\s+)?hooks?|alternativ.*hook/.test(
+  if (/plane mir content|content (für|nächste) woche|in den planner|intern planen|content[- ]?kalender/.test(lower)) {
+    return false;
+  }
+    if (
+    /tiktok[- ]?text|tiktok[- ]?post|discord[- ]?post|youtube[- ]?(titel|beschreibung)|content[- ]?paket|content daf(ü|u)r|titel.{0,40}caption.{0,40}hashtag|mach (die )?caption|caption\s+k(ü|u)rzer|\d+\s*(neue\s+)?hooks?|alternativ.*hook|stream[- ]?ankündigung|ankündigung.{0,40}stream|going.?live/.test(
       lower
     )
   ) {
     return true;
   }
-  return /(erstell|generier|schreib|mach mir).*(caption|hook|hashtag|titel|bio|skript|content|beschreibung)/.test(
+  if (/mach (das |es )?(lustiger|witziger|professioneller)|mehr emojis|weniger emojis|andere hashtags/.test(lower)) {
+    return true;
+  }
+  return /(erstell|generier|schreib|mach mir).*(caption|hook|hashtag|titel|bio|skript|content|beschreibung|post|ankündigung)/.test(
     lower
   );
 }
@@ -139,12 +342,25 @@ export function detectOpenStudio(message: string): string | null {
   if (/streamset/.test(lower)) return NEXTER_STUDIO_PATHS.streamset;
   if (/short/.test(lower)) return NEXTER_STUDIO_PATHS.shorts;
   if (/video/.test(lower) && !/logo/.test(lower)) return NEXTER_STUDIO_PATHS.video;
-  if (/animation|intro|outro|stinger/.test(lower)) return NEXTER_STUDIO_PATHS.animation;
+  if (/animation|intro|outro|stinger/.test(lower) && !/\b(musik|song|jingle|bgm)\b/.test(lower)) {
+    return NEXTER_STUDIO_PATHS.animation;
+  }
+  if (/musik|music/.test(lower)) return NEXTER_STUDIO_PATHS.music;
+  if (/voice[- ]?studio|sprecher[- ]?studio|\btts\b/.test(lower)) return NEXTER_STUDIO_PATHS.voice;
   if (/social|thumbnail|story/.test(lower)) return NEXTER_STUDIO_PATHS.social;
   if (/\btext\b|caption|bio|hashtag/.test(lower)) return NEXTER_STUDIO_PATHS.text;
   if (/mockup|tasse|shirt/.test(lower)) return NEXTER_STUDIO_PATHS.mockup;
   if (/\bdna\b/.test(lower)) return NEXTER_STUDIO_PATHS.dna;
   if (/banner/.test(lower)) return NEXTER_STUDIO_PATHS.banner;
+  if (/layout/.test(lower) && !/overlay/.test(lower)) return NEXTER_STUDIO_PATHS.layout;
+  if (/facecam|webcam[- ]?rahmen/.test(lower)) return NEXTER_STUDIO_PATHS.facecam;
+  if (/overlay/.test(lower)) return NEXTER_STUDIO_PATHS.overlay;
+  if (/sticker|emote|\bbadge\b/.test(lower)) return NEXTER_STUDIO_PATHS.sticker;
+  if (/kalender|calendar/.test(lower)) return NEXTER_STUDIO_PATHS.calendar;
+  if (/projekt/.test(lower)) return NEXTER_STUDIO_PATHS.projects;
+  if (/datei|file[- ]?cloud|\bfiles\b/.test(lower)) return NEXTER_STUDIO_PATHS.files;
+  if (/\bcoins?\b|guthaben/.test(lower)) return NEXTER_STUDIO_PATHS.coins;
+  if (/support|feedback[- ]?hub|hilfezentrum/.test(lower)) return '/support';
   return null;
 }
 
@@ -169,6 +385,10 @@ export function detectMakeShort(message: string): boolean {
 
 export function detectAnalyzeVideo(message: string): boolean {
   return /analysiere (dieses |mein )?video|video analys/i.test(message);
+}
+
+export function detectVideoStudioPrep(message: string) {
+  return parseVideoStudioPrep(message);
 }
 
 export function detectAnalyzeIntent(message: string): boolean {
@@ -211,15 +431,20 @@ export function detectSuggestVariant(message: string): boolean {
   return /variante|alternativ|noch (ein|eins)|zweite version/i.test(message);
 }
 
-export type ChangeTargetKind = 'logo' | 'banner' | 'overlay' | 'facecam' | 'sticker';
+export type ChangeTargetKind = 'logo' | 'banner' | 'overlay' | 'facecam' | 'sticker' | 'mockup';
 
 export function detectChangeIntent(
-  message: string
+  message: string,
+  ctx?: Pick<
+    NexterContextSnapshot,
+    'lastLogoId' | 'lastBannerId' | 'lastOverlayId' | 'lastFacecamId' | 'lastStickerId' | 'lastMockupId' | 'lastModule'
+  >
 ): { kind: ChangeTargetKind; request: string; wantsLatest: boolean; facecamOnly: boolean } | null {
   if (detectTextQuoteIntent(message)) return null;
+  if (detectStudioChangeScope(message) === 'set') return null;
   const lower = message.toLowerCase();
   const isEdit =
-    /änder|dunkler|heller|aggressiv|cleaner|variante|schrift|partikel|hintergrund|gr(ö|oe)sser|kleiner|zweite version/.test(
+    /änder|dunkler|heller|aggressiv|cleaner|variante|schrift|partikel|hintergrund|gr(ö|oe)sser|kleiner|höher|hoeher|zweite version/.test(
       lower
     );
   if (!isEdit) return null;
@@ -231,13 +456,45 @@ export function detectChangeIntent(
   }
   const wantsLatest = /letzt|aktuell/.test(lower);
   const facecamOnly = /nur (die )?facecam|facecam.{0,40}(änder|streamset)|streamset.{0,40}facecam/.test(lower);
-  if (facecamOnly || (/\bfacecam|webcam/.test(lower) && isEdit)) {
+  if (facecamOnly) {
+    return { kind: 'facecam', request: message, wantsLatest, facecamOnly: true };
+  }
+  if (/\boverlay/.test(lower)) return { kind: 'overlay', request: message, wantsLatest, facecamOnly: false };
+  if (/\bfacecam|webcam/.test(lower) && isEdit) {
     return { kind: 'facecam', request: message, wantsLatest, facecamOnly: true };
   }
   if (/\blogo\b/.test(lower)) return { kind: 'logo', request: message, wantsLatest, facecamOnly: false };
   if (/\bbanner\b/.test(lower)) return { kind: 'banner', request: message, wantsLatest, facecamOnly: false };
-  if (/\bsticker|emote/.test(lower)) return { kind: 'sticker', request: message, wantsLatest, facecamOnly: false };
-  if (/\boverlay/.test(lower)) return { kind: 'overlay', request: message, wantsLatest, facecamOnly: false };
+  if (/\bsticker|emote|\bbadge\b/.test(lower)) return { kind: 'sticker', request: message, wantsLatest, facecamOnly: false };
+  if (/\bmockup|tasse|hoodie|t-?shirt/.test(lower) && isEdit) {
+    return { kind: 'mockup', request: message, wantsLatest, facecamOnly: false };
+  }
+  if (ctx) {
+    const inferred = inferChangeKindFromContext(ctx);
+    if (inferred) return { kind: inferred, request: message, wantsLatest: true, facecamOnly: inferred === 'facecam' };
+  }
+  return null;
+}
+
+function inferChangeKindFromContext(
+  ctx: Pick<
+    NexterContextSnapshot,
+    'lastLogoId' | 'lastBannerId' | 'lastOverlayId' | 'lastFacecamId' | 'lastStickerId' | 'lastMockupId' | 'lastModule'
+  >
+): ChangeTargetKind | null {
+  const module = (ctx.lastModule ?? '').toLowerCase();
+  if (module.includes('facecam') && ctx.lastFacecamId) return 'facecam';
+  if (module.includes('banner') && ctx.lastBannerId) return 'banner';
+  if (module.includes('overlay') && ctx.lastOverlayId) return 'overlay';
+  if (module.includes('sticker') && ctx.lastStickerId) return 'sticker';
+  if (module.includes('mockup') && ctx.lastMockupId) return 'mockup';
+  if ((module.includes('logo') || module.includes('profile')) && ctx.lastLogoId) return 'logo';
+  if (ctx.lastLogoId) return 'logo';
+  if (ctx.lastFacecamId) return 'facecam';
+  if (ctx.lastBannerId) return 'banner';
+  if (ctx.lastOverlayId) return 'overlay';
+  if (ctx.lastStickerId) return 'sticker';
+  if (ctx.lastMockupId) return 'mockup';
   return null;
 }
 
@@ -252,6 +509,7 @@ export function resolveChangeTarget(
     overlay: ctx.lastOverlayId,
     facecam: ctx.lastFacecamId,
     sticker: ctx.lastStickerId,
+    mockup: ctx.lastMockupId,
   };
   const countMap: Record<ChangeTargetKind, number> = {
     logo: ctx.logoCount ?? 0,
@@ -259,6 +517,7 @@ export function resolveChangeTarget(
     overlay: ctx.overlayCount ?? 0,
     facecam: ctx.facecamCount ?? 0,
     sticker: ctx.stickerCount ?? 0,
+    mockup: ctx.lastMockupId ? 1 : 0,
   };
   const labels: Record<ChangeTargetKind, string> = {
     logo: 'Logo',
@@ -266,6 +525,7 @@ export function resolveChangeTarget(
     overlay: 'Overlay',
     facecam: 'Facecam',
     sticker: 'Sticker',
+    mockup: 'Mockup',
   };
   const id = idMap[kind];
   const count = countMap[kind];
@@ -285,36 +545,45 @@ export function openStudioAction(path: string, label: string): NexterAction {
   };
 }
 
-export function quoteActions(kind: NexterQuoteKind, quoteId: string, isChange = false): NexterAction[] {
+export function quoteActions(
+  kind: NexterQuoteKind,
+  quoteId: string,
+  isChange = false,
+  extras?: { expiresAt?: string; coinBalance?: number }
+): NexterAction[] {
   const cost = coinCostForKind(kind);
-  const studio =
-    kind === 'streamset'
-      ? NEXTER_STUDIO_PATHS.streamset
-      : kind === 'logo'
-        ? NEXTER_STUDIO_PATHS.logo
-        : kind === 'banner'
-          ? NEXTER_STUDIO_PATHS.banner
-          : kind === 'facecam'
-            ? NEXTER_STUDIO_PATHS.facecam
-            : kind === 'sticker'
-              ? NEXTER_STUDIO_PATHS.sticker
-              : kind === 'mockup'
-                ? NEXTER_STUDIO_PATHS.mockup
-                : kind === 'animation'
-                  ? NEXTER_STUDIO_PATHS.animation
-                  : kind === 'text'
-                    ? NEXTER_STUDIO_PATHS.text
-                    : NEXTER_STUDIO_PATHS.overlay;
+  const studioByKind: Record<NexterQuoteKind, string> = {
+    streamset: NEXTER_STUDIO_PATHS.streamset,
+    logo: NEXTER_STUDIO_PATHS.logo,
+    banner: NEXTER_STUDIO_PATHS.banner,
+    facecam: NEXTER_STUDIO_PATHS.facecam,
+    sticker: NEXTER_STUDIO_PATHS.sticker,
+    mockup: NEXTER_STUDIO_PATHS.mockup,
+    animation: NEXTER_STUDIO_PATHS.animation,
+    text: NEXTER_STUDIO_PATHS.text,
+    overlay: NEXTER_STUDIO_PATHS.overlay,
+    music: NEXTER_STUDIO_PATHS.music,
+    voice: NEXTER_STUDIO_PATHS.voice,
+    captions: NEXTER_STUDIO_PATHS.video,
+  };
+  const studio = studioByKind[kind] ?? NEXTER_STUDIO_PATHS.overlay;
   const startLabel = isChange
     ? `KI-Variante – ${cost} Coins`
     : `Erstellen – ${cost} Coins`;
+  const extrasPayload = {
+    quoteId,
+    kind,
+    changeRequest: isChange,
+    ...(extras?.expiresAt ? { expiresAt: extras.expiresAt } : {}),
+    ...(typeof extras?.coinBalance === 'number' ? { coinBalance: extras.coinBalance } : {}),
+  };
   return [
     {
       id: randomUUID(),
       tool: 'quote_generation',
       label: `Angebot: ${cost} Coins`,
       coinCost: cost,
-      payload: { quoteId, kind, changeRequest: isChange },
+      payload: extrasPayload,
     },
     {
       id: randomUUID(),
@@ -322,7 +591,7 @@ export function quoteActions(kind: NexterQuoteKind, quoteId: string, isChange = 
       label: startLabel,
       coinCost: cost,
       requiresConfirmation: true,
-      payload: { quoteId, kind, changeRequest: isChange },
+      payload: extrasPayload,
     },
     {
       id: randomUUID(),
@@ -339,7 +608,8 @@ export function buildActions(
   ctx: NexterContextSnapshot,
   quoteId?: string,
   quoteKind?: NexterQuoteKind,
-  isChange = false
+  isChange = false,
+  quoteExtras?: { expiresAt?: string; coinBalance?: number }
 ): { suggestions: string[]; actions: NexterAction[] } {
   const suggestions: string[] = [];
   const actions: NexterAction[] = [];
@@ -353,7 +623,7 @@ export function buildActions(
   }
 
   if (quoteId && quoteKind) {
-    actions.push(...quoteActions(quoteKind, quoteId, isChange));
+    actions.push(...quoteActions(quoteKind, quoteId, isChange, quoteExtras));
   }
 
   if (detectAnalyzeIntent(message) && ctx.missingAssets[0]) {
@@ -376,8 +646,10 @@ export function buildActions(
   }
 
   if (!ctx.hasDna) suggestions.push('Creator DNA anlegen');
-  else if (ctx.lastModule === 'logo') {
-    suggestions.push('Soll ich dir daraus ein vollständiges Streamset erstellen?');
+  else if (ctx.lastModule === 'logo' || Boolean(ctx.lastLogoId)) {
+    suggestions.push(
+      'Wenn du möchtest, können wir daraus später einen Facecam-Rahmen und ein vollständiges Streamset ableiten.'
+    );
   } else if (ctx.lastModule === 'mockup') {
     suggestions.push('Zeig mir schwarze Tasse');
   } else if (ctx.missingAssets[0]) suggestions.push(`Dir fehlt noch: ${ctx.missingAssets[0]}`);
@@ -398,11 +670,18 @@ export function warnBadSettings(message: string): string | null {
   return null;
 }
 
-export function recommendFormat(message: string): string | null {
+export function recommendFormat(
+  message: string,
+  ctx?: Pick<NexterContextSnapshot, 'preferredPlatforms'>
+): string | null {
   const lower = message.toLowerCase();
-  if (/twitch/.test(lower)) return 'Twitch-Banner 1200×480 und Overlay 1920×1080.';
-  if (/youtube/.test(lower)) return 'YouTube-Banner 2560×1440, Thumbnails 1280×720.';
-  if (/tiktok|shorts|reel/.test(lower)) return '9:16 (1080×1920) für Shorts, Reels und TikTok.';
+  if (/twitch/.test(lower)) return platformFormatHint('twitch') ?? 'Twitch-Banner 1200×480 und Overlay 1920×1080.';
+  if (/youtube/.test(lower)) return platformFormatHint('youtube', /banner/.test(lower) ? 'banner' : 'video');
+  if (/tiktok|shorts|reel/.test(lower)) return platformFormatHint('tiktok', 'short');
+  if (/discord/.test(lower)) return platformFormatHint('discord');
+  if (/instagram/.test(lower)) return platformFormatHint('instagram');
+  const stored = ctx?.preferredPlatforms?.[0];
+  if (stored) return platformFormatHint(stored);
   return null;
 }
 
@@ -439,12 +718,34 @@ export function formatContextForPrompt(ctx: NexterContextSnapshot): string {
         .join('; ')}.`
     : 'Keine Video-Highlights gespeichert.';
   return [
-    `Nutzer: ${ctx.displayName ?? 'Creator'}.`,
+    `Nutzer: ${ctx.displayName ?? 'Creator'}${ctx.addressAs && ctx.addressAs !== ctx.displayName ? ` (Ansprache: ${ctx.addressAs})` : ''}.`,
+    ctx.preferredPlatforms?.length ? `Creator-Plattformen: ${ctx.preferredPlatforms.join(', ')}.` : '',
+    ctx.creationInterests?.length ? `Möchte erstellen: ${ctx.creationInterests.join(', ')}.` : '',
+    ctx.stylePreferences?.length ? `Bevorzugte Stile: ${ctx.stylePreferences.join(', ')}.` : '',
+    ctx.creatorGoals?.length ? `Creator-Ziele: ${ctx.creatorGoals.join(', ')}.` : '',
+    ctx.uiTheme || ctx.customPrimary
+      ? `App-Theme: ${ctx.uiTheme ?? 'dark'}${ctx.customPrimary ? `, Farben ${ctx.customPrimary}${ctx.customAccent ? '/' + ctx.customAccent : ''}` : ctx.accentPreset ? `, ${ctx.accentPreset}` : ''}.`
+      : '',
+    ctx.visualLanguage ? `Bildsprache: ${ctx.visualLanguage}.` : '',
+    ctx.brandingStyle ? `Markenwirkung: ${ctx.brandingStyle}.` : '',
+    ctx.typographySummary ? `Schrift: ${ctx.typographySummary}.` : '',
+    ctx.fontNames?.length ? `Fonts: ${ctx.fontNames.join(', ')}.` : '',
+    ctx.dimension ? `Dimension: ${ctx.dimension}.` : '',
     `Coins: ${ctx.coinBalance}.`,
+    ctx.voiceOutputEnabled === false ? 'Nexter-Stimme: aus.' : ctx.voiceCatalogId ? 'Nexter-Stimme: an (gespeicherte Katalog-Stimme).' : '',
+    ctx.pendingQuotes?.length
+      ? `Offene Angebote: ${ctx.pendingQuotes
+          .slice(0, 3)
+          .map((q) => `${q.kind} ${q.coinCost} Coins${q.expired ? ' (abgelaufen)' : ''}`)
+          .join('; ')}.`
+      : 'Keine offenen Coin-Angebote.',
     dna,
     locks,
     projects,
     `Dateien: ${ctx.fileCount}.`,
+    ctx.lastLayoutId
+      ? `Aktuelles Layout: ${ctx.lastLayoutName ?? ctx.lastLayoutId} (${ctx.layoutPlatform ?? '?'}, ${ctx.layoutElementCount ?? 0} Elemente).`
+      : 'Kein gespeichertes Layout.',
     ctx.lastModule ? `Letzter Job: ${ctx.lastModule}.` : 'Noch keine Generierungen.',
     missing,
     highlights,
@@ -459,6 +760,8 @@ export function formatContextForPrompt(ctx: NexterContextSnapshot): string {
     ctx.lastFacecamId ? `Letzte Facecam: ${ctx.lastFacecamId}.` : '',
     ctx.lastMockupId ? `Letztes Mockup: ${ctx.lastMockupId}.` : '',
     ctx.lastAnimationId ? `Letzte Animation: ${ctx.lastAnimationId}.` : '',
+    ctx.lastMusicId ? `Letzter Musik-Track: ${ctx.lastMusicId}.` : '',
+    ctx.lastVoiceId ? `Letztes Voiceover: ${ctx.lastVoiceId}.` : '',
     ctx.assetInventory?.length ? `Projekt-Inventar: ${ctx.assetInventory.join(', ')}.` : '',
   ].filter(Boolean).join(' ');
 }

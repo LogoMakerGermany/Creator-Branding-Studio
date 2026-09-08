@@ -1,4 +1,6 @@
 import type { UserRole } from './roles';
+import type { NexterPreferences } from './nexter-preferences';
+import type { LegalAcceptanceRecord } from './legal';
 
 export type AuthProvider =
   | 'google'
@@ -24,6 +26,10 @@ export interface UserProfile {
   stripeCustomerId?: string;
   locale: string;
   onboardingCompleted: boolean;
+  /** App + Nexter personalization. Distinct from Creator DNA brand colors. */
+  nexterPreferences?: NexterPreferences;
+  /** Acknowledged legal text versions. Draft acknowledgements are not a final legal review. */
+  legalAcceptance?: LegalAcceptanceRecord;
   createdAt: string;
   updatedAt: string;
 }

@@ -45,25 +45,39 @@ videoRoutes.get(
   })
 );
 
+const FORBIDDEN_PATH_KEYS = ['sourcePath', 'inputPath', 'ffmpegArgs', 'filePath', 'outputPath'];
+
+function rejectClientPaths(body: unknown): void {
+  if (!body || typeof body !== 'object') return;
+  for (const key of FORBIDDEN_PATH_KEYS) {
+    if (key in (body as Record<string, unknown>)) {
+      throw new AppError(400, 'INVALID_SOURCE', 'Dateipfade sind nicht erlaubt');
+    }
+  }
+}
+
 const createSchema = z.object({
   title: z.string().min(1).max(200),
   duration: z.number().min(1).max(7200).default(300),
   format: z
     .enum(['youtube', 'tiktok', 'shorts', 'trailer', 'ad', 'instagram', 'custom'])
     .default('shorts'),
+  brandProjectId: z.string().min(1).max(80).optional(),
 });
 
 videoRoutes.post(
   '/',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const body = createSchema.parse(req.body);
+    rejectClientPaths(req.body);
     const activeDna = await getActiveDna(req.user!.uid);
     const project = await createVideoProject(
       req.user!.uid,
       body.title,
       body.duration,
       body.format,
-      activeDna?.id
+      activeDna?.id,
+      body.brandProjectId
     );
     sendSuccess(res, { project }, 201);
   })
@@ -93,6 +107,7 @@ videoRoutes.post(
 videoRoutes.post(
   '/:id/render',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
+    rejectClientPaths(req.body);
     const project = await renderVideoProject(String(req.params.id), req.user!.uid);
     sendSuccess(res, { project });
   })
@@ -118,9 +133,12 @@ videoRoutes.post(
             height: z.number(),
           })
           .optional(),
+        fitMode: z.enum(['crop', 'fit', 'center']).optional(),
         burnSubtitles: z.boolean().optional(),
       })
+      .strict()
       .parse(req.body);
+    rejectClientPaths(req.body);
 
     const project = await getVideoProject(String(req.params.id), req.user!.uid);
     if (!project) throw new AppError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
@@ -144,6 +162,7 @@ videoRoutes.post(
       crop: body.crop,
       format: body.format,
       burnSubtitles: body.burnSubtitles,
+      fitMode: body.fitMode,
     });
     sendSuccess(res, { job, coinsSpent: 0, newBalance: undefined }, 201);
   })
@@ -162,23 +181,39 @@ videoRoutes.patch(
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const body = z
       .object({
-        trimStart: z.number().min(0),
-        trimEnd: z.number().min(0),
+        trimStart: z.number(),
+        trimEnd: z.number(),
         removeSegments: z.array(z.object({ start: z.number(), end: z.number() })).optional(),
         volume: z.number().min(0).max(2).optional(),
+        mute: z.boolean().optional(),
         crop: cropSchema.optional(),
-        aspectRatio: z.enum(['16:9', '9:16', 'original']).optional(),
+        fitMode: z.enum(['crop', 'fit', 'center']).optional(),
+        aspectRatio: z.enum(['16:9', '9:16', '1:1', 'original']).optional(),
         subtitleTrack: z.boolean().optional(),
+        introFileId: z.string().min(1).max(80).nullable().optional(),
+        outroFileId: z.string().min(1).max(80).nullable().optional(),
+        audioFileId: z.string().min(1).max(80).nullable().optional(),
+        transition: z.enum(['cut', 'fade']).optional(),
+        transitionSec: z.number().min(0.05).max(1.5).optional(),
       })
+      .strict()
       .parse(req.body);
+    rejectClientPaths(req.body);
     const project = await saveEditPlan(String(req.params.id), req.user!.uid, {
       trimStart: body.trimStart,
       trimEnd: body.trimEnd,
       removeSegments: body.removeSegments ?? [],
       volume: body.volume ?? 1,
+      mute: body.mute,
       crop: body.crop ?? { mode: 'center', x: 0, y: 0, width: 1, height: 1 },
+      fitMode: body.fitMode ?? 'crop',
       aspectRatio: body.aspectRatio ?? 'original',
       subtitleTrack: body.subtitleTrack ?? false,
+      introFileId: body.introFileId,
+      outroFileId: body.outroFileId,
+      audioFileId: body.audioFileId,
+      transition: body.transition,
+      transitionSec: body.transitionSec,
     });
     sendSuccess(res, { project });
   })
@@ -234,21 +269,26 @@ videoRoutes.post(
   })
 );
 
-const sourceSchema = z.object({
-  dataUrl: z.string().min(20),
-  duration: z.number().min(1).max(7200).optional(),
-  rightsConfirmed: z.literal(true),
-});
+const sourceSchema = z
+  .object({
+    dataUrl: z.string().min(20),
+    duration: z.number().min(1).max(7200).optional(),
+    fileName: z.string().max(120).optional(),
+    rightsConfirmed: z.literal(true),
+  })
+  .strict();
 
 videoRoutes.post(
   '/:id/source',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
+    rejectClientPaths(req.body);
     const body = sourceSchema.parse(req.body);
     const project = await attachVideoSource(
       String(req.params.id),
       req.user!.uid,
       body.dataUrl,
-      body.duration
+      body.duration,
+      body.fileName
     );
     sendSuccess(res, { project });
   })

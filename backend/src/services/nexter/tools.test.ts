@@ -20,6 +20,7 @@ import {
   detectShowHighlights,
   detectMakeShort,
   detectAnalyzeVideo,
+  detectVideoStudioPrep,
   detectTextQuoteIntent,
   detectExternalPublishIntent,
   detectChangeIntent,
@@ -95,6 +96,8 @@ describe('nexter tools — open_studio', () => {
   it('maps lifestyle / Zeig mir schwarze Tasse to mockup quote, not navigation', () => {
     assert.equal(detectQuoteKind('Zeig mir schwarze Tasse'), 'mockup');
     assert.equal(detectQuoteKind('Zeig mir eine schwarze Tasse als Lifestyle-Foto'), 'mockup');
+    assert.equal(detectQuoteKind('Mach mir eine realistische Lifestyle-Version auf einer schwarzen Tasse.'), 'mockup');
+    assert.equal(detectQuoteKind('Zeig mein Logo auf einem Hoodie.'), 'mockup');
     assert.equal(coinCostForKind('mockup'), COIN_COSTS[CoinSpendCategory.MOCKUP_GENERATION]);
     assert.equal(COIN_COSTS[CoinSpendCategory.MOCKUP_GENERATION], 8);
     assert.equal(detectOpenStudio('Zeig mir schwarze Tasse'), null);
@@ -225,6 +228,22 @@ describe('nexter context prompt', () => {
     assert.match(text, /Keine Projekte/);
   });
 
+  it('includes creator platforms and interests when present', () => {
+    const text = formatContextForPrompt({
+      ...dnaCtx,
+      preferredPlatforms: ['twitch', 'tiktok'],
+      creationInterests: ['logo'],
+      stylePreferences: ['neon'],
+      creatorGoals: ['community'],
+      addressAs: 'Lars',
+    });
+    assert.match(text, /Creator-Plattformen: twitch, tiktok/);
+    assert.match(text, /Möchte erstellen: logo/);
+    assert.match(text, /Bevorzugte Stile: neon/);
+    assert.match(text, /Creator-Ziele: community/);
+    assert.match(text, /Ansprache: Lars/);
+  });
+
   it('includes DNA name and projects when present', () => {
     const text = formatContextForPrompt({ ...dnaCtx, lastModule: 'logo' });
     assert.match(text, /NightWolf/);
@@ -296,6 +315,13 @@ describe('nexter tools — phase F video / animation', () => {
     assert.equal(detectMakeShort('Mach Highlight 2 zu einem Short'), true);
     assert.equal(detectAnalyzeVideo('Analysiere dieses Video'), true);
     assert.equal(detectQuoteKind('Analysiere dieses Video'), null);
+    const tiktok = detectVideoStudioPrep('Mach daraus einen TikTok-Clip.');
+    assert.equal(tiktok?.studio, 'shorts');
+    assert.equal(tiktok?.aspectRatio, '9:16');
+    const twenty = detectVideoStudioPrep('Nimm die besten 20 Sekunden.');
+    assert.equal(twenty?.bestSeconds, 20);
+    const intro = detectVideoStudioPrep('Füge mein Intro davor.');
+    assert.equal(intro?.wantIntro, true);
   });
 
   it('animation quote is 25 coins and points at Animation Studio', () => {
@@ -357,6 +383,7 @@ describe('nexter tools — phase H change intent', () => {
     // detectQuoteKind would still see "Streamset" — conversation must resolve change first.
     assert.equal(detectQuoteKind('Ändere nur die Facecam aus meinem Streamset.'), 'streamset');
     assert.equal(detectChangeIntent('Soll ich dir daraus ein vollständiges Streamset erstellen?'), null);
+    assert.equal(detectChangeIntent('Mach das ganze Set dunkler.'), null);
   });
 
   it('caption revision stays on the text system', () => {
@@ -378,6 +405,67 @@ describe('nexter tools — phase H change intent', () => {
     assert.match(start?.label ?? '', /KI-Variante/);
     assert.equal(start?.payload?.changeRequest, true);
     assert.equal(coinCostForKind('logo') !== COIN_COSTS[CoinSpendCategory.AI_IMAGE], true);
+  });
+});
+
+describe('nexter tools — music intent vs animation / logo', () => {
+  it('A: epic gaming stream-intro song is music, not animation', () => {
+    assert.equal(
+      detectQuoteKind(
+        'Erstelle mir einen 30 Sekunden langen epischen Gaming-Song für mein Stream-Intro ohne Gesang.'
+      ),
+      'music'
+    );
+  });
+
+  it('B: animated intro from logo stays animation', () => {
+    assert.equal(
+      detectQuoteKind('Erstelle mir ein animiertes 15 Sekunden Intro aus meinem Logo.'),
+      'animation'
+    );
+  });
+
+  it('C: YouTube background music is music', () => {
+    assert.equal(detectQuoteKind('Mach Hintergrundmusik für mein YouTube Video.'), 'music');
+  });
+
+  it('D: gaming logo stays logo', () => {
+    assert.equal(detectQuoteKind('Erstelle mir ein Gaming Logo.'), 'logo');
+  });
+
+  it('music for intro beats animation', () => {
+    assert.equal(detectQuoteKind('Erstelle Musik für mein Intro'), 'music');
+    assert.equal(detectQuoteKind('Ich brauche Musik für mein Intro'), 'music');
+    assert.equal(detectQuoteKind('Mach mir ein Jingle'), 'music');
+    assert.equal(detectQuoteKind('Erstelle BGM für mein YouTube Video'), 'music');
+    assert.equal(detectQuoteKind('Mach mir Musik für meinen Stream'), 'music');
+    assert.equal(detectQuoteKind('Erstelle mir einen Song'), 'music');
+    assert.equal(detectQuoteKind('Mach mir einen Gaming-Song'), 'music');
+  });
+
+  it('music quotes use AI_MUSIC coins and Musik Studio', () => {
+    assert.equal(coinCostForKind('music'), COIN_COSTS[CoinSpendCategory.AI_MUSIC]);
+    assert.equal(COIN_COSTS[CoinSpendCategory.AI_MUSIC], 10);
+    const actions = quoteActions('music', 'quote-music');
+    const start = actions.find((a) => a.tool === 'start_generation');
+    const open = actions.find((a) => a.tool === 'open_studio');
+    assert.equal(start?.coinCost, 10);
+    assert.equal(start?.requiresConfirmation, true);
+    assert.equal(open?.path, '/ai-music');
+  });
+
+  it('voiceover is voice, not animation or music', () => {
+    assert.equal(detectQuoteKind('Sprich folgenden Text als Voiceover: Willkommen.'), 'voice');
+    assert.equal(detectQuoteKind('Mach ein Voiceover für mein Intro.'), 'voice');
+    assert.equal(coinCostForKind('voice'), COIN_COSTS[CoinSpendCategory.AI_VOICE]);
+    const actions = quoteActions('voice', 'quote-voice');
+    const open = actions.find((a) => a.tool === 'open_studio');
+    assert.equal(open?.path, '/ai-voice');
+  });
+
+  it('maps open Musik Studio to /ai-music, not animation', () => {
+    assert.equal(detectOpenStudio('Öffne das Musik Studio.'), NEXTER_STUDIO_PATHS.music);
+    assert.equal(detectQuoteKind('Öffne das Musik Studio.'), null);
   });
 });
 

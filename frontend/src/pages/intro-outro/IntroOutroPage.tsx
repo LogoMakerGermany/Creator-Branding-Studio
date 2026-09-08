@@ -4,8 +4,9 @@ import {
   Play, Square, Radio, Tv, Sparkles, CheckCircle2, Download, Package,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api, ApiError, type MediaJob, type IntroOutroType } from '@/services/api';
+import { api, type MediaJob, type IntroOutroType } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
+import { useNexterStore } from '@/v2/store/nexter-store';
 import { MediaJobPreview, getMediaDownloadUrl, getMediaExports } from '@/components/media/MediaJobPreview';
 import {
   StudioErrorBanner,
@@ -27,7 +28,8 @@ const TYPES: { type: IntroOutroType; label: string; icon: typeof Play }[] = [
 ];
 
 export function IntroOutroPage() {
-  const { user, activeDna, refreshUser } = useAuth();
+  const { user, activeDna } = useAuth();
+  const queueNexterPrompt = useNexterStore((s) => s.queueNexterPrompt);
   const [jobs, setJobs] = useState<MediaJob[]>([]);
   const [selectedType, setSelectedType] = useState<IntroOutroType>('intro');
   const [prompt, setPrompt] = useState('');
@@ -46,16 +48,9 @@ export function IntroOutroPage() {
       return;
     }
     setLoading(true);
-    setError(null);
-    try {
-      const res = await api.introOutro.generate(selectedType, prompt || undefined, title || undefined);
-      setCurrentJob(res.job);
-      await refreshUser();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Generierung fehlgeschlagen');
-    } finally {
-      setLoading(false);
-    }
+    setError('Intro/Outro startet nur über Nexter nach Bestätigung (Für X Coins erstellen).');
+    queueNexterPrompt(`Erstelle ein ${selectedType} für meinen Stream.`);
+    setLoading(false);
   }
 
   async function handleGeneratePack() {
@@ -64,17 +59,9 @@ export function IntroOutroPage() {
       return;
     }
     setLoading(true);
-    setError(null);
-    try {
-      const res = await api.introOutro.generatePack();
-      setJobs((prev) => [...res.jobs, ...prev]);
-      setCurrentJob(res.jobs[0] ?? null);
-      await refreshUser();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Paket-Generierung fehlgeschlagen');
-    } finally {
-      setLoading(false);
-    }
+    setError('Intro/Outro-Paket startet nur über Nexter nach Bestätigung (Für X Coins erstellen).');
+    queueNexterPrompt('Erstelle Intro und Outro für meinen Stream.');
+    setLoading(false);
   }
 
   const downloadUrl = getMediaDownloadUrl(currentJob);

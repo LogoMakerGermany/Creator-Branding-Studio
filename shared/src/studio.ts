@@ -4,6 +4,7 @@ export const BANNER_PLATFORM_SPECS = {
   youtube: { width: 2560, height: 1440, label: 'YouTube', aspect: '16:9' },
   tiktok: { width: 1080, height: 1920, label: 'TikTok', aspect: '9:16' },
   discord: { width: 960, height: 540, label: 'Discord', aspect: '16:9' },
+  general: { width: 1920, height: 1080, label: 'General', aspect: '16:9' },
   kick: { width: 1200, height: 480, label: 'Kick', aspect: '5:2' },
   facebook: { width: 820, height: 312, label: 'Facebook', aspect: '2.6:1' },
   instagram: { width: 1080, height: 1080, label: 'Instagram', aspect: '1:1' },
@@ -138,18 +139,40 @@ export interface LogoGenerationOptions {
   logoTemplate?: string;
 }
 
+export type BannerLayoutPosition = 'left' | 'center' | 'right';
+
 export interface BannerGenerationOptions {
   platform: BannerPlatform;
   title?: string;
   subtitle?: string;
   style?: string;
+  width?: number;
+  height?: number;
+  outputFormat?: 'png' | 'webp' | 'jpg';
+  transparentBackground?: boolean;
+  logoPosition?: BannerLayoutPosition;
+  textPosition?: BannerLayoutPosition;
+  sourceLogoJobId?: string;
+  motif?: string;
 }
 
 export interface FacecamGenerationOptions {
   style?: string;
-  shape?: 'rectangle' | 'circle' | 'hexagon';
+  shape?: 'rectangle' | 'rounded' | 'circle' | 'hexagon' | 'stylized';
   animated?: boolean;
   transparentBackground?: boolean;
+  platform?: 'twitch' | 'tiktok' | 'youtube' | 'general' | 'custom';
+  width?: number;
+  height?: number;
+  aspectRatio?: '16:9' | '4:3' | '1:1' | '9:16' | 'custom';
+  outputFormat?: 'png' | 'webp' | 'jpg';
+  frameShape?: 'rectangle' | 'rounded' | 'circle' | 'hexagon' | 'stylized';
+  frameThickness?: 'thin' | 'medium' | 'thick';
+  sourceLogoJobId?: string;
+  logoPosition?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center';
+  motif?: string;
+  decorations?: string;
+  transparentCenter?: boolean;
 }
 
 export interface OverlayGenerationOptions {
@@ -157,6 +180,28 @@ export interface OverlayGenerationOptions {
   overlayType?: 'hud' | 'alert' | 'panel' | 'starting-soon' | 'brb' | 'offline' | 'ending' | 'full-scene';
   transparentBackground?: boolean;
   animated?: boolean;
+  platform?: 'twitch' | 'tiktok' | 'youtube' | 'general' | 'custom';
+  width?: number;
+  height?: number;
+  aspectRatio?: '16:9' | '4:3' | '1:1' | '9:16' | 'custom';
+  outputFormat?: 'png' | 'webp' | 'jpg';
+  layoutPreset?:
+    | 'gameplay-full'
+    | 'gameplay-facecam'
+    | 'gameplay-facecam-chat'
+    | 'tiktok-vertical'
+    | 'chat-focused'
+    | 'custom';
+  sourceLogoJobId?: string;
+  sourceFacecamJobId?: string;
+  gameplayRegion?: { visible: boolean; x: number; y: number; width: number; height: number; transparent: boolean };
+  facecamRegion?: { visible: boolean; x: number; y: number; width: number; height: number; transparent: boolean };
+  chatRegion?: { visible: boolean; x: number; y: number; width: number; height: number; transparent: boolean };
+  alertRegion?: { visible: boolean; x: number; y: number; width: number; height: number; transparent: boolean };
+  logoPosition?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center';
+  motif?: string;
+  decorations?: string;
+  borderStyle?: 'thin' | 'medium' | 'thick' | 'none';
 }
 
 export interface StickerGenerationOptions {
@@ -165,6 +210,15 @@ export interface StickerGenerationOptions {
   multicolor?: boolean;
   shape?: 'circle' | 'square' | 'die-cut';
   transparentBackground?: boolean;
+  kind?: 'sticker' | 'badge' | 'emote';
+  platform?: 'twitch' | 'tiktok' | 'youtube' | 'discord' | 'general' | 'custom';
+  width?: number;
+  height?: number;
+  outputFormat?: 'png' | 'webp' | 'jpg';
+  outline?: 'none' | 'thin' | 'medium' | 'thick';
+  text?: string;
+  motif?: string;
+  sourceLogoJobId?: string;
 }
 
 export type StudioModuleKey =
@@ -185,6 +239,20 @@ export interface StudioProjectSummary {
   provider?: string;
   createdAt: string;
   completedAt?: string;
+  fileId?: string;
+  width?: number;
+  height?: number;
+  mimeType?: string;
+  version?: number;
+  downloadName?: string;
+  fileMissing?: boolean;
+  error?: string;
+  platform?: string;
+  transparentBackground?: boolean;
+  frameShape?: string;
+  aspectRatio?: string;
+  layoutPreset?: string;
+  stickerType?: string;
 }
 
 export interface StudioExportUrls {

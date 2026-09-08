@@ -74,8 +74,8 @@ function pickProject(projects) {
 }
 
 /** Override via RAILWAY_GITHUB_REPO=owner/repo (Railway Settings → Source) */
-const GITHUB_REPO = process.env.RAILWAY_GITHUB_REPO ?? 'LogoMakerGermany/CreatorBrandingStudioUltimate';
-const GITHUB_BRANCH = process.env.RAILWAY_GITHUB_BRANCH ?? 'main';
+const GITHUB_REPO = process.env.RAILWAY_GITHUB_REPO ?? 'LogoMakerGermany/Creator-Branding-Studio';
+const GITHUB_BRANCH = process.env.RAILWAY_GITHUB_BRANCH ?? 'cursor/phase1-invite-pricing-ledger';
 
 async function fetchLatestGithubCommitSha() {
   const res = await fetch(
@@ -178,7 +178,7 @@ async function main() {
   const deploymentId = deploy.serviceInstanceDeploy;
   console.log(`Deploy started: ${deploymentId} (commit ${commitSha.slice(0, 7)})`);
   console.log('Check Railway Dashboard for build logs.');
-  console.log('API: https://creatorbrandingstudioultimate-production.up.railway.app/health');
+  console.log('Set FRONTEND_URL to the new Nexter Railway domain after the service exists.');
 }
 
 main().catch((err) => {

@@ -18,15 +18,21 @@ export function Input({ label, error, className, id, ...props }: InputProps) {
       )}
       <input
         id={inputId}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${inputId}-error` : undefined}
         className={cn(
-          'w-full rounded-lg border border-zinc-700 bg-surface-900 px-4 py-2.5 text-sm text-zinc-100',
+          'w-full min-h-11 rounded-lg border border-zinc-700 bg-surface-900 px-4 py-2.5 text-sm text-zinc-100',
           'placeholder:text-zinc-500 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500',
           error && 'border-red-500',
           className
         )}
         {...props}
       />
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && (
+        <p id={`${inputId}-error`} className="text-xs text-red-400" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

@@ -25,7 +25,10 @@ export type NexterQuoteKind =
   | 'streamset'
   | 'mockup'
   | 'animation'
-  | 'text';
+  | 'text'
+  | 'music'
+  | 'voice'
+  | 'captions';
 
 export interface NexterChatMessage {
   id: string;
@@ -72,6 +75,8 @@ export interface NexterRecentJob {
 
 export interface NexterContextSnapshot {
   displayName?: string;
+  addressAs?: string;
+  language?: string;
   coinBalance: number;
   hasDna: boolean;
   dnaId?: string;
@@ -85,6 +90,20 @@ export interface NexterContextSnapshot {
   primaryColors: string[];
   secondaryColors?: string[];
   accentColors?: string[];
+  preferredPlatforms?: string[];
+  creationInterests?: string[];
+  stylePreferences?: string[];
+  creatorGoals?: string[];
+  uiTheme?: string;
+  accentPreset?: string;
+  customPrimary?: string | null;
+  customAccent?: string | null;
+  visualLanguage?: string;
+  brandingStyle?: string;
+  typographySummary?: string;
+  dimension?: string;
+  fontNames?: string[];
+  characterType?: string;
   mascot?: string;
   characterDescription?: string;
   slogan?: string;
@@ -108,12 +127,27 @@ export interface NexterContextSnapshot {
   lastStickerId?: string;
   lastMockupId?: string;
   lastAnimationId?: string;
+  lastMusicId?: string;
+  lastVoiceId?: string;
+  lastLayoutId?: string;
+  lastLayoutName?: string;
+  layoutCount?: number;
+  layoutPlatform?: string;
+  layoutElementCount?: number;
   logoCount?: number;
   bannerCount?: number;
   overlayCount?: number;
   facecamCount?: number;
   stickerCount?: number;
   assetInventory?: string[];
+  voiceOutputEnabled?: boolean;
+  voiceCatalogId?: string | null;
+  pendingQuotes?: Array<{
+    kind: string;
+    coinCost: number;
+    expiresAt: string;
+    expired: boolean;
+  }>;
 }
 
 export interface NexterQuote {
@@ -121,7 +155,7 @@ export interface NexterQuote {
   userId: string;
   kind: NexterQuoteKind;
   coinCost: number;
-  status: 'pending' | 'confirmed' | 'cancelled';
+  status: 'pending' | 'processing' | 'confirmed' | 'completed' | 'failed' | 'cancelled';
   createdAt: string;
   expiresAt: string;
   projectId?: string;
@@ -132,6 +166,8 @@ export const NEXTER_STUDIO_PATHS: Record<string, string> = {
   logo: '/logo-studio',
   streamset: '/streamset-studio',
   animation: '/animation-studio',
+  music: '/ai-music',
+  voice: '/ai-voice',
   video: '/video-studio',
   shorts: '/shorts-studio',
   social: '/social-studio',
@@ -143,7 +179,11 @@ export const NEXTER_STUDIO_PATHS: Record<string, string> = {
   facecam: '/facecam-studio',
   sticker: '/sticker-studio',
   files: '/file-cloud',
+  layout: '/layout-studio',
   projects: '/projects',
+  calendar: '/content-calendar',
+  coins: '/coins',
+  support: '/support',
 };
 
 export const NEXTER_QUOTE_TTL_MS = 15 * 60 * 1000;

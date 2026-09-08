@@ -34,7 +34,14 @@ const DEFAULTS: Draft = {
 function loadDraft(name: string): Draft {
   try {
     const raw = sessionStorage.getItem(DRAFT_KEY);
-    if (raw) return { ...DEFAULTS, ...JSON.parse(raw), displayName: JSON.parse(raw).displayName || name };
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<Draft>;
+      return {
+        ...DEFAULTS,
+        ...parsed,
+        displayName: parsed.displayName || name,
+      };
+    }
   } catch {
     /* ignore */
   }
@@ -49,35 +56,45 @@ export function OnboardingPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (user?.onboardingCompleted) {
-      navigate('/dashboard', { replace: true });
+    if (user?.needsEmailVerification) {
+      navigate('/verify-email', { replace: true });
+      return;
     }
-  }, [user?.onboardingCompleted, navigate]);
+    if (!user?.onboardingCompleted) return;
+    if (user.nexterPreferences?.personalizationCompleted === true) {
+      navigate('/dashboard', { replace: true });
+      return;
+    }
+    navigate('/nexter-setup', { replace: true });
+  }, [user, navigate]);
 
   useEffect(() => {
     sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
   }, [draft]);
 
-  const nexterLine = `Hallo ${draft.displayName || 'Creator'}, ich bin NEXTER. Ich helfe dir beim Aufbau deines Creator-Auftritts.`;
+  const greetName = draft.displayName.trim() || user?.displayName || 'Creator';
 
   async function finish() {
     setSaving(true);
     setError(null);
     try {
       const name = draft.displayName.trim() || user?.displayName || 'Creator';
-      await api.dna.create({
-        name,
-        mascot: draft.mascot.trim() || undefined,
-        styleDirection: draft.style,
-        primaryColors: [draft.primary],
-        secondaryColors: [draft.secondary],
-        targetPlatforms: draft.platforms.map((p) => p.toLowerCase()),
-        brandingStyle: draft.purpose,
-      });
+      const existing = await api.dna.active();
+      if (!existing.dna) {
+        await api.dna.create({
+          name,
+          mascot: draft.mascot.trim() || undefined,
+          styleDirection: draft.style,
+          primaryColors: [draft.primary],
+          secondaryColors: [draft.secondary],
+          targetPlatforms: draft.platforms.map((p) => p.toLowerCase()),
+          brandingStyle: draft.purpose,
+        });
+      }
       await api.auth.completeOnboarding(name);
       sessionStorage.removeItem(DRAFT_KEY);
       await refreshUser();
-      navigate('/dashboard', { replace: true });
+      navigate('/nexter-setup', { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Onboarding fehlgeschlagen');
     } finally {
@@ -86,14 +103,14 @@ export function OnboardingPage() {
   }
 
   const last = 6;
-  const canNext =
-    draft.step === 0 ? draft.displayName.trim().length >= 2 : true;
+  const canNext = draft.step === 0 ? draft.displayName.trim().length >= 2 : true;
 
   return (
     <div className="mx-auto max-w-lg space-y-6 p-4 sm:p-8">
       <h1 className="font-display text-3xl font-bold text-white">Willkommen bei NEXTER</h1>
       <p className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-3 text-sm text-violet-100" role="status">
-        {nexterLine}
+        Hallo {greetName}, ich bin Nexter, dein persönlicher Creator-Assistent. Zuerst legen wir deine Creator-DNA
+        an — danach stimme ich die App auf dich ab.
       </p>
       {error && (
         <p className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200" role="alert">
@@ -146,7 +163,7 @@ export function OnboardingPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label htmlFor="onboarding-primary" className="mb-1 block text-sm text-zinc-300">
-              Primärfarbe
+              Primärfarbe (Creator DNA)
             </label>
             <input
               id="onboarding-primary"
@@ -158,7 +175,7 @@ export function OnboardingPage() {
           </div>
           <div>
             <label htmlFor="onboarding-secondary" className="mb-1 block text-sm text-zinc-300">
-              Zweitfarbe
+              Zweitfarbe (Creator DNA)
             </label>
             <input
               id="onboarding-secondary"
@@ -200,7 +217,8 @@ export function OnboardingPage() {
         <div className="space-y-2 text-sm text-zinc-300">
           <p>Creator DNA wird mit Name, Farben, Stil und Plattformen angelegt.</p>
           <p className="text-xs text-zinc-500">
-            App-Farben: keine zweite Theme-Engine in V1 — Standard-Studiofarben bleiben. Personalisierung später.
+            Danach lernen wir uns kurz kennen: Ansprache, Sprache, Stimme, App-Farben und deine Creator-Ziele. DNA-Farben
+            bleiben für Logos.
           </p>
         </div>
       )}
@@ -208,6 +226,7 @@ export function OnboardingPage() {
       <div className="flex justify-between gap-2">
         <Button
           variant="ghost"
+          className="min-h-11"
           disabled={draft.step === 0 || saving}
           onClick={() => setDraft({ ...draft, step: Math.max(0, draft.step - 1) })}
         >
@@ -216,14 +235,15 @@ export function OnboardingPage() {
         {draft.step < last ? (
           <Button
             data-testid="onboarding-next"
+            className="min-h-11"
             disabled={!canNext || saving}
             onClick={() => setDraft({ ...draft, step: draft.step + 1 })}
           >
             Weiter
           </Button>
         ) : (
-          <Button data-testid="onboarding-finish" loading={saving} onClick={() => void finish()}>
-            DNA anlegen und starten
+          <Button data-testid="onboarding-finish" className="min-h-11" loading={saving} onClick={() => void finish()}>
+            DNA speichern und weiter
           </Button>
         )}
       </div>

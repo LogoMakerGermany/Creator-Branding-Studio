@@ -3,9 +3,19 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import ffmpegPath from 'ffmpeg-static';
-import type { VideoCrop, VideoEditPlan, VideoMetadata, VideoPause, VideoScene, AudioActivityBucket } from '@ucbs/shared';
-import { ffmpegCropScaleFilter, keptRanges } from '@ucbs/shared';
+import type { VideoEditPlan, VideoMetadata, VideoPause, VideoScene, AudioActivityBucket } from '@ucbs/shared';
+import {
+  ffmpegCropScaleFilter,
+  inferMusicMetadata,
+  isSupportedVideoTransition,
+  keptRanges,
+  outputSizeForAspect,
+  resolveTransitionDuration,
+  sanitizeCaptionText,
+} from '@ucbs/shared';
 import { ServiceError } from './errors.js';
+import { sanitizeFfmpegError } from './observability.js';
+import { FFMPEG_TIMEOUT_MS, MAX_VIDEO_OUTPUT_BYTES } from './upload-validation.js';
 
 export interface SubtitleSegment {
   start: number;
@@ -24,19 +34,27 @@ function requireFfmpeg(): string {
   return ffmpegPath;
 }
 
-function runFfmpeg(args: string[]): Promise<void> {
+function runFfmpeg(args: string[], timeoutMs = FFMPEG_TIMEOUT_MS): Promise<void> {
   const bin = requireFfmpeg();
   return new Promise((resolve, reject) => {
     const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stderr = '';
+    const timer = setTimeout(() => {
+      proc.kill('SIGKILL');
+      reject(new Error(`ffmpeg timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
     proc.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
+      if (stderr.length < 4000) stderr += chunk.toString();
     });
     proc.on('close', (code) => {
+      clearTimeout(timer);
       if (code === 0) resolve();
-      else reject(new Error(stderr.slice(-800) || `ffmpeg exit ${code}`));
+      else reject(new Error(sanitizeFfmpegError(stderr || `ffmpeg exit ${code}`)));
     });
-    proc.on('error', reject);
+    proc.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
   });
 }
 
@@ -47,7 +65,7 @@ function ffmpegStderr(args: string[]): Promise<string> {
     const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stderr = '';
     proc.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
+      if (stderr.length < 4000) stderr += chunk.toString();
     });
     proc.on('close', () => resolve(stderr));
     proc.on('error', reject);
@@ -64,15 +82,21 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 }
 
 async function fetchVideoBuffer(sourceUrl: string): Promise<Buffer> {
+  if (!sourceUrl) {
+    throw new ServiceError(400, 'INVALID_SOURCE', 'Ungültige Videoquelle');
+  }
   if (sourceUrl.startsWith('data:')) {
     const base64 = sourceUrl.split(',')[1] ?? '';
     return Buffer.from(base64, 'base64');
   }
-  const res = await fetch(sourceUrl);
-  if (!res.ok) {
-    throw new ServiceError(502, 'VIDEO_FETCH_FAILED', 'Quellvideo konnte nicht geladen werden');
+  if (/^https?:\/\//i.test(sourceUrl)) {
+    const res = await fetch(sourceUrl);
+    if (!res.ok) {
+      throw new ServiceError(502, 'VIDEO_FETCH_FAILED', 'Quellvideo konnte nicht geladen werden');
+    }
+    return Buffer.from(await res.arrayBuffer());
   }
-  return Buffer.from(await res.arrayBuffer());
+  throw new ServiceError(400, 'INVALID_SOURCE', 'Dateipfade sind nicht erlaubt');
 }
 
 export async function extractAudioFromVideo(sourceUrl: string): Promise<Buffer> {
@@ -150,13 +174,12 @@ export async function burnSubtitlesIntoVideo(
     await writeFile(input, await fetchVideoBuffer(sourceUrl));
     await writeFile(srtPath, buildSrtContent(subtitles), 'utf8');
 
-    const srtEscaped = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
     await runFfmpeg([
       '-y',
       '-i',
       input,
       '-vf',
-      `subtitles='${srtEscaped}'`,
+      captionBurnFilter(srtPath),
       '-c:v',
       'libx264',
       '-preset',
@@ -222,10 +245,19 @@ export async function convertMp4ToWebm(mp4Buffer: Buffer): Promise<Buffer> {
   });
 }
 
+/** Server-only burn style. Never accept client filter strings. */
+export const DEFAULT_CAPTION_FORCE_STYLE =
+  'FontName=Arial,FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=0,Alignment=2,MarginV=28';
+
+export function captionBurnFilter(srtPath: string): string {
+  const srtEscaped = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+  return `subtitles='${srtEscaped}':force_style='${DEFAULT_CAPTION_FORCE_STYLE}'`;
+}
+
 export function buildSrtContent(subtitles: SubtitleSegment[]): string {
   return subtitles
     .map((s, i) => {
-      return `${i + 1}\n${formatSrtTime(s.start)} --> ${formatSrtTime(s.end)}\n${s.text.trim()}\n`;
+      return `${i + 1}\n${formatSrtTime(s.start)} --> ${formatSrtTime(s.end)}\n${sanitizeCaptionText(s.text)}\n`;
     })
     .join('\n');
 }
@@ -373,17 +405,98 @@ function invertPauses(pauses: VideoPause[], duration: number): VideoPause[] {
   return kept;
 }
 
+const MIN_OUTPUT = 32;
+
+async function probeLocalFile(path: string): Promise<{ durationSec: number; hasAudio: boolean }> {
+  const stderr = await ffmpegStderr(['-hide_banner', '-i', path]);
+  const meta = parseFfmpegMetadata(stderr, 0);
+  return { durationSec: meta.durationSec, hasAudio: meta.hasAudio };
+}
+
+async function concatPartsWithTransition(
+  dir: string,
+  partFiles: string[],
+  output: string,
+  transition: VideoEditPlan['transition'],
+  requestedFade: number | undefined,
+  mute: boolean
+): Promise<void> {
+  if (partFiles.length === 0) {
+    throw new ServiceError(500, 'EXPORT_FAILED', 'Keine Clips zum Zusammenfügen');
+  }
+  if (partFiles.length === 1) {
+    await runFfmpeg(['-y', '-i', partFiles[0]!, '-c', 'copy', output]);
+    return;
+  }
+  const kind = transition && isSupportedVideoTransition(transition) ? transition : 'cut';
+  if (transition && !isSupportedVideoTransition(String(transition))) {
+    throw new ServiceError(400, 'INVALID_TRANSITION', 'Dieser Übergang wird nicht unterstützt');
+  }
+  if (kind !== 'fade') {
+    const listPath = join(dir, 'concat.txt');
+    await writeFile(
+      listPath,
+      partFiles.map((p) => `file '${p.replace(/\\/g, '/')}'`).join('\n')
+    );
+    await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', output]);
+    return;
+  }
+
+  let current = partFiles[0]!;
+  for (let i = 1; i < partFiles.length; i++) {
+    const next = partFiles[i]!;
+    const left = await probeLocalFile(current);
+    const right = await probeLocalFile(next);
+    const resolved = resolveTransitionDuration(requestedFade, left.durationSec, right.durationSec);
+    if (!resolved.ok) {
+      throw new ServiceError(
+        400,
+        'INVALID_TRANSITION',
+        'Überblendung ist länger als die Clips oder ungültig'
+      );
+    }
+    const fade = resolved.durationSec;
+    const offset = Math.max(0, left.durationSec - fade);
+    const dest = join(dir, `xfade-${i}.mp4`);
+    const useAudio = !mute && left.hasAudio && right.hasAudio;
+    const filter = useAudio
+      ? `[0:v][1:v]xfade=transition=fade:duration=${fade}:offset=${offset}[v];[0:a][1:a]acrossfade=d=${fade}[a]`
+      : `[0:v][1:v]xfade=transition=fade:duration=${fade}:offset=${offset}[v]`;
+    const args = ['-y', '-i', current, '-i', next, '-filter_complex', filter, '-map', '[v]'];
+    if (useAudio) {
+      args.push('-map', '[a]', '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-c:a', 'aac');
+    } else {
+      args.push('-an', '-c:v', 'libx264', '-preset', 'fast', '-crf', '23');
+    }
+    args.push(dest);
+    await runFfmpeg(args);
+    current = dest;
+  }
+  await runFfmpeg(['-y', '-i', current, '-c', 'copy', output]);
+}
+
 export async function exportEditedVideo(
   sourceUrl: string,
   plan: VideoEditPlan,
-  options?: { subtitles?: SubtitleSegment[]; vertical?: boolean; width?: number; height?: number }
+  options?: {
+    subtitles?: SubtitleSegment[];
+    vertical?: boolean;
+    width?: number;
+    height?: number;
+    introBuffer?: Buffer;
+    outroBuffer?: Buffer;
+  }
 ): Promise<Buffer> {
   const start = Math.max(0, plan.trimStart);
   const end = Math.max(start + 0.2, plan.trimEnd);
-  const duration = end - start;
-  const width = options?.width ?? (plan.aspectRatio === '9:16' ? 1080 : options?.vertical ? 1080 : 1280);
-  const height = options?.height ?? (plan.aspectRatio === '9:16' ? 1920 : options?.vertical ? 1920 : 720);
+  const sized = outputSizeForAspect(plan.aspectRatio);
+  const width =
+    options?.width ?? sized?.width ?? (plan.aspectRatio === '9:16' ? 1080 : options?.vertical ? 1080 : 1280);
+  const height =
+    options?.height ?? sized?.height ?? (plan.aspectRatio === '9:16' ? 1920 : options?.vertical ? 1920 : 720);
   const ranges = keptRanges({ start, end }, plan.removeSegments ?? []);
+  const mute = Boolean(plan.mute) || plan.volume <= 0;
+  const fitMode = plan.fitMode ?? 'crop';
 
   return withTempDir(async (dir) => {
     const input = join(dir, 'input.mp4');
@@ -391,80 +504,97 @@ export async function exportEditedVideo(
     await writeFile(input, await fetchVideoBuffer(sourceUrl));
 
     const filters: string[] = [];
-    if (plan.aspectRatio === '9:16' || plan.aspectRatio === '16:9' || plan.crop.mode === 'manual') {
-      filters.push(ffmpegCropScaleFilter(width, height, plan.crop));
+    if (plan.aspectRatio !== 'original' || plan.crop.mode === 'manual') {
+      filters.push(ffmpegCropScaleFilter(width, height, plan.crop, fitMode));
     }
 
-    if (ranges.length === 1) {
-      const r = ranges[0]!;
+    async function encodeRange(src: string, rStart: number, rEnd: number, dest: string) {
       const args = [
         '-y',
         '-ss',
-        String(r.start),
+        String(rStart),
         '-i',
-        input,
+        src,
         '-t',
-        String(Math.max(0.2, r.end - r.start)),
+        String(Math.max(0.2, rEnd - rStart)),
         '-c:v',
         'libx264',
         '-preset',
         'fast',
         '-crf',
         '23',
-        '-c:a',
-        'aac',
       ];
+      if (mute) {
+        args.push('-an');
+      } else {
+        args.push('-c:a', 'aac');
+        if (plan.volume !== 1) args.push('-af', `volume=${Math.max(0, Math.min(2, plan.volume))}`);
+      }
       if (filters.length) args.push('-vf', filters.join(','));
-      if (plan.volume !== 1) args.push('-af', `volume=${Math.max(0, Math.min(2, plan.volume))}`);
-      args.push(output);
+      args.push(dest);
       await runFfmpeg(args);
+    }
+
+    const needsConcat = ranges.length !== 1 || Boolean(options?.introBuffer?.length || options?.outroBuffer?.length);
+    if (!needsConcat) {
+      const r = ranges[0]!;
+      await encodeRange(input, r.start, r.end, output);
     } else {
-      const listPath = join(dir, 'concat.txt');
       const partFiles: string[] = [];
+      if (options?.introBuffer?.length) {
+        const introIn = join(dir, 'intro-src.mp4');
+        const introOut = join(dir, 'intro.mp4');
+        await writeFile(introIn, options.introBuffer);
+        await encodeRange(introIn, 0, 600, introOut);
+        partFiles.push(introOut);
+      }
       for (let i = 0; i < ranges.length; i++) {
         const r = ranges[i]!;
         const part = join(dir, `part${i}.mp4`);
-        const args = [
-          '-y',
-          '-ss',
-          String(r.start),
-          '-i',
-          input,
-          '-t',
-          String(Math.max(0.2, r.end - r.start)),
-          '-c:v',
-          'libx264',
-          '-preset',
-          'fast',
-          '-crf',
-          '23',
-          '-c:a',
-          'aac',
-        ];
-        if (filters.length) args.push('-vf', filters.join(','));
-        if (plan.volume !== 1) args.push('-af', `volume=${Math.max(0, Math.min(2, plan.volume))}`);
-        args.push(part);
-        await runFfmpeg(args);
+        await encodeRange(input, r.start, r.end, part);
         partFiles.push(part);
       }
-      await writeFile(
-        listPath,
-        partFiles.map((p) => `file '${p.replace(/\\/g, '/')}'`).join('\n')
+      if (options?.outroBuffer?.length) {
+        const outroIn = join(dir, 'outro-src.mp4');
+        const outroOut = join(dir, 'outro.mp4');
+        await writeFile(outroIn, options.outroBuffer);
+        await encodeRange(outroIn, 0, 600, outroOut);
+        partFiles.push(outroOut);
+      }
+      if (plan.transition && !isSupportedVideoTransition(String(plan.transition))) {
+        throw new ServiceError(400, 'INVALID_TRANSITION', 'Dieser Übergang wird nicht unterstützt');
+      }
+      await concatPartsWithTransition(
+        dir,
+        partFiles,
+        output,
+        plan.transition,
+        plan.transitionSec,
+        mute
       );
-      await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', output]);
+    }
+
+    async function readOutput(path: string): Promise<Buffer> {
+      const buf = await readFile(path);
+      if (buf.length > MAX_VIDEO_OUTPUT_BYTES) {
+        throw new ServiceError(413, 'FILE_TOO_LARGE', 'Export überschreitet die maximale Ausgabegröße');
+      }
+      if (buf.length < MIN_OUTPUT) {
+        throw new ServiceError(500, 'EXPORT_FAILED', 'Export erzeugte keine gültige Datei');
+      }
+      return buf;
     }
 
     if (options?.subtitles?.length && plan.subtitleTrack) {
       const srtPath = join(dir, 'subs.srt');
       await writeFile(srtPath, buildSrtContent(options.subtitles), 'utf8');
       const burned = join(dir, 'burned.mp4');
-      const srtEscaped = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
       await runFfmpeg([
         '-y',
         '-i',
         output,
         '-vf',
-        `subtitles='${srtEscaped}'`,
+        captionBurnFilter(srtPath),
         '-c:v',
         'libx264',
         '-preset',
@@ -472,16 +602,17 @@ export async function exportEditedVideo(
         '-crf',
         '23',
         '-c:a',
-        'copy',
+        mute ? 'aac' : 'copy',
         burned,
       ]);
-      return readFile(burned);
+      return readOutput(burned);
     }
-    return readFile(output);
+    return readOutput(output);
   });
 }
 
-export async function createTinyTestVideo(): Promise<Buffer> {
+export async function createTinyTestVideo(durationSec = 2.2): Promise<Buffer> {
+  const d = Math.max(0.4, Math.min(30, durationSec));
   return withTempDir(async (dir) => {
     const output = join(dir, 'tiny.mp4');
     await runFfmpeg([
@@ -489,11 +620,11 @@ export async function createTinyTestVideo(): Promise<Buffer> {
       '-f',
       'lavfi',
       '-i',
-      'color=c=0x1E40AF:s=320x240:d=2.2',
+      `color=c=0x1E40AF:s=320x240:d=${d}`,
       '-f',
       'lavfi',
       '-i',
-      'sine=frequency=880:duration=2.2',
+      `sine=frequency=880:duration=${d}`,
       '-c:v',
       'libx264',
       '-pix_fmt',
@@ -507,24 +638,4 @@ export async function createTinyTestVideo(): Promise<Buffer> {
   });
 }
 
-export function inferMusicMetadata(prompt: string): { genre: string; bpm: number } {
-  const lower = prompt.toLowerCase();
-  const genres = [
-    ['edm', 'Electronic'],
-    ['hip hop', 'Hip-Hop'],
-    ['hip-hop', 'Hip-Hop'],
-    ['rock', 'Rock'],
-    ['lofi', 'Lo-Fi'],
-    ['lo-fi', 'Lo-Fi'],
-    ['ambient', 'Ambient'],
-    ['orchestral', 'Orchestral'],
-    ['jazz', 'Jazz'],
-    ['metal', 'Metal'],
-    ['pop', 'Pop'],
-    ['trap', 'Trap'],
-    ['synth', 'Synthwave'],
-  ] as const;
-  const genre = genres.find(([key]) => lower.includes(key))?.[1] ?? 'Electronic';
-  const bpm = lower.includes('slow') ? 90 : lower.includes('fast') || lower.includes('energetic') ? 128 : 110;
-  return { genre, bpm };
-}
+export { inferMusicMetadata };

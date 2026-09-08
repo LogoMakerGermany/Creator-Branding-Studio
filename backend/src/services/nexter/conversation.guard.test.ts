@@ -13,8 +13,17 @@ describe('nexter conversation safety', () => {
     assert.match(src, /createQuote/);
     assert.match(src, /detectLockedTraitOverride/);
     assert.match(src, /detectFakeDetectionRequest/);
+    assert.match(src, /detectFileCloudIntent/);
+    assert.match(src, /detectLayoutStudioIntent/);
+    assert.ok(src.indexOf('detectLayoutStudioIntent') < src.indexOf('createQuote('));
     assert.match(src, /detectExternalPublishIntent/);
     assert.match(src, /detectChangeIntent/);
+    assert.match(src, /detectNameBasedLogoHelp/);
+    assert.match(src, /detectDnaChangeScope/);
+    assert.match(src, /detectStudioChangeScope/);
+    assert.equal(src.includes('updateDna('), false);
+    assert.equal(src.includes('confirmQuote'), false);
+    assert.match(src, /NODE_TEST/);
     assert.ok(src.indexOf('detectChangeIntent') < src.indexOf('createQuote('));
     assert.ok(src.indexOf('detectLockedTraitOverride') < src.indexOf('createQuote('));
     assert.ok(src.indexOf('detectFakeDetectionRequest') < src.indexOf('createQuote('));

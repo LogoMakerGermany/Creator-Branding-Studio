@@ -2,11 +2,13 @@ import { PageHeader, Badge, Button, Card, CardTitle, Input, StatCard } from '@/c
 import { useEffect, useState } from 'react';
 import { Sparkles, AlertCircle, CheckCircle2, Download, History } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api, ApiError, type GenerationJob } from '@/services/api';
+import { api, type GenerationJob } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
+import { useNexterStore } from '@/v2/store/nexter-store';
 
 export function AIImagePage() {
-  const { user, activeDna, refreshUser } = useAuth();
+  const { user, activeDna } = useAuth();
+  const queueNexterPrompt = useNexterStore((s) => s.queueNexterPrompt);
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,25 +24,17 @@ export function AIImagePage() {
       setError('Erstelle zuerst eine Creator DNA');
       return;
     }
-
     setLoading(true);
-    setError(null);
-    try {
-      const res = await api.ai.generate(prompt || undefined);
-      setCurrentJob(res.job);
-      await refreshUser();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Generierung fehlgeschlagen');
-    } finally {
-      setLoading(false);
-    }
+    setError('Bildgenerierung startet nur über Nexter nach Bestätigung (Für X Coins erstellen).');
+    queueNexterPrompt(prompt.trim() ? `Erstelle ein Bild: ${prompt.trim()}` : 'Erstelle ein Bild für meine Creator DNA.');
+    setLoading(false);
   }
 
   return (
     <div>
       <PageHeader
         title="KI Bildgenerator"
-        description="Generiere Logos, Banner, Overlays und Charaktere basierend auf deiner Creator DNA"
+        description="Lokale Vorschau — Bildgenerierung nur über Nexter nach Bestätigung"
         badge={<Badge variant="brand">OpenAI · Replicate</Badge>}
         actions={<Badge variant="default">{formatCoins(5)} Coins</Badge>}
       />

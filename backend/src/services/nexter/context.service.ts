@@ -1,15 +1,19 @@
 import type { NexterContextSnapshot } from '@ucbs/shared';
-import { missingStreamsetLabels } from '@ucbs/shared';
+import { missingStreamsetLabels, nexterAddressName } from '@ucbs/shared';
 import { resolveDnaForRequest } from '../dna.service.js';
 import { listProjects } from '../project.service.js';
 import { getJobsByUser, type GenerationJob } from '../ai.service.js';
 import { listUserFiles } from '../file-cloud.service.js';
+import { listLayouts } from '../layout.service.js';
 import { getUserById } from '../user.service.js';
 import { getCoinBalance } from '../coins.service.js';
+import { listOwnedQuotes } from './quotes.service.js';
 import { listVideoProjects } from '../media.service.js';
 import { listTextJobs, findLastOwnedShort } from '../text.service.js';
 import { listMockups } from '../mockup.service.js';
 import { listAnimations } from '../animation.service.js';
+import { listMusic } from '../music.service.js';
+import { listVoice } from '../voice.service.js';
 
 function pickJob(
   jobs: GenerationJob[],
@@ -33,7 +37,7 @@ export async function buildNexterContext(
   userId: string,
   projectId?: string
 ): Promise<NexterContextSnapshot> {
-  const [user, resolved, projects, jobs, files, coinBalance, videoProjects, textJobs, lastShort, mockups, animations] =
+  const [user, resolved, projects, jobs, files, coinBalance, videoProjects, textJobs, lastShort, mockups, animations, musicJobs, voiceJobs, layouts, quotes] =
     await Promise.all([
       getUserById(userId).catch(() => null),
       resolveDnaForRequest(userId, projectId).catch(() => ({
@@ -50,6 +54,10 @@ export async function buildNexterContext(
       findLastOwnedShort(userId).catch(() => null),
       listMockups(userId).catch(() => []),
       listAnimations(userId).catch(() => []),
+      listMusic(userId).catch(() => []),
+      listVoice(userId).catch(() => []),
+      listLayouts(userId).catch(() => []),
+      listOwnedQuotes(userId, 8).catch(() => []),
     ]);
 
   const dna = resolved.dna;
@@ -74,6 +82,14 @@ export async function buildNexterContext(
   const animPool = projectAnims.length ? projectAnims : animations;
   const lastAnim = animPool.find((a) => a.status === 'completed' && (a.videoUrl || a.imageUrl));
 
+  const projectMusic = projectId ? musicJobs.filter((m) => m.projectId === projectId) : musicJobs;
+  const musicPool = projectMusic.length ? projectMusic : musicJobs;
+  const lastMusic = musicPool.find((m) => m.status === 'completed' && (m.audioUrl || m.metadata?.fileId));
+
+  const projectVoice = projectId ? voiceJobs.filter((v) => v.projectId === projectId) : voiceJobs;
+  const voicePool = projectVoice.length ? projectVoice : voiceJobs;
+  const lastVoice = voicePool.find((v) => v.status === 'completed' && (v.audioUrl || v.metadata?.fileId));
+
   const inventory: string[] = [];
   if (logo.count) inventory.push(`${logo.count} Logo(s)`);
   if (banner.count) inventory.push(`${banner.count} Banner`);
@@ -82,6 +98,8 @@ export async function buildNexterContext(
   if (sticker.count) inventory.push(`${sticker.count} Sticker`);
   if (mockupPool.filter((m) => m.imageUrl).length) inventory.push('Mockup');
   if (animPool.some((a) => a.status === 'completed')) inventory.push('Animation');
+  if (musicPool.some((m) => m.status === 'completed')) inventory.push('Musik');
+  if (voicePool.some((v) => v.status === 'completed')) inventory.push('Voice');
   if (latestPackage) inventory.push('Content-Paket');
   if (lastShort?.short.id) inventory.push('Short');
   const boundAssets = boundProject?.assets.length ?? 0;
@@ -95,6 +113,22 @@ export async function buildNexterContext(
 
   return {
     displayName: user?.displayName,
+    addressAs: user ? nexterAddressName(user.nexterPreferences, user.displayName) : undefined,
+    language: user?.nexterPreferences?.language ?? user?.locale,
+    preferredPlatforms: user?.nexterPreferences?.platforms,
+    creationInterests: user?.nexterPreferences?.creationInterests,
+    stylePreferences: user?.nexterPreferences?.stylePreferences,
+    creatorGoals: user?.nexterPreferences?.creatorGoals,
+    uiTheme: user?.nexterPreferences?.uiTheme,
+    accentPreset: user?.nexterPreferences?.accentPreset,
+    customPrimary: user?.nexterPreferences?.customPrimary ?? null,
+    customAccent: user?.nexterPreferences?.customAccent ?? null,
+    visualLanguage: dna?.visualLanguage,
+    brandingStyle: dna?.brandingStyle,
+    typographySummary: dna?.typography?.character || dna?.typography?.nameTreatment,
+    dimension: dna?.dimension,
+    fontNames: (dna?.fonts ?? []).map((f) => f.name).filter(Boolean).slice(0, 3),
+    characterType: dna?.character?.type,
     coinBalance,
     hasDna: Boolean(dna),
     dnaId: dna?.id,
@@ -142,12 +176,30 @@ export async function buildNexterContext(
     lastStickerId: sticker.id,
     lastMockupId: lastMockup?.id,
     lastAnimationId: lastAnim?.id,
+    lastMusicId: lastMusic?.id,
+    lastVoiceId: lastVoice?.id,
+    lastLayoutId: layouts[0]?.id,
+    lastLayoutName: layouts[0]?.name,
+    layoutCount: layouts.length,
+    layoutPlatform: layouts[0]?.platform,
+    layoutElementCount: layouts[0]?.elements.length,
     logoCount: logo.count,
     bannerCount: banner.count,
     overlayCount: overlay.count,
     facecamCount: facecam.count,
     stickerCount: sticker.count,
     assetInventory: inventory,
+    voiceOutputEnabled: user?.nexterPreferences?.voiceOutputEnabled,
+    voiceCatalogId: user?.nexterPreferences?.voiceCatalogId ?? null,
+    pendingQuotes: quotes
+      .filter((q) => q.status === 'pending')
+      .slice(0, 5)
+      .map((q) => ({
+        kind: q.kind,
+        coinCost: q.coinCost,
+        expiresAt: q.expiresAt,
+        expired: Date.parse(q.expiresAt) <= Date.now(),
+      })),
   };
 }
 

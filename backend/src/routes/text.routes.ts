@@ -48,6 +48,10 @@ const quotePayloadSchema = z.object({
   revisionInstruction: z.string().max(1000).optional(),
   variantCount: z.number().int().min(1).max(5).optional(),
   wantLastShort: z.boolean().optional(),
+  wantLastLogo: z.boolean().optional(),
+  tone: z.enum(['neutral', 'funny', 'professional', 'hype']).optional(),
+  goal: z.string().max(500).optional(),
+  language: z.string().max(40).optional(),
 });
 
 textRoutes.get(

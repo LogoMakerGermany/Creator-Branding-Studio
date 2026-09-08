@@ -7,33 +7,38 @@ Repository: https://github.com/LogoMakerGermany/Creator-Branding-Studio
 | Workflow | Zweck |
 |----------|--------|
 | **CI** (`.github/workflows/ci.yml`) | Build + Typecheck |
-| **Deploy** (`.github/workflows/deploy.yml`) | Production-Build → Firebase Hosting |
 
-Railway deployt parallel, wenn das Repo unter **Deploy from GitHub** verknüpft ist (`railway.toml` + `Dockerfile`).
+Railway deployt automatisch, wenn das Repo unter **Deploy from GitHub** verknüpft ist (`railway.toml` + `Dockerfile`).
 
-## GitHub Secrets (für Deploy-Workflow)
+## Production Architecture
+
+- **Hosting:** Railway All-in-One (`SERVE_STATIC=true`)
+- **Firebase:** Auth + Firestore + Storage (Projekt: `nexter-creator-studio`)
+- **Firebase Hosting:** nicht verwendet
+
+## GitHub Secrets (für CI)
 
 Unter **Settings → Secrets and variables → Actions** eintragen:
-
-### Firebase Hosting
-
-| Secret | Inhalt |
-|--------|--------|
-| `FIREBASE_SERVICE_ACCOUNT` | Kompletter JSON-Inhalt des Firebase Service Accounts (`creatorstudio-519eb`) |
 
 ### Frontend Build (`VITE_*`)
 
 | Secret | Beispielwert |
 |--------|----------------|
 | `VITE_FIREBASE_API_KEY` | aus Firebase Console → Web-App |
-| `VITE_FIREBASE_AUTH_DOMAIN` | `creatorstudio-519eb.firebaseapp.com` |
-| `VITE_FIREBASE_PROJECT_ID` | `creatorstudio-519eb` |
-| `VITE_FIREBASE_STORAGE_BUCKET` | `creatorstudio-519eb.firebasestorage.app` |
+| `VITE_FIREBASE_AUTH_DOMAIN` | `nexter-creator-studio.firebaseapp.com` |
+| `VITE_FIREBASE_PROJECT_ID` | `nexter-creator-studio` |
+| `VITE_FIREBASE_STORAGE_BUCKET` | `nexter-creator-studio.firebasestorage.app` |
 | `VITE_FIREBASE_MESSAGING_SENDER_ID` | aus Firebase Console |
 | `VITE_FIREBASE_APP_ID` | aus Firebase Console |
-| `VITE_API_URL` | `https://creatorbrandingstudioultimate-production.up.railway.app` |
+| `VITE_API_URL` | leer für All-in-One (gleiche Origin) oder die neue Nexter-Railway-Domain |
 
 Lokal generieren: `node scripts/sync-firebase-env.mjs` (schreibt `frontend/.env.production`, nicht im Git).
+
+## Firebase Rules Deploy (manuell)
+
+```powershell
+npm run deploy:firebase:rules
+```
 
 ## Manuell pushen
 

@@ -17,13 +17,14 @@ import {
   getFrontendUrls,
   getPort,
   isFirebaseAdminConfigured,
-  isStripeConfigured,
-  hasImageAiProvider,
+  collectProductionConfigIssues,
 } from './config/env.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { requestContext } from './middleware/request-context.js';
 import { attachStaticFrontend, shouldServeStatic } from './middleware/static.js';
 import { apiRouter } from './routes/index.js';
 import { setHttpServer, setupGracefulShutdown } from './lib/runtime.js';
+import { logEvent, publicHealthPayload } from './lib/observability.js';
 import { recoverStaleJobs } from './services/job-recovery.service.js';
 
 assertProductionConfigOrExit();
@@ -34,38 +35,34 @@ if (isProduction() && !isFirebaseReady()) {
   process.exit(1);
 }
 
-console.log('Server starting...');
 const PORT = getPort();
-console.log('PORT =', PORT);
+logEvent({
+  level: 'info',
+  ts: new Date().toISOString(),
+  event: 'startup',
+  message: `starting port=${PORT} firebaseAdmin=${isFirebaseAdminConfigured()} devAuth=${isDevAuthEnabled()}`,
+});
 
 const app = express();
 const allowedOrigins = getFrontendUrls();
 
 /** Railway reverse proxy — MUST be set before any middleware (helmet, cors, rate-limit, …). */
 app.set('trust proxy', 1);
+app.use(requestContext);
 
 function isReady(): boolean {
   if (!isProduction()) return true;
   return (
     isFirebaseReady() &&
     isFirebaseAdminConfigured() &&
-    isStripeConfigured() &&
-    hasImageAiProvider()
+    collectProductionConfigIssues().length === 0
   );
 }
 
-/** Liveness + readiness for Railway. Returns 503 when production config/services are not ready. */
+/** Liveness + readiness. Public payload stays minimal — no secrets or service inventories. */
 app.get('/health', (_req, res) => {
-  if (!isReady()) {
-    res.status(503).json({
-      status: 'not_ready',
-      firebase: isFirebaseReady(),
-      stripe: isStripeConfigured(),
-      ai: hasImageAiProvider(),
-    });
-    return;
-  }
-  res.status(200).json({ status: 'ok' });
+  const ready = isReady();
+  res.status(ready ? 200 : 503).json(publicHealthPayload(ready));
 });
 
 function createRateLimiters() {
@@ -180,22 +177,40 @@ attachStaticFrontend(app);
 
 app.use(errorHandler);
 
-console.log('Listening on', PORT);
 const server = app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log('/health ready');
   const mode = shouldServeStatic() ? 'API + static frontend' : 'API only';
-  console.log(`UCBS running (${mode}) on port ${PORT}`);
+  logEvent({
+    level: 'info',
+    ts: new Date().toISOString(),
+    event: 'listen',
+    message: `ready mode=${mode} port=${PORT} firebaseReady=${isFirebaseReady()}`,
+  });
   if (isDevAuthEnabled()) {
-    console.log('[Dev] Dev-Auth aktiv — nur für lokale Entwicklung');
+    logEvent({
+      level: 'info',
+      ts: new Date().toISOString(),
+      event: 'dev_auth',
+      message: 'Dev-Auth aktiv — nur für lokale Entwicklung',
+    });
   }
   void recoverStaleJobs().then(
     (r) => {
       if (r.interrupted > 0) {
-        console.info('[recovery] stale jobs', r);
+        logEvent({
+          level: 'info',
+          ts: new Date().toISOString(),
+          event: 'job_recovery',
+          message: `interrupted=${r.interrupted} refunded=${r.refunded}`,
+        });
       }
     },
     (err) => {
-      console.error('[recovery] failed:', err instanceof Error ? err.message : 'error');
+      logEvent({
+        level: 'error',
+        ts: new Date().toISOString(),
+        event: 'job_recovery',
+        message: err instanceof Error ? err.message : 'error',
+      });
     }
   );
 });

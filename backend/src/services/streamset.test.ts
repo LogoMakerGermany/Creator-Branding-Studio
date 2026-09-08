@@ -6,12 +6,19 @@ import {
   STREAMSET_PACK_COIN_COST,
   STREAMSET_PACK_ITEMS,
   STREAMSET_TABS,
+  CREATOR_ASSET_CATALOG,
+  STREAM_LAYOUT_PRESETS,
+  assetRequiresTransparency,
+  coinCostForStreamsetSelection,
   jobMatchesStreamsetAsset,
   missingStreamsetLabels,
   optionsForStreamsetItem,
   pickJobForStreamsetAsset,
+  resolveCreatorAssetType,
   resolveStreamsetAssetKey,
+  resolveStreamsetSelection,
   streamsetAssetPresent,
+  transparencyConstraintForItem,
 } from '@ucbs/shared';
 import { streamsetCatalogKeys } from './streamset.service.js';
 
@@ -137,5 +144,71 @@ describe('phase D — user isolation of jobs', () => {
     assert.equal(streamsetAssetPresent(facecam, userAJobs), true);
     assert.equal(streamsetAssetPresent(facecam, userBJobs), false);
     assert.ok(missingStreamsetLabels(userBJobs).includes('Facecam'));
+  });
+});
+
+describe('streamset catalog — creator asset types and transparency', () => {
+  it('central catalog covers required creator asset types without replacing the 12-pack', () => {
+    const types = CREATOR_ASSET_CATALOG.map((e) => e.type);
+    for (const required of [
+      'logo',
+      'facecam',
+      'overlay',
+      'banner',
+      'starting-screen',
+      'brb-screen',
+      'ending-screen',
+      'streamset',
+      'intro',
+      'outro',
+      'animation',
+      'sticker',
+      'badge',
+    ]) {
+      assert.ok(types.includes(required as (typeof types)[number]), `missing catalog ${required}`);
+    }
+    assert.equal(resolveCreatorAssetType('starting-soon'), 'starting-screen');
+    assert.equal(resolveCreatorAssetType('brb'), 'brb-screen');
+    assert.equal(STREAMSET_PACK_ITEMS.length, 12);
+    assert.ok(resolveStreamsetAssetKey('tiktok-banner')?.platform === 'tiktok');
+    assert.ok(resolveStreamsetAssetKey('discord-banner')?.platform === 'discord');
+  });
+
+  it('facecam/overlay/sticker require transparency; screens and banners do not', () => {
+    const facecam = STREAMSET_PACK_ITEMS.find((i) => i.key === 'facecam')!;
+    const hud = STREAMSET_PACK_ITEMS.find((i) => i.key === 'hud')!;
+    const sticker = STREAMSET_PACK_ITEMS.find((i) => i.key === 'sticker')!;
+    const start = STREAMSET_PACK_ITEMS.find((i) => i.key === 'starting-soon')!;
+    const banner = STREAMSET_PACK_ITEMS.find((i) => i.key === 'twitch-banner')!;
+    assert.equal(assetRequiresTransparency(facecam), true);
+    assert.equal(assetRequiresTransparency(hud), true);
+    assert.equal(assetRequiresTransparency(sticker), true);
+    assert.equal(assetRequiresTransparency(start), false);
+    assert.equal(assetRequiresTransparency(banner), false);
+    assert.match(transparencyConstraintForItem(facecam), /transparent/i);
+    assert.match(transparencyConstraintForItem(start), /opaque|do not force/i);
+  });
+
+  it('platform presets pick existing keys and TikTok/Twitch layouts', () => {
+    const twitch = resolveStreamsetSelection('twitch');
+    const tiktok = resolveStreamsetSelection('tiktok');
+    assert.ok(twitch.includes('facecam') && twitch.includes('hud') && twitch.includes('twitch-banner'));
+    assert.ok(twitch.includes('starting-soon') && twitch.includes('brb') && twitch.includes('ending'));
+    assert.ok(tiktok.includes('tiktok-banner'));
+    assert.equal(tiktok.includes('twitch-banner'), false);
+    assert.equal(STREAM_LAYOUT_PRESETS.tiktok.aspect, '9:16');
+    assert.equal(STREAM_LAYOUT_PRESETS.tiktok.slots[0].id, 'facecam');
+    assert.equal(STREAM_LAYOUT_PRESETS.tiktok.slots[1].id, 'gameplay');
+    assert.equal(STREAM_LAYOUT_PRESETS.tiktok.slots[2].id, 'chat');
+    assert.equal(STREAM_LAYOUT_PRESETS.twitch.width, 1920);
+  });
+
+  it('selection cost uses COIN_COSTS and pack discount only for the full 12', () => {
+    const one = coinCostForStreamsetSelection(['facecam']);
+    assert.equal(one.total, COIN_COSTS[CoinSpendCategory.FACECAM_GENERATION]);
+    assert.equal(one.packDiscountApplied, false);
+    const pack = coinCostForStreamsetSelection(STREAMSET_PACK_ITEMS.map((i) => i.key));
+    assert.equal(pack.total, STREAMSET_PACK_COIN_COST);
+    assert.equal(pack.packDiscountApplied, true);
   });
 });

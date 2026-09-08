@@ -13,6 +13,13 @@ import {
   deleteCalendarEvent,
   getUpcomingEvents,
 } from '../services/calendar.service.js';
+import {
+  getUpcomingPlanningItems,
+  listPlanningItems,
+  listTodayPlanningItems,
+} from '../services/planning.service.js';
+import { getProject } from '../services/project.service.js';
+import { getSocialPost } from '../services/social.service.js';
 
 export const calendarRoutes = Router();
 calendarRoutes.use(authenticate, requirePermission(Permission.MANAGE_CALENDAR));
@@ -24,12 +31,27 @@ function mapCalendarError(err: unknown): never {
   throw new AppError(400, 'CALENDAR_ERROR', err instanceof Error ? err.message : 'Kalender-Fehler');
 }
 
+const listQuery = z.object({
+  platform: z.string().max(40).optional(),
+  contentType: z.string().max(40).optional(),
+  status: z.string().max(40).optional(),
+  q: z.string().max(200).optional(),
+  from: z.string().max(80).optional(),
+  to: z.string().max(80).optional(),
+});
+
 calendarRoutes.get(
   '/',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const query = listQuery.parse(req.query);
+    const userId = req.user!.uid;
     sendSuccess(res, {
-      events: await listCalendarEvents(req.user!.uid),
-      upcoming: await getUpcomingEvents(req.user!.uid),
+      events: await listCalendarEvents(userId),
+      upcoming: await getUpcomingEvents(userId),
+      items: await listPlanningItems(userId, query),
+      today: await listTodayPlanningItems(userId),
+      upcomingItems: await getUpcomingPlanningItems(userId, 5),
+      publishingAvailable: false,
     });
   })
 );
@@ -42,6 +64,10 @@ const createSchema = z.object({
   startAt: z.string(),
   endAt: z.string().optional(),
   color: z.string().optional(),
+  socialPostId: z.string().max(80).optional(),
+  packageId: z.string().max(80).optional(),
+  projectId: z.string().max(80).optional(),
+  contentType: z.string().max(40).optional(),
 });
 
 calendarRoutes.post(
@@ -49,6 +75,14 @@ calendarRoutes.post(
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const body = createSchema.parse(req.body);
     try {
+      if (body.projectId) {
+        const project = await getProject(body.projectId, req.user!.uid);
+        if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+      }
+      if (body.socialPostId) {
+        const post = await getSocialPost(body.socialPostId, req.user!.uid);
+        if (!post) throw new ServiceError(404, 'NOT_FOUND', 'Post nicht gefunden');
+      }
       const event = await createCalendarEvent(req.user!.uid, body);
       sendSuccess(res, { event }, 201);
     } catch (err) {

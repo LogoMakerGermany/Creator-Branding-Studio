@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import { Sparkles, AlertCircle, CheckCircle2, Dna, Package, Download, XCircle } from 'lucide-react';
 import { PageHeader, Badge, Button, Card, CardTitle } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { api, ApiError, type GenerationJob } from '@/services/api';
+import { type GenerationJob } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
+import { useNexterStore } from '@/v2/store/nexter-store';
 
 const PACK_ASSETS = [
   { key: 'profile-pic', label: 'Profilbild' },
@@ -18,36 +19,23 @@ const PACK_ASSETS = [
 ];
 
 export function BrandingGeneratorPage() {
-  const { user, activeDna, refreshUser } = useAuth();
+  const { user, activeDna } = useAuth();
+  const queueNexterPrompt = useNexterStore((s) => s.queueNexterPrompt);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [jobs, setJobs] = useState<GenerationJob[]>([]);
-  const [packStatus, setPackStatus] = useState<'completed' | 'partial' | null>(null);
-  const [failedCount, setFailedCount] = useState(0);
+  const jobs: GenerationJob[] = [];
+  const packStatus: 'completed' | 'partial' | null = null;
+  const failedCount = 0;
 
   async function handleGenerate() {
     if (!activeDna) {
       setError('Erstelle zuerst eine Creator DNA');
       return;
     }
-
     setLoading(true);
-    setError(null);
-    setPackStatus(null);
-    setFailedCount(0);
-    try {
-      const res = await api.studio.generateBrandingPack();
-      if (res.jobs) setJobs(res.jobs);
-      if (res.status === 'partial' || res.status === 'completed') {
-        setPackStatus(res.status);
-      }
-      if (res.failedCount) setFailedCount(res.failedCount);
-      await refreshUser();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Generierung fehlgeschlagen');
-    } finally {
-      setLoading(false);
-    }
+    setError('Branding-Paket startet nur über Nexter nach Bestätigung (Streamset / Für X Coins erstellen).');
+    queueNexterPrompt('Mach mir ein komplettes Streamset.');
+    setLoading(false);
   }
 
   const completedCount = jobs.filter((j) => j.status === 'completed').length;
@@ -56,7 +44,7 @@ export function BrandingGeneratorPage() {
     <div>
       <PageHeader
         title="Branding Generator"
-        description="Generiert automatisch 8 Branding-Assets basierend auf deiner Creator DNA"
+        description="Streamset und Nexter — direktes Branding-Paket nur nach Bestätigung"
         badge={<Badge variant="brand">KI-Paket</Badge>}
         actions={<Badge variant="default">{formatCoins(50)} Coins</Badge>}
       />

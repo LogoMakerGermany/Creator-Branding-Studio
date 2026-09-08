@@ -9,7 +9,11 @@ import {
   submitFeedback,
   getFeedbackById,
   assertFeedbackReadable,
+  listOwnFeedback,
+  parseFeedbackListParams,
+  toSafeFeedback,
   FEEDBACK_CATEGORIES,
+  FEEDBACK_TYPES,
 } from '../services/feedback.service.js';
 
 export const feedbackRoutes = Router();
@@ -20,15 +24,37 @@ feedbackRoutes.post(
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     const body = z
       .object({
-        module: z.string().min(1).max(80),
+        module: z.string().min(1).max(80).optional(),
         route: z.string().max(200).optional(),
-        message: z.string().min(3).max(2000),
+        message: z.string().min(1).max(8000),
+        subject: z.string().max(200).optional(),
+        type: z.enum(FEEDBACK_TYPES).optional(),
         category: z.enum(FEEDBACK_CATEGORIES).optional(),
+        projectId: z.string().max(80).optional(),
+        jobId: z.string().max(80).optional(),
+        fileId: z.string().max(80).optional(),
+        requestId: z.string().max(80).optional(),
+        idempotencyKey: z.string().max(80).optional(),
         screenshotDataUrl: z.string().max(2_000_000).optional(),
       })
       .parse(req.body);
     const row = await submitFeedback(req.user!.uid, body);
-    sendSuccess(res, { feedback: row }, 201);
+    sendSuccess(res, { feedback: toSafeFeedback(row) }, 201);
+  })
+);
+
+feedbackRoutes.get(
+  '/',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const { limit, offset } = parseFeedbackListParams(req.query);
+    const page = await listOwnFeedback(req.user!.uid, { limit, offset });
+    sendSuccess(res, {
+      feedback: page.items,
+      total: page.total,
+      limit: page.limit,
+      offset: page.offset,
+      hasMore: page.hasMore,
+    });
   })
 );
 
@@ -42,6 +68,6 @@ feedbackRoutes.get(
     } catch {
       throw new AppError(404, 'NOT_FOUND', 'Feedback nicht gefunden');
     }
-    sendSuccess(res, { feedback: row });
+    sendSuccess(res, { feedback: toSafeFeedback(row) });
   })
 );

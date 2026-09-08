@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from '@ucbs/shared';
 import { Button, Input, CardTitle, CardDescription } from '@/components/ui';
 import { GlassCard } from '@/v2/components/GlassCard';
 import { useAuth } from '@/context/AuthContext';
@@ -8,14 +9,14 @@ import { formatAuthError } from '@/lib/auth-errors';
 import { api } from '@/services/api';
 import type { AuthProviderId } from '@/lib/auth-providers';
 
-const OAUTH_PROVIDERS: { id: AuthProviderId; label: string; color: string }[] = [
-  { id: 'google', label: 'Google', color: 'hover:bg-white/10' },
-  { id: 'github', label: 'GitHub', color: 'hover:bg-zinc-500/20' },
-  { id: 'apple', label: 'Apple', color: 'hover:bg-zinc-600/20' },
-  { id: 'microsoft', label: 'Microsoft', color: 'hover:bg-blue-500/20' },
-  { id: 'discord', label: 'Discord', color: 'hover:bg-indigo-500/20' },
-  { id: 'twitch', label: 'Twitch', color: 'hover:bg-purple-500/20' },
-  { id: 'tiktok', label: 'TikTok', color: 'hover:bg-pink-500/20' },
+const OAUTH_PROVIDERS: { id: AuthProviderId; label: string; available: boolean }[] = [
+  { id: 'google', label: 'Google', available: true },
+  { id: 'github', label: 'GitHub', available: false },
+  { id: 'apple', label: 'Apple', available: false },
+  { id: 'microsoft', label: 'Microsoft', available: false },
+  { id: 'discord', label: 'Discord', available: false },
+  { id: 'twitch', label: 'Twitch', available: false },
+  { id: 'tiktok', label: 'TikTok', available: false },
 ];
 
 export function LoginPage() {
@@ -43,6 +44,8 @@ export function LoginPage() {
   const [devLoginEnabled, setDevLoginEnabled] = useState(false);
   const [inviteRequired, setInviteRequired] = useState(true);
   const [registrationOpen, setRegistrationOpen] = useState(true);
+  const [legalAccepted, setLegalAccepted] = useState(false);
+  const [legalError, setLegalError] = useState<string | null>(null);
 
   useEffect(() => {
     api.status()
@@ -69,7 +72,32 @@ export function LoginPage() {
     }
   }, []);
 
+  function storePendingLegalAcceptance() {
+    sessionStorage.setItem(
+      'pending_legal_acceptance',
+      JSON.stringify({
+        termsVersion: LEGAL_TERMS_VERSION,
+        privacyVersion: LEGAL_PRIVACY_VERSION,
+      })
+    );
+  }
+
+  function requireLegalAcceptance(): boolean {
+    if (legalAccepted) {
+      setLegalError(null);
+      storePendingLegalAcceptance();
+      return true;
+    }
+    setLegalError('Bitte akzeptiere die Nutzungsbedingungen und die Datenschutzerklärung.');
+    return false;
+  }
+
   async function handleOAuth(provider: AuthProviderId) {
+    const entry = OAUTH_PROVIDERS.find((p) => p.id === provider);
+    if (!entry?.available) {
+      setError('Dieser Anmeldeanbieter ist derzeit nicht verfügbar.');
+      return;
+    }
     if (isRegister && !registrationOpen) {
       setError('Registrierung ist derzeit geschlossen');
       return;
@@ -78,7 +106,10 @@ export function LoginPage() {
       setError('Einladungscode erforderlich');
       return;
     }
-    if (isRegister && inviteCode.trim()) {
+    if (isRegister && !requireLegalAcceptance()) {
+      return;
+    }
+    if (inviteCode.trim()) {
       sessionStorage.setItem('pending_invite_code', inviteCode.trim());
     }
     setLoading(true);
@@ -112,6 +143,10 @@ export function LoginPage() {
         }
         if (inviteRequired && !inviteCode.trim()) {
           throw new Error('Einladungscode erforderlich');
+        }
+        if (!requireLegalAcceptance()) {
+          setLoading(false);
+          return;
         }
         await registerEmail(email, password, inviteCode.trim() || undefined);
         setInfo('Konto erstellt. Bitte bestätige deine E-Mail-Adresse.');
@@ -159,12 +194,22 @@ export function LoginPage() {
       </CardDescription>
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+        <div
+          id="login-auth-error"
+          className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300"
+          role="alert"
+          aria-live="assertive"
+        >
           {error}
         </div>
       )}
       {info && (
-        <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300">
+        <div
+          id="login-auth-info"
+          className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300"
+          role="status"
+          aria-live="polite"
+        >
           {info}
         </div>
       )}
@@ -182,17 +227,59 @@ export function LoginPage() {
         </div>
       ) : showFirebaseAuth ? (
         <>
+          {isRegister && !showReset && (
+            <div className="mt-6 space-y-1.5">
+              <label className="flex items-start gap-3 text-sm text-zinc-300" htmlFor="register-legal">
+                <input
+                  id="register-legal"
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 shrink-0 rounded border-zinc-600 bg-surface-900 text-brand-500 focus:ring-2 focus:ring-brand-500"
+                  checked={legalAccepted}
+                  onChange={(e) => {
+                    setLegalAccepted(e.target.checked);
+                    if (e.target.checked) setLegalError(null);
+                  }}
+                  aria-invalid={legalError ? true : undefined}
+                  aria-describedby={legalError ? 'register-legal-error' : 'register-legal-hint'}
+                />
+                <span>
+                  Ich akzeptiere die{' '}
+                  <Link to="/legal/agb" className="text-brand-400 underline underline-offset-2 hover:text-white">
+                    Nutzungsbedingungen
+                  </Link>{' '}
+                  und habe die{' '}
+                  <Link
+                    to="/legal/datenschutz"
+                    className="text-brand-400 underline underline-offset-2 hover:text-white"
+                  >
+                    Datenschutzerklärung
+                  </Link>{' '}
+                  gelesen.
+                </span>
+              </label>
+              <p id="register-legal-hint" className="text-xs text-zinc-500">
+                Die Texte sind Entwürfe und noch nicht rechtlich geprüft.
+              </p>
+              {legalError && (
+                <p id="register-legal-error" className="text-xs text-red-400" role="alert">
+                  {legalError}
+                </p>
+              )}
+            </div>
+          )}
           {!showReset && (
             <div className="mt-6 grid gap-2 sm:grid-cols-2">
               {OAUTH_PROVIDERS.map((p) => (
                 <button
                   key={p.id}
                   type="button"
-                  disabled={loading || (isRegister && !registrationOpen)}
+                  disabled={loading || !p.available || (isRegister && !registrationOpen)}
                   onClick={() => handleOAuth(p.id)}
-                  className={`flex items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-surface-900 py-2.5 text-sm font-medium text-zinc-200 transition-colors disabled:opacity-50 ${p.color}`}
+                  aria-disabled={!p.available}
+                  title={p.available ? undefined : `${p.label} ist derzeit nicht verfügbar`}
+                  className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-surface-900 py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-white/10 disabled:opacity-50"
                 >
-                  {p.label}
+                  {p.available ? p.label : `${p.label} (nicht verfügbar)`}
                 </button>
               ))}
             </div>
@@ -208,15 +295,20 @@ export function LoginPage() {
 
           <form className="mt-6 space-y-4" onSubmit={handleEmailSubmit}>
             <Input
+              id="login-email"
               label="E-Mail"
               type="email"
               placeholder="creator@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              autoComplete="email"
+              inputMode="email"
+              aria-describedby={error ? 'login-auth-error' : info ? 'login-auth-info' : undefined}
             />
             {!showReset && (
               <Input
+                id="login-password"
                 label="Passwort"
                 type="password"
                 placeholder="••••••••"
@@ -224,16 +316,19 @@ export function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={6}
+                autoComplete={isRegister ? 'new-password' : 'current-password'}
               />
             )}
-            {isRegister && !showReset && (inviteRequired || inviteCode) && (
+            {inviteRequired && !showReset && (
               <Input
-                label="Einladungscode"
+                id="login-invite"
+                label={isRegister ? 'Einladungscode' : 'Einladungscode (neue Konten)'}
                 type="text"
                 placeholder="z. B. TESTER01"
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                required={inviteRequired}
+                required={isRegister && inviteRequired}
+                autoComplete="off"
               />
             )}
             <Button className="w-full" type="submit" loading={loading}>
@@ -271,6 +366,8 @@ export function LoginPage() {
                     setIsRegister(!isRegister);
                     setError(null);
                     setInfo(null);
+                    setLegalError(null);
+                    setLegalAccepted(false);
                   }}
                   className="text-brand-400 hover:underline"
                   disabled={!registrationOpen && !isRegister}

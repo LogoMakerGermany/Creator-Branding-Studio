@@ -1,5 +1,6 @@
 import { ServiceError } from './errors.js';
-import { isProduction, getOpenAiApiKey } from '../config/env.js';
+import { getOpenAiApiKey } from '../config/env.js';
+import { isPaidProviderTestBlocked } from './media-providers.js';
 import type { SubtitleSegment } from './video-processing.js';
 import { detectScenesAndPauses, extractAudioFromVideo } from './video-processing.js';
 import {
@@ -22,14 +23,14 @@ export interface VideoAnalysisResult {
 }
 
 export async function transcribeVideoSource(sourceUrl: string): Promise<SubtitleSegment[]> {
-  const apiKey = getOpenAiApiKey();
-  if (!apiKey) {
+  if (isPaidProviderTestBlocked() || !getOpenAiApiKey()) {
     throw new ServiceError(
       503,
       'AI_NOT_CONFIGURED',
-      'Untertitel benötigen OPENAI_API_KEY (Whisper)'
+      'Untertitel per Sprache-zu-Text sind provider-gated und in diesem Block deaktiviert'
     );
   }
+  const apiKey = getOpenAiApiKey()!;
 
   const audioBuffer = await extractAudioFromVideo(sourceUrl);
   const form = new FormData();
@@ -70,10 +71,14 @@ export async function detectHighlightsFromSubtitles(
   subtitles: SubtitleSegment[],
   styleDirection?: string
 ): Promise<VideoAnalysisResult['highlights']> {
-  const apiKey = getOpenAiApiKey();
-  if (!apiKey) {
-    throw new ServiceError(503, 'AI_NOT_CONFIGURED', 'Highlight-Erkennung benötigt OPENAI_API_KEY');
+  if (isPaidProviderTestBlocked() || !getOpenAiApiKey()) {
+    throw new ServiceError(
+      503,
+      'AI_NOT_CONFIGURED',
+      'Semantische Highlight-KI ist provider-gated und wird nicht aufgerufen'
+    );
   }
+  const apiKey = getOpenAiApiKey()!;
 
   const transcript = subtitles
     .map((s) => `[${s.start.toFixed(1)}s-${s.end.toFixed(1)}s] ${s.text}`)
@@ -157,37 +162,17 @@ export async function analyzeVideoFromSource(
   duration: number,
   styleDirection?: string
 ): Promise<VideoAnalysisResult> {
-  const local = await analyzeVideoLocal(sourceUrl, duration);
-  const subtitles = await transcribeVideoSource(sourceUrl);
-  let highlights = local.highlights;
-  try {
-    highlights = await detectHighlightsFromSubtitles(title, duration, subtitles, styleDirection);
-  } catch {
-    highlights = buildLocalHighlights({
-      durationSec: duration,
-      scenes: local.scenes,
-      pauses: local.pauses,
-      activity: local.audioActivity,
-      subtitles,
-    });
-  }
-  return {
-    ...local,
-    subtitles,
-    highlights,
-    analyzerVersion: 'whisper+local-ffmpeg-v1',
-  };
+  void title;
+  void styleDirection;
+  return analyzeVideoLocal(sourceUrl, duration);
 }
 
 export function requireVideoAnalysisConfigured(): void {
-  if (!getOpenAiApiKey()) {
-    if (isProduction()) {
-      throw new ServiceError(
-        503,
-        'AI_NOT_CONFIGURED',
-        'Video-Analyse benötigt OPENAI_API_KEY (Whisper + GPT)'
-      );
-    }
-    throw new Error('OPENAI_API_KEY nicht konfiguriert');
+  if (isPaidProviderTestBlocked() || !getOpenAiApiKey()) {
+    throw new ServiceError(
+      503,
+      'AI_NOT_CONFIGURED',
+      'Video-Analyse per Whisper/GPT ist provider-gated und wird nicht aufgerufen'
+    );
   }
 }

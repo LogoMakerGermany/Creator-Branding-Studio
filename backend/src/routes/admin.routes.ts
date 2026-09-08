@@ -9,21 +9,37 @@ import {
   createInviteCode,
   deactivateInviteCode,
   deleteInviteCode,
-  listInviteCodes,
 } from '../services/invite.service.js';
 import { getSystemSettings, updateSystemSettings } from '../services/system-settings.service.js';
 import { creditTestBalance } from '../services/ledger.service.js';
-import { getUserById, setUserRole, listUsers, searchUsers, setUserDisabled } from '../services/user.service.js';
-import { addCoins, deductAmount, getTransactions } from '../services/coins.service.js';
+import { getUserById, setUserRole, setUserDisabled } from '../services/user.service.js';
+import { addCoins, deductAmount } from '../services/coins.service.js';
 import { getAdminAnalytics } from '../services/admin-analytics.service.js';
 import { grantTesterCoins } from '../services/tester-grant.service.js';
-import { listFeedback, updateFeedbackStatus, FEEDBACK_STATUSES } from '../services/feedback.service.js';
+import {
+  listFeedbackPage,
+  getFeedbackById,
+  updateFeedbackStatus,
+  parseFeedbackListParams,
+  toSafeFeedback,
+  FEEDBACK_STATUSES,
+} from '../services/feedback.service.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { writeAdminAudit, listAdminAudit, listAdminAuditForTarget } from '../services/admin-audit.service.js';
+import { writeAdminAudit, listAdminAudit } from '../services/admin-audit.service.js';
 import { recoverStaleJobs } from '../services/job-recovery.service.js';
 import { listPaymentClaims } from '../services/session-store.service.js';
-import { dsListWhere } from '../lib/data-store.js';
 import { dispatchTransactionalEmail, inviteEmail } from '../services/email.service.js';
+import {
+  assertSafeAdminDisable,
+  assertSafeAdminRoleChange,
+  getAdminDashboard,
+  getAdminSystemStatus,
+  getAdminUserDetail,
+  listAdminInvites,
+  listAdminJobs,
+  listAdminUsersPage,
+  parsePageParams,
+} from '../services/admin.service.js';
 
 export const adminRoutes = Router();
 
@@ -50,6 +66,12 @@ adminRoutes.patch(
     });
     const body = schema.parse(req.body);
     const settings = await updateSystemSettings(body, req.user!.uid);
+    await writeAdminAudit({
+      actorUserId: req.user!.uid,
+      action: 'settings_update',
+      reason: 'system_settings',
+      after: { ...body },
+    });
     sendSuccess(res, { settings });
   })
 );
@@ -58,7 +80,7 @@ adminRoutes.get(
   '/invites',
   requirePermission(Permission.MANAGE_INVITES),
   asyncHandler(async (_req, res) => {
-    sendSuccess(res, { invites: await listInviteCodes() });
+    sendSuccess(res, { invites: await listAdminInvites() });
   })
 );
 
@@ -76,6 +98,12 @@ adminRoutes.post(
     });
     const body = schema.parse(req.body);
     const invite = await createInviteCode(body, req.user!.uid);
+    await writeAdminAudit({
+      actorUserId: req.user!.uid,
+      action: 'invite_create',
+      reason: invite.description,
+      after: { inviteId: invite.id, grantRole: invite.grantRole, maximumUses: invite.maximumUses },
+    });
     if (invite.assignedEmail) {
       void dispatchTransactionalEmail(
         `invite:${invite.id}`,
@@ -95,8 +123,14 @@ function paramId(value: string | string[] | undefined): string {
 adminRoutes.post(
   '/invites/:id/deactivate',
   requirePermission(Permission.MANAGE_INVITES),
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
     const invite = await deactivateInviteCode(paramId(req.params.id));
+    await writeAdminAudit({
+      actorUserId: req.user!.uid,
+      action: 'invite_deactivate',
+      reason: 'revoked',
+      after: { inviteId: invite.id },
+    });
     sendSuccess(res, { invite });
   })
 );
@@ -104,8 +138,15 @@ adminRoutes.post(
 adminRoutes.delete(
   '/invites/:id',
   requirePermission(Permission.MANAGE_INVITES),
-  asyncHandler(async (req, res) => {
-    await deleteInviteCode(paramId(req.params.id));
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const id = paramId(req.params.id);
+    await deleteInviteCode(id);
+    await writeAdminAudit({
+      actorUserId: req.user!.uid,
+      action: 'invite_delete',
+      reason: 'deleted',
+      after: { inviteId: id },
+    });
     sendSuccess(res, { deleted: true });
   })
 );
@@ -141,6 +182,7 @@ adminRoutes.patch(
     const schema = z.object({
       role: z.enum(['user', 'tester', 'admin', 'support']),
       reason: z.string().min(3).max(200),
+      confirm: z.literal(true),
     });
     const body = schema.parse(req.body);
     const roleMap: Record<string, UserRole> = {
@@ -155,6 +197,12 @@ adminRoutes.patch(
       throw new AppError(403, 'FORBIDDEN', 'super_admin kann nicht geändert werden');
     }
     const nextRole = roleMap[body.role]!;
+    await assertSafeAdminRoleChange({
+      actorUserId: req.user!.uid,
+      actorRole: req.user!.role as UserRole,
+      target,
+      nextRole,
+    });
     const user = await setUserRole(target.id, nextRole);
     await writeAdminAudit({
       actorUserId: req.user!.uid,
@@ -177,12 +225,38 @@ adminRoutes.get(
 );
 
 adminRoutes.get(
+  '/overview',
+  requirePermission(Permission.VIEW_ADMIN),
+  asyncHandler(async (_req, res) => {
+    sendSuccess(res, await getAdminDashboard());
+  })
+);
+
+adminRoutes.get(
+  '/system',
+  requirePermission(Permission.VIEW_ADMIN),
+  asyncHandler(async (_req, res) => {
+    sendSuccess(res, { system: await getAdminSystemStatus() });
+  })
+);
+
+adminRoutes.get(
+  '/jobs',
+  requirePermission(Permission.VIEW_ADMIN),
+  asyncHandler(async (req, res) => {
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const limitRaw = typeof req.query.limit === 'string' ? Number.parseInt(req.query.limit, 10) : undefined;
+    sendSuccess(res, { jobs: await listAdminJobs({ status, limit: limitRaw }) });
+  })
+);
+
+adminRoutes.get(
   '/users',
   requirePermission(Permission.VIEW_USERS),
   asyncHandler(async (req, res) => {
-    const q = typeof req.query.q === 'string' ? req.query.q : '';
-    const users = q ? await searchUsers(q) : await listUsers();
-    sendSuccess(res, { users });
+    const page = parsePageParams(req.query);
+    const result = await listAdminUsersPage(page);
+    sendSuccess(res, result);
   })
 );
 
@@ -193,17 +267,23 @@ adminRoutes.post(
     const body = z
       .object({
         disabled: z.boolean(),
-        reason: z.string().min(3).max(200).optional(),
+        reason: z.string().min(3).max(200),
+        confirm: z.literal(true),
       })
       .parse(req.body);
     const target = await getUserById(paramId(req.params.userId));
     if (!target) throw new AppError(404, 'INVALID_INPUT', 'Nutzer nicht gefunden');
+    await assertSafeAdminDisable({
+      actorUserId: req.user!.uid,
+      target,
+      disabled: body.disabled,
+    });
     const user = await setUserDisabled(target.id, body.disabled);
     await writeAdminAudit({
       actorUserId: req.user!.uid,
       action: body.disabled ? 'user_disable' : 'user_enable',
       targetUserId: target.id,
-      reason: body.reason ?? (body.disabled ? 'disabled' : 'enabled'),
+      reason: body.reason,
       before: { disabled: target.disabled ?? false },
       after: { disabled: body.disabled },
     });
@@ -288,18 +368,49 @@ adminRoutes.post(
 adminRoutes.get(
   '/feedback',
   requirePermission(Permission.VIEW_ADMIN),
-  asyncHandler(async (_req, res) => {
-    sendSuccess(res, { feedback: await listFeedback() });
+  asyncHandler(async (req, res) => {
+    const { limit, offset } = parseFeedbackListParams(req.query);
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const type = typeof req.query.type === 'string' ? req.query.type : undefined;
+    const category = typeof req.query.category === 'string' ? req.query.category : undefined;
+    const page = await listFeedbackPage({ status, type, category, limit, offset });
+    sendSuccess(res, {
+      feedback: page.items,
+      total: page.total,
+      limit: page.limit,
+      offset: page.offset,
+      hasMore: page.hasMore,
+    });
+  })
+);
+
+adminRoutes.get(
+  '/feedback/:id',
+  requirePermission(Permission.VIEW_ADMIN),
+  asyncHandler(async (req, res) => {
+    const row = await getFeedbackById(paramId(req.params.id));
+    if (!row) throw new AppError(404, 'NOT_FOUND', 'Feedback nicht gefunden');
+    sendSuccess(res, { feedback: toSafeFeedback(row) });
   })
 );
 
 adminRoutes.patch(
   '/feedback/:id',
   requirePermission(Permission.VIEW_ADMIN),
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
     const body = z.object({ status: z.enum(FEEDBACK_STATUSES) }).parse(req.body);
-    const row = await updateFeedbackStatus(paramId(req.params.id), body.status);
-    sendSuccess(res, { feedback: row });
+    const id = paramId(req.params.id);
+    const before = await getFeedbackById(id);
+    const row = await updateFeedbackStatus(id, body.status);
+    await writeAdminAudit({
+      actorUserId: req.user!.uid,
+      action: 'feedback_status',
+      targetUserId: row.userId,
+      reason: `status:${body.status}`,
+      before: { id, status: before?.status ?? null },
+      after: { id, status: row.status },
+    });
+    sendSuccess(res, { feedback: toSafeFeedback(row) });
   })
 );
 
@@ -307,19 +418,8 @@ adminRoutes.get(
   '/users/:userId',
   requirePermission(Permission.VIEW_USERS),
   asyncHandler(async (req, res) => {
-    const user = await getUserById(paramId(req.params.userId));
-    if (!user) throw new AppError(404, 'INVALID_INPUT', 'Nutzer nicht gefunden');
-    const [transactions, jobs, audit] = await Promise.all([
-      getTransactions(user.id, 30),
-      dsListWhere('generationJobs', { userId: user.id }),
-      listAdminAuditForTarget(user.id, 30),
-    ]);
-    sendSuccess(res, {
-      user,
-      transactions,
-      jobs: jobs.slice(0, 30),
-      audit,
-    });
+    const detail = await getAdminUserDetail(paramId(req.params.userId));
+    sendSuccess(res, detail);
   })
 );
 
@@ -346,8 +446,14 @@ adminRoutes.get(
 adminRoutes.post(
   '/jobs/recover',
   requirePermission(Permission.MANAGE_SYSTEM),
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
     const result = await recoverStaleJobs();
+    await writeAdminAudit({
+      actorUserId: req.user!.uid,
+      action: 'jobs_recover',
+      reason: 'stale-job-recovery',
+      after: { ...result },
+    });
     sendSuccess(res, { recovery: result });
   })
 );

@@ -8,8 +8,8 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { ServiceError } from '../lib/errors.js';
 import { getActiveDna } from '../services/dna.service.js';
 import {
-  listProjects,
   listTrash,
+  queryProjects,
   getProject,
   createProject,
   updateProject,
@@ -21,6 +21,7 @@ import {
 } from '../services/project.service.js';
 import { exportProjectZip } from '../services/project-export.service.js';
 import { getProjectOverview } from '../services/project-overview.service.js';
+import { detachAssetFromProject } from '../services/project-assets.service.js';
 
 export const projectRoutes = Router();
 projectRoutes.use(authenticate, requirePermission(Permission.MANAGE_PROJECTS));
@@ -44,8 +45,18 @@ const projectType = z.enum([
 projectRoutes.get(
   '/',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
-    const projects = await listProjects(req.user!.uid);
-    sendSuccess(res, { projects });
+    const query = z
+      .object({
+        q: z.string().max(80).optional(),
+        type: projectType.optional(),
+        sort: z.enum(['updated', 'newest', 'oldest', 'name']).optional(),
+        filter: z.enum(['active', 'archived']).optional(),
+        limit: z.coerce.number().int().min(1).max(100).optional(),
+        offset: z.coerce.number().int().min(0).optional(),
+      })
+      .parse(req.query);
+    const result = await queryProjects(req.user!.uid, query);
+    sendSuccess(res, { projects: result.projects, total: result.total });
   })
 );
 
@@ -100,11 +111,16 @@ projectRoutes.post(
       .parse(req.body);
 
     const dna = await getActiveDna(req.user!.uid);
-    const project = await createProject(req.user!.uid, {
-      ...body,
-      dnaId: body.dnaId ?? dna?.id,
-    });
-    sendSuccess(res, { project }, 201);
+    try {
+      const project = await createProject(req.user!.uid, {
+        ...body,
+        dnaId: body.dnaId ?? dna?.id,
+      });
+      sendSuccess(res, { project }, 201);
+    } catch (err) {
+      if (err instanceof ServiceError) throw new AppError(err.statusCode, err.code, err.message);
+      throw err;
+    }
   })
 );
 
@@ -149,6 +165,7 @@ projectRoutes.patch(
       const project = await updateProject(String(req.params.id), req.user!.uid, body);
       sendSuccess(res, { project });
     } catch (err) {
+      if (err instanceof ServiceError) throw new AppError(err.statusCode, err.code, err.message);
       throw new AppError(404, 'NOT_FOUND', err instanceof Error ? err.message : 'Projekt nicht gefunden');
     }
   })
@@ -184,6 +201,23 @@ projectRoutes.delete(
     const ok = await purgeProject(String(req.params.id), req.user!.uid);
     if (!ok) throw new AppError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
     sendSuccess(res, { deleted: true });
+  })
+);
+
+projectRoutes.delete(
+  '/:id/assets/:assetId',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    try {
+      const project = await detachAssetFromProject(
+        req.user!.uid,
+        String(req.params.id),
+        String(req.params.assetId)
+      );
+      sendSuccess(res, { project });
+    } catch (err) {
+      if (err instanceof ServiceError) throw new AppError(err.statusCode, err.code, err.message);
+      throw new AppError(404, 'NOT_FOUND', err instanceof Error ? err.message : 'Projekt nicht gefunden');
+    }
   })
 );
 

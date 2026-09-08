@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Project, ProjectAsset, ProjectAssetSourceType } from '@ucbs/shared';
 import { getProject, updateProject } from './project.service.js';
+import { getUserFile } from './file-cloud.service.js';
+import { ServiceError } from '../lib/errors.js';
 
 export interface AttachAssetInput {
   name: string;
@@ -14,6 +16,7 @@ export interface AttachAssetInput {
   mimeType?: string;
   size?: number;
   assetKey?: string;
+  parentAssetId?: string;
   version?: number;
 }
 
@@ -44,6 +47,11 @@ export async function attachAssetToProject(
   if (!projectId || !input.url) return null;
   const project = await getProject(projectId, userId);
   if (!project || project.deletedAt) return null;
+
+  if (input.fileId) {
+    const owned = await getUserFile(input.fileId, userId);
+    if (!owned) return null;
+  }
 
   const existing = findAttachedAsset(project, input);
   if (existing) {
@@ -80,8 +88,26 @@ export async function attachAssetToProject(
     mimeType: input.mimeType,
     size: input.size,
     assetKey: input.assetKey,
+    parentAssetId: input.parentAssetId,
   };
 
   await updateProject(projectId, userId, { assets: [...project.assets, asset] });
   return asset;
+}
+
+/** Removes the ProjectAsset link only. Does not delete the File Cloud record. */
+export async function detachAssetFromProject(
+  userId: string,
+  projectId: string,
+  assetId: string
+): Promise<Project> {
+  const project = await getProject(projectId, userId);
+  if (!project || project.deletedAt) {
+    throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  }
+  const next = project.assets.filter((a) => a.id !== assetId);
+  if (next.length === project.assets.length) {
+    throw new ServiceError(404, 'NOT_FOUND', 'Asset nicht im Projekt');
+  }
+  return updateProject(projectId, userId, { assets: next });
 }

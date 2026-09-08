@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Download, RefreshCw } from 'lucide-react';
 import type { ProjectStatus } from '@ucbs/shared';
+import { NEXTER_STUDIO_PATHS } from '@ucbs/shared';
 import { PageHeader, Badge, Button, NeonCard, Input } from '@/components/ui';
+import { Skeleton } from '@/v2/components/Skeleton';
 import { api, ApiError, type DesignVersion } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 import { useBrandProjectStore } from '@/v2/store/brand-project-store';
+import { useNexterStore } from '@/v2/store/nexter-store';
 import { formatCoins } from '@/lib/utils';
 
 const STATUSES: ProjectStatus[] = ['draft', 'in_progress', 'review', 'revision', 'completed', 'archived'];
@@ -22,31 +25,94 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'export', label: 'Export' },
 ];
 
+function jobStatusLabel(status: string): string {
+  switch (status) {
+    case 'queued':
+    case 'pending':
+      return 'Wartet';
+    case 'processing':
+    case 'running':
+      return 'Wird erstellt …';
+    case 'completed':
+      return 'Fertig';
+    case 'failed':
+      return 'Fehlgeschlagen';
+    case 'partial':
+      return 'Teilweise fertig';
+    default:
+      return status;
+  }
+}
+
+function AssetPreview({
+  name,
+  src,
+  fileId,
+}: {
+  name: string;
+  src?: string;
+  fileId?: string;
+}) {
+  const [url, setUrl] = useState(src || '');
+  useEffect(() => {
+    setUrl(src || '');
+  }, [src, fileId]);
+
+  async function renew() {
+    if (!fileId) return;
+    try {
+      const issued = await api.files.downloadUrl(fileId);
+      setUrl(issued.downloadUrl);
+    } catch {
+      setUrl('');
+    }
+  }
+
+  if (!url) return null;
+  return (
+    <img
+      src={url}
+      alt={name}
+      className="mb-2 h-32 w-full object-contain"
+      onError={() => {
+        void renew();
+      }}
+    />
+  );
+}
+
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const { refreshUser } = useAuth();
   const activeProjectId = useBrandProjectStore((s) => s.activeProjectId);
   const setActiveProjectId = useBrandProjectStore((s) => s.setActiveProjectId);
+  const queueNexterPrompt = useNexterStore((s) => s.queueNexterPrompt);
+  const setPanelOpen = useNexterStore((s) => s.setPanelOpen);
   const [tab, setTab] = useState<Tab>('overview');
   const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<Awaited<ReturnType<typeof api.projects.overview>> | null>(null);
   const [changeJobId, setChangeJobId] = useState<string | null>(null);
   const [changeText, setChangeText] = useState('');
   const [pendingQuote, setPendingQuote] = useState<{ id: string; coinCost: number; label: string } | null>(null);
   const [versions, setVersions] = useState<DesignVersion[]>([]);
+  const [renameValue, setRenameValue] = useState('');
 
   async function load() {
     if (!projectId) return;
     setLoading(true);
     setError(null);
+    setNotFound(false);
     try {
       const data = await api.projects.overview(projectId);
       setOverview(data);
+      setRenameValue(data.project.name);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Projekt nicht gefunden');
       setOverview(null);
+      setNotFound(true);
     } finally {
       setLoading(false);
     }
@@ -144,8 +210,42 @@ export function ProjectDetailPage() {
     }
   }
 
+  async function saveName() {
+    if (!projectId || !renameValue.trim()) return;
+    setError(null);
+    try {
+      await api.projects.rename(projectId, renameValue.trim());
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Umbenennen fehlgeschlagen');
+    }
+  }
+
+  async function removeAsset(assetId: string) {
+    if (!projectId) return;
+    setError(null);
+    try {
+      await api.projects.detachAsset(projectId, assetId);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Asset konnte nicht entfernt werden');
+    }
+  }
+
   const project = overview?.project;
   const isNexterActive = Boolean(projectId && activeProjectId === projectId);
+
+  function openNexter(prompt?: string) {
+    if (project) setActiveProjectId(project.id);
+    setPanelOpen(true);
+    if (prompt) queueNexterPrompt(prompt);
+    navigate('/nexter');
+  }
+
+  function openStudio(path: string) {
+    if (project) setActiveProjectId(project.id);
+    navigate(`${path}?projectId=${encodeURIComponent(project?.id || '')}`);
+  }
 
   return (
     <div className="space-y-6" data-testid="project-detail">
@@ -161,8 +261,20 @@ export function ProjectDetailPage() {
         badge={<Badge variant="brand">NEXTER</Badge>}
       />
 
-      {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-red-300">{error}</div>}
-      {loading && <p className="text-sm text-zinc-500">Lade Projekt…</p>}
+      {error && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-red-300" role="alert">
+          {error}
+        </div>
+      )}
+      {loading && (
+        <div className="space-y-2" aria-busy="true">
+          <p className="text-sm text-zinc-500">Lade Projekt…</p>
+          <Skeleton className="h-28" />
+        </div>
+      )}
+      {!loading && notFound && !project && (
+        <p className="text-sm text-zinc-400">Projekt nicht gefunden.</p>
+      )}
 
       {project && (
         <>
@@ -188,25 +300,106 @@ export function ProjectDetailPage() {
               </p>
               <p className="text-sm text-zinc-300" data-testid="project-dna">
                 DNA {overview.dna ? `„${overview.dna.name}“ v${overview.dna.version ?? '?'}` : 'nicht verknüpft'}
+                {overview.dna?.styleDirection ? ` · ${overview.dna.styleDirection}` : ''}
               </p>
+              {overview.dna?.primaryColors?.length ? (
+                <p className="text-xs text-zinc-400">Farben {overview.dna.primaryColors.join(', ')}</p>
+              ) : null}
               <p className="text-xs text-zinc-500">Erstellt {project.createdAt.slice(0, 10)}</p>
               <p className="text-xs text-zinc-500">Aktualisiert {project.updatedAt.slice(0, 16).replace('T', ' ')}</p>
               <p className="text-sm text-zinc-300" data-testid="project-nexter-active">
                 Nexter: {isNexterActive ? 'aktiv' : 'nicht aktiv'}
               </p>
             </div>
+            <div className="mt-4 flex max-w-md flex-col gap-2">
+              <Input label="Projektname" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
+              <Button size="sm" variant="outline" className="min-h-11 w-fit" onClick={() => void saveName()}>
+                Umbenennen
+              </Button>
+            </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button
                 size="sm"
+                className="min-h-11"
                 variant={isNexterActive ? 'secondary' : 'outline'}
-                onClick={() => setActiveProjectId(project.id)}
+                onClick={() => openNexter('Welche Dateien gehören zu diesem Projekt?')}
               >
-                {isNexterActive ? 'Aktiv für Nexter' : 'Für Nexter nutzen'}
+                {isNexterActive ? 'Nexter öffnen' : 'Für Nexter nutzen'}
               </Button>
-              <Button size="sm" variant="outline" className="gap-1" onClick={() => void load()}>
-                <RefreshCw className="h-3.5 w-3.5" /> Neu laden
+              <Button size="sm" variant="outline" className="min-h-11 gap-1" onClick={() => void load()}>
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Neu laden
               </Button>
+              <Link to="/creator-dna" className="inline-flex min-h-11 items-center text-sm text-[var(--ucbs-accent-cyan)] hover:underline">
+                DNA ansehen
+              </Link>
             </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {(
+                [
+                  ['logo', 'Logo erstellen'],
+                  ['banner', 'Banner'],
+                  ['facecam', 'Facecam'],
+                  ['overlay', 'Overlay'],
+                  ['sticker', 'Sticker'],
+                  ['mockup', 'Mockup'],
+                  ['video', 'Video'],
+                  ['layout', 'Layout'],
+                  ['music', 'Musik'],
+                  ['voice', 'Voice'],
+                  ['animation', 'Animation'],
+                  ['streamset', 'Streamset'],
+                ] as const
+              ).map(([key, label]) => (
+                <Button
+                  key={key}
+                  size="sm"
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={() => openStudio(NEXTER_STUDIO_PATHS[key])}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          </NeonCard>
+
+          {overview.errors?.jobs && (
+            <p className="text-sm text-amber-200" role="alert">
+              {overview.errors.jobs}
+            </p>
+          )}
+          {overview.streamset && (
+            <Link to={overview.streamset.href}>
+              <NeonCard accent="purple" title="Streamset">
+                <p className="mt-2 text-sm text-zinc-300">
+                  {overview.streamset.completed} von {overview.streamset.total} Assets fertig
+                  {overview.streamset.status === 'partial' ? ' · teilweise' : ` · ${jobStatusLabel(overview.streamset.status)}`}
+                </p>
+              </NeonCard>
+            </Link>
+          )}
+          <NeonCard accent="cyan" title="Jobs">
+            {(overview.activeJobs?.length || overview.failedJobs?.length || overview.completedJobs?.length) ? (
+              <ul className="mt-3 space-y-2 text-sm">
+                {(overview.activeJobs ?? []).map((job) => (
+                  <li key={job.id} className="text-zinc-200">
+                    {job.label} · {jobStatusLabel(job.status)}
+                  </li>
+                ))}
+                {(overview.failedJobs ?? []).map((job) => (
+                  <li key={job.id} className="text-amber-200">
+                    {job.label} · Fehlgeschlagen{job.error ? ` · ${job.error}` : ''}. Im Studio erneut anfragen (Quote).
+                  </li>
+                ))}
+                {(overview.completedJobs ?? []).map((job) => (
+                  <li key={job.id} className="text-zinc-300">
+                    {job.label} · Fertig
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-zinc-500">Keine laufenden Generierungen.</p>
+            )}
           </NeonCard>
 
           <div className="flex flex-wrap gap-2">
@@ -232,6 +425,13 @@ export function ProjectDetailPage() {
                 <li>{overview.content.length} Content-Pakete</li>
                 {overview.missing[0] && <li>Streamset fehlt noch: {overview.missing.join(', ')}</li>}
               </ul>
+              {(overview.activity?.length ?? 0) > 0 && (
+                <ul className="mt-4 space-y-1 text-xs text-zinc-500">
+                  {overview.activity!.map((item) => (
+                    <li key={item.id}>{item.title}</li>
+                  ))}
+                </ul>
+              )}
             </NeonCard>
           )}
 
@@ -242,9 +442,7 @@ export function ProjectDetailPage() {
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     {items.map((a) => (
                       <div key={a.id} className="rounded-lg border border-white/10 p-3" data-testid={`asset-${a.type}`}>
-                        {a.previewUrl && (
-                          <img src={a.previewUrl} alt={a.name} className="mb-2 h-32 w-full object-contain" />
-                        )}
+                        <AssetPreview name={a.name} src={a.previewUrl} fileId={a.fileId} />
                         <p className="font-medium text-zinc-100">{a.name}</p>
                         <p className="text-xs text-zinc-500">
                           {a.type} · {a.createdAt.slice(0, 10)}
@@ -253,32 +451,83 @@ export function ProjectDetailPage() {
                         </p>
                         <div className="mt-2 flex flex-wrap gap-2">
                           {a.downloadable && a.url && (
-                            <a href={a.url} download target="_blank" rel="noreferrer">
-                              <Button size="sm" variant="outline" className="gap-1">
-                                <Download className="h-3.5 w-3.5" /> Download
+                            <a href={a.fileId ? undefined : a.url} download target="_blank" rel="noreferrer">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="min-h-11 gap-1"
+                                onClick={(e) => {
+                                  if (!a.fileId) return;
+                                  e.preventDefault();
+                                  void api.files.downloadUrl(a.fileId).then((issued) => {
+                                    const link = document.createElement('a');
+                                    link.href = issued.downloadUrl;
+                                    link.download = a.name;
+                                    link.click();
+                                  });
+                                }}
+                              >
+                                <Download className="h-3.5 w-3.5" aria-hidden /> Download
                               </Button>
                             </a>
                           )}
-                          {a.changeSupported && a.jobId && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setChangeJobId(a.jobId!);
-                                setTab('versions');
-                                void loadVersions(a.jobId!);
-                              }}
-                            >
-                              Ändern
+                          {a.studioPath && a.studioPath !== '/projects' && (
+                            <Button size="sm" variant="outline" className="min-h-11" onClick={() => openStudio(a.studioPath!)}>
+                              Weiterarbeiten
                             </Button>
                           )}
+                          {a.changeSupported && a.jobId && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="min-h-11"
+                                onClick={() => {
+                                  setChangeJobId(a.jobId!);
+                                  setTab('versions');
+                                  void loadVersions(a.jobId!);
+                                }}
+                              >
+                                Ändern
+                              </Button>
+                              <Link
+                                to={`/change-request?jobId=${encodeURIComponent(a.jobId)}`}
+                                className="inline-flex min-h-11 items-center text-sm text-[var(--ucbs-accent-cyan)] hover:underline"
+                              >
+                                Änderung anfordern
+                              </Link>
+                            </>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="min-h-11"
+                            onClick={() => void removeAsset(a.id)}
+                          >
+                            Aus Projekt entfernen
+                          </Button>
                         </div>
                       </div>
                     ))}
                   </div>
                 </NeonCard>
               ))}
-              {!overview.assets.length && <p className="text-sm text-zinc-500">Noch keine Assets in diesem Projekt.</p>}
+              {!overview.assets.length && (
+                <div>
+                  <p className="text-sm text-zinc-500">Dieses Projekt hat noch keine Assets.</p>
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    <button type="button" className="min-h-11 text-sm text-[var(--ucbs-accent-cyan)] hover:underline" onClick={() => openStudio(NEXTER_STUDIO_PATHS.logo)}>
+                      Logo erstellen
+                    </button>
+                    <Link to="/file-cloud" className="inline-flex min-h-11 items-center text-sm text-[var(--ucbs-accent-cyan)] hover:underline">
+                      Datei hinzufügen
+                    </Link>
+                    <button type="button" className="min-h-11 text-sm text-[var(--ucbs-accent-cyan)] hover:underline" onClick={() => openNexter('Was fehlt meinem Streamset noch?')}>
+                      Nexter fragen
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -324,7 +573,12 @@ export function ProjectDetailPage() {
                   </p>
                 ))}
                 {!overview.files.length && (
-                  <p className="text-sm text-zinc-500">Keine Files mit projectId. Globale Dateien bleiben in der File Cloud.</p>
+                  <div>
+                    <p className="text-sm text-zinc-500">Keine Files mit projectId. Globale Dateien bleiben in der File Cloud.</p>
+                    <Link to="/file-cloud" className="mt-2 inline-flex min-h-11 items-center text-sm text-[var(--ucbs-accent-cyan)] hover:underline">
+                      Datei hinzufügen
+                    </Link>
+                  </div>
                 )}
               </div>
             </NeonCard>

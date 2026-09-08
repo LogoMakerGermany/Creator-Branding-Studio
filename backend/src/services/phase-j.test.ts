@@ -356,6 +356,7 @@ describe('phase J — production safety / provider / stats / errors', () => {
       'FEATURE_NOT_AVAILABLE',
       'NETWORK_ERROR',
       'PAYMENT_FAILED',
+      'PAYMENTS_DISABLED',
       'INVALID_UPLOAD',
       'UPLOAD_FAILED',
       'INTERNAL_ERROR',

@@ -11,6 +11,8 @@ export async function getAdminAnalytics() {
   );
   const failed = jobs.filter((j) => j.status === 'failed').length;
   const completed = jobs.filter((j) => j.status === 'completed').length;
+  const pendingJobs = jobs.filter((j) => j.status === 'pending').length;
+  const processingJobs = jobs.filter((j) => j.status === 'processing').length;
   const moduleCounts: Record<string, number> = {};
   for (const j of jobs) {
     const m = String(j.module ?? 'unknown');
@@ -26,9 +28,12 @@ export async function getAdminAnalytics() {
   return {
     users: users.length,
     testers: users.filter((u) => u.role === 'tester').length,
+    disabledUsers: users.filter((u) => u.disabled).length,
     generations: jobs.length,
     completed,
     failed,
+    pendingJobs,
+    processingJobs,
     failRate: jobs.length ? failed / jobs.length : 0,
     popularModules: Object.entries(moduleCounts)
       .sort((a, b) => b[1] - a[1])
