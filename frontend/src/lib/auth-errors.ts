@@ -14,6 +14,8 @@ export function formatAuthError(err: unknown): string {
       return 'Popup wurde blockiert. Bitte Popups erlauben oder erneut klicken.';
     case 'auth/internal-error':
     case 'auth/unauthorized-domain':
+    case 'auth/unauthorized-continue-uri':
+    case 'auth/invalid-continue-uri':
       return 'Diese Domain ist in Firebase nicht autorisiert. Authorized domains in der Firebase Console ergänzen.';
     case 'auth/invalid-credential':
       return 'E-Mail oder Passwort falsch — oder der Account wurde mit Google/OAuth erstellt.';

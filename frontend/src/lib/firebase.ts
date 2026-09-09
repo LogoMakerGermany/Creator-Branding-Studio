@@ -143,6 +143,29 @@ export async function loginWithEmail(email: string, password: string): Promise<U
   return result.user;
 }
 
+/** Sanitized Firebase error code from the last verification send. Never stores messages or tokens. */
+export const EMAIL_VERIFICATION_SEND_ERROR_KEY = 'nexter-verify-send-error';
+
+function rememberEmailVerificationSendError(err: unknown): void {
+  const code =
+    typeof (err as { code?: string })?.code === 'string' && (err as { code: string }).code
+      ? (err as { code: string }).code
+      : 'auth/unknown';
+  try {
+    sessionStorage.setItem(EMAIL_VERIFICATION_SEND_ERROR_KEY, code);
+  } catch {
+    /* ignore storage failures */
+  }
+}
+
+export function clearEmailVerificationSendError(): void {
+  try {
+    sessionStorage.removeItem(EMAIL_VERIFICATION_SEND_ERROR_KEY);
+  } catch {
+    /* ignore storage failures */
+  }
+}
+
 export async function registerWithEmail(email: string, password: string): Promise<User> {
   const a = getFirebaseAuth();
   if (!a) throw new Error('Firebase nicht konfiguriert');
@@ -152,8 +175,9 @@ export async function registerWithEmail(email: string, password: string): Promis
       url: authActionContinueUrl('/verify-email'),
       handleCodeInApp: false,
     });
-  } catch {
-    /* Registration still succeeds; VerifyEmailPage can resend. Do not claim the mail was sent. */
+    clearEmailVerificationSendError();
+  } catch (err) {
+    rememberEmailVerificationSendError(err);
   }
   return result.user;
 }
@@ -189,6 +213,7 @@ export async function resendEmailVerification(): Promise<void> {
     url: authActionContinueUrl('/verify-email'),
     handleCodeInApp: false,
   });
+  clearEmailVerificationSendError();
 }
 
 export async function logoutFirebase(): Promise<void> {

@@ -67,6 +67,11 @@ describe('email delivery local closure', () => {
     assert.match(firebase, /sendEmailVerification/);
     assert.match(firebase, /createUserWithEmailAndPassword/);
     assert.match(firebase, /resendEmailVerification/);
+    assert.match(firebase, /EMAIL_VERIFICATION_SEND_ERROR_KEY/);
+    assert.match(firebase, /rememberEmailVerificationSendError/);
+    assert.doesNotMatch(firebase, /Registration still succeeds; VerifyEmailPage can resend/);
+    assert.match(verify, /EMAIL_VERIFICATION_SEND_ERROR_KEY/);
+    assert.doesNotMatch(verify, /Wir haben eine Bestätigungs-Mail/);
     assert.match(verify, /resendEmailVerification/);
     assert.match(verify, /requestVerificationResend/);
     assert.match(verify, /reloadCurrentUserAndToken/);
@@ -169,6 +174,8 @@ describe('email delivery local closure', () => {
     assert.match(formatAuthError({ code: 'auth/expired-action-code', message: 'x' }), /abgelaufen/);
     assert.match(formatAuthError({ code: 'auth/invalid-action-code', message: 'x' }), /ungültig/);
     assert.match(formatAuthError({ code: 'auth/network-request-failed', message: 'x' }), /nicht gesendet/);
+    assert.match(formatAuthError({ code: 'auth/unauthorized-continue-uri', message: 'x' }), /nicht autorisiert/);
+    assert.match(formatAuthError({ code: 'auth/invalid-continue-uri', message: 'x' }), /nicht autorisiert/);
     assert.match(formatAuthError({ code: 'EMAIL_ALREADY_VERIFIED', message: 'x' }), /bereits bestätigt/);
     assert.match(formatAuthError({ code: 'AUTH_REQUIRED', message: 'x' }), /Sitzung/);
     assert.equal(errors.includes('creatorbrandingstudioultimate-production.up.railway.app'), false);

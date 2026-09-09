@@ -3,7 +3,11 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { AUTH_GATE_PATH, resolveAuthGate } from '@/lib/auth-gates';
 import { formatAuthError } from '@/lib/auth-errors';
-import { reloadCurrentUserAndToken, resendEmailVerification } from '@/lib/firebase';
+import {
+  EMAIL_VERIFICATION_SEND_ERROR_KEY,
+  reloadCurrentUserAndToken,
+  resendEmailVerification,
+} from '@/lib/firebase';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui';
 import { LegalFooter } from '@/components/legal/LegalFooter';
@@ -18,11 +22,22 @@ function remainingCooldown(): number {
   return Math.max(0, RESEND_COOLDOWN_MS - (Date.now() - at));
 }
 
+function recordedSendError(): string | null {
+  try {
+    return sessionStorage.getItem(EMAIL_VERIFICATION_SEND_ERROR_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function VerifyEmailPage() {
   const { user, loading, logout, refreshUser } = useAuth();
   const gate = resolveAuthGate(user);
   const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => {
+    const code = recordedSendError();
+    return code ? formatAuthError({ code }) : null;
+  });
   const [checking, setChecking] = useState(false);
   const [sending, setSending] = useState(false);
   const [cooldown, setCooldown] = useState(remainingCooldown);
@@ -77,7 +92,7 @@ export function VerifyEmailPage() {
       await resendEmailVerification();
       sessionStorage.setItem(RESEND_AT_KEY, String(Date.now()));
       setCooldown(RESEND_COOLDOWN_MS);
-      setStatus('Falls nötig, wurde eine neue Bestätigungs-Mail gesendet. Prüfe auch den Spam-Ordner.');
+      setStatus('Firebase hat den erneuten Versand angenommen. Zustellung ist damit nicht bestätigt — prüfe auch den Spam-Ordner.');
     } catch (err) {
       setError(formatAuthError(err));
     } finally {
@@ -91,8 +106,9 @@ export function VerifyEmailPage() {
     <div className="mx-auto max-w-lg space-y-6 p-4 sm:p-8">
       <h1 className="font-display text-3xl font-bold text-white">E-Mail bestätigen</h1>
       <p className="break-words text-sm text-zinc-300">
-        Wir haben eine Bestätigungs-Mail an <strong className="text-white">{user.email}</strong> gesendet.
-        Bestätige zuerst deine E-Mail-Adresse. Studios, Coins und Nexter-Aktionen bleiben bis dahin gesperrt.
+        Bestätige zuerst die Adresse <strong className="text-white">{user.email}</strong>.
+        Studios, Coins und Nexter-Aktionen bleiben bis dahin gesperrt.
+        Eine Bestätigungs-Mail wird nur angezeigt, wenn Firebase den Versand angenommen hat — prüfe auch den Spam-Ordner.
       </p>
       <p className="text-sm text-zinc-400">
         Öffne den Link in der Mail, komm dann hierher zurück und tippe auf „Ich habe meine E-Mail bestätigt“.
