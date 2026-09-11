@@ -6,6 +6,7 @@ import {
   NEXTER_STYLE_PREFERENCE_IDS,
   NEXTER_CREATOR_GOAL_IDS,
   isNexterAccentPresetId,
+  isNexterPreferenceMetadataKey,
   normalizeHexColor,
   resolveNexterPreferences,
   type NexterPreferences,
@@ -35,6 +36,8 @@ const PATCHABLE = new Set([
   'personalizationCompleted',
 ]);
 
+const FORBIDDEN_IDENTITY_FIELDS = new Set(['coinBalance', 'role', 'id', 'email', 'userId', 'uid']);
+
 function parseAllowedList<T extends string>(
   raw: unknown,
   allowed: readonly T[],
@@ -61,9 +64,10 @@ function parseAllowedList<T extends string>(
 
 export function assertSafePreferencesPatch(raw: Record<string, unknown>): NexterPreferencesPatch {
   for (const key of Object.keys(raw)) {
-    if (key === 'coinBalance' || key === 'role' || key === 'id' || key === 'email') {
+    if (FORBIDDEN_IDENTITY_FIELDS.has(key)) {
       throw new ServiceError(400, 'FORBIDDEN_FIELD', 'Dieses Feld darf nicht über Preferences geändert werden');
     }
+    if (isNexterPreferenceMetadataKey(key)) continue;
     if (!PATCHABLE.has(key)) {
       throw new ServiceError(400, 'UNKNOWN_FIELD', `Unbekanntes Preferences-Feld: ${key}`);
     }

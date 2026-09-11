@@ -56,6 +56,57 @@ export function emptyPersonalizationDraft(name = ''): PersonalizationDraft {
   };
 }
 
+/** Maps stored prefs into an editable draft. Server metadata such as updatedAt is never copied. */
+export function personalizationDraftFromPrefs(
+  prefs?: Partial<NexterPreferences> | null,
+  fallbackName = ''
+): PersonalizationDraft {
+  const base = emptyPersonalizationDraft(fallbackName);
+  if (!prefs) return base;
+  return {
+    language: typeof prefs.language === 'string' ? prefs.language : base.language,
+    addressAs: prefs.addressAs?.trim() || base.addressAs,
+    voiceCatalogId: prefs.voiceCatalogId === undefined ? base.voiceCatalogId : prefs.voiceCatalogId,
+    voiceOutputEnabled: prefs.voiceOutputEnabled !== false,
+    uiTheme: prefs.uiTheme ?? base.uiTheme,
+    accentPreset: prefs.accentPreset ?? base.accentPreset,
+    customPrimary: prefs.customPrimary === undefined ? base.customPrimary : prefs.customPrimary,
+    customAccent: prefs.customAccent === undefined ? base.customAccent : prefs.customAccent,
+    platforms: Array.isArray(prefs.platforms) ? prefs.platforms : base.platforms,
+    creationInterests: Array.isArray(prefs.creationInterests)
+      ? prefs.creationInterests
+      : base.creationInterests,
+    stylePreferences: Array.isArray(prefs.stylePreferences)
+      ? prefs.stylePreferences
+      : base.stylePreferences,
+    creatorGoals: Array.isArray(prefs.creatorGoals) ? prefs.creatorGoals : base.creatorGoals,
+  };
+}
+
+/** PATCH body with only user-editable fields. Never includes updatedAt or other server metadata. */
+export function toNexterPreferencesWriteBody(
+  draft: PersonalizationDraft,
+  extra?: { addressAs?: string; personalizationCompleted?: boolean }
+) {
+  return {
+    language: draft.language,
+    addressAs: extra?.addressAs ?? draft.addressAs,
+    voiceCatalogId: draft.voiceCatalogId,
+    voiceOutputEnabled: draft.voiceOutputEnabled,
+    uiTheme: draft.uiTheme,
+    accentPreset: draft.accentPreset,
+    customPrimary: draft.customPrimary,
+    customAccent: draft.customAccent,
+    platforms: draft.platforms,
+    creationInterests: draft.creationInterests,
+    stylePreferences: draft.stylePreferences,
+    creatorGoals: draft.creatorGoals,
+    ...(extra?.personalizationCompleted !== undefined
+      ? { personalizationCompleted: extra.personalizationCompleted }
+      : {}),
+  };
+}
+
 type GenderFilter = 'all' | 'male' | 'female' | 'neutral';
 
 const THEME_LABELS: Record<NexterUiTheme, string> = {

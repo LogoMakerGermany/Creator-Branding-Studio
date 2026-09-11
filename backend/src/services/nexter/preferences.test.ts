@@ -15,6 +15,7 @@ import { getOrCreateUser, getUserById, updateUser } from '../user.service.js';
 import { getActiveDna, upsertDna } from '../dna.service.js';
 import {
   assertSafePreferencesPatch,
+  getNexterPreferencesForUser,
   updateNexterPreferencesForUser,
 } from './preferences.service.js';
 import { resolveProviderVoiceId, listPublicNexterVoices } from './voice-catalog.service.js';
@@ -347,5 +348,121 @@ describe('nexter personalized onboarding V2', () => {
     const authMw = src('src/middleware/auth.ts');
     assert.match(authMw, /AUTH_REQUIRED/);
     assert.match(authMw, /401/);
+  });
+});
+
+describe('nexter preferences metadata compatibility', () => {
+  it('reads stored preferences that include updatedAt', async () => {
+    const user = await getOrCreateUser(`np-meta-read-${randomUUID()}`, 'meta-read@np.test', 'Reader');
+    const stored = await getNexterPreferencesForUser(user.id);
+    assert.equal(typeof stored.updatedAt, 'string');
+    assert.ok(stored.updatedAt.length > 0);
+    const resolved = resolveNexterPreferences({
+      language: 'de',
+      addressAs: 'Reader',
+      updatedAt: '2024-06-01T12:00:00.000Z',
+    });
+    assert.equal(resolved.updatedAt, '2024-06-01T12:00:00.000Z');
+    assert.equal(resolved.language, 'de');
+  });
+
+  it('ignores client updatedAt and other server metadata on write', async () => {
+    const user = await getOrCreateUser(`np-meta-write-${randomUUID()}`, 'meta-write@np.test', 'Writer');
+    const forged = '1999-01-01T00:00:00.000Z';
+    const patch = assertSafePreferencesPatch({
+      language: 'en',
+      updatedAt: forged,
+      createdAt: forged,
+      version: 99,
+      timestamps: forged,
+    });
+    assert.equal(patch.language, 'en');
+    assert.equal('updatedAt' in patch, false);
+    assert.equal('createdAt' in patch, false);
+    assert.equal('version' in patch, false);
+    assert.equal('timestamps' in patch, false);
+
+    const saved = await updateNexterPreferencesForUser(user.id, {
+      language: 'en',
+      addressAs: 'Writer',
+      updatedAt: forged,
+      createdAt: forged,
+      version: 99,
+      timestamps: forged,
+    });
+    assert.equal(saved.nexterPreferences.language, 'en');
+    assert.notEqual(saved.nexterPreferences.updatedAt, forged);
+    assert.equal(Date.parse(saved.nexterPreferences.updatedAt) > Date.parse(forged), true);
+    assert.equal('createdAt' in saved.nexterPreferences, false);
+  });
+
+  it('rejects a real unknown preference field', () => {
+    assert.throws(
+      () => assertSafePreferencesPatch({ favoriteAnimal: 'wolf' }),
+      (err: unknown) => err instanceof Error && /UNKNOWN_FIELD/.test(String(err))
+    );
+    assert.throws(
+      () => assertSafePreferencesPatch({ language: 'de', favoriteAnimal: 'wolf', updatedAt: '2024-01-01T00:00:00.000Z' }),
+      /UNKNOWN_FIELD/
+    );
+  });
+
+  it('accepts preferences without metadata fields', async () => {
+    const user = await getOrCreateUser(`np-meta-none-${randomUUID()}`, 'meta-none@np.test', 'Bare');
+    const patch = assertSafePreferencesPatch({ language: 'de', addressAs: 'Bare' });
+    assert.equal(patch.language, 'de');
+    assert.equal('updatedAt' in patch, false);
+    const saved = await updateNexterPreferencesForUser(user.id, { language: 'de', addressAs: 'Bare' });
+    assert.equal(saved.nexterPreferences.addressAs, 'Bare');
+    assert.equal(typeof saved.nexterPreferences.updatedAt, 'string');
+  });
+
+  it('echoing a stored preference document including updatedAt does not fail', async () => {
+    const user = await getOrCreateUser(`np-meta-echo-${randomUUID()}`, 'meta-echo@np.test', 'Echo');
+    await updateUser(user.id, { onboardingCompleted: true });
+    const stored = (await getUserById(user.id))!.nexterPreferences;
+    const saved = await updateNexterPreferencesForUser(user.id, {
+      ...stored,
+      addressAs: 'TreffNix',
+      personalizationCompleted: true,
+    });
+    assert.equal(saved.nexterPreferences.addressAs, 'TreffNix');
+    assert.equal(saved.nexterPreferences.personalizationCompleted, true);
+    const again = await updateNexterPreferencesForUser(user.id, {
+      ...saved.nexterPreferences,
+      updatedAt: '1999-01-01T00:00:00.000Z',
+    });
+    assert.notEqual(again.nexterPreferences.updatedAt, '1999-01-01T00:00:00.000Z');
+    assert.equal(again.nexterPreferences.addressAs, 'TreffNix');
+  });
+
+  it('blocks identity fields and keeps coin/role/auth gates unchanged', async () => {
+    const user = await getOrCreateUser(`np-meta-id-${randomUUID()}`, 'meta-id@np.test', 'Id');
+    const beforeCoins = user.coinBalance;
+    assert.throws(() => assertSafePreferencesPatch({ userId: 'other' }), /FORBIDDEN_FIELD/);
+    assert.throws(() => assertSafePreferencesPatch({ uid: 'other' }), /FORBIDDEN_FIELD/);
+    assert.throws(() => assertSafePreferencesPatch({ id: 'other' }), /FORBIDDEN_FIELD/);
+    await assert.rejects(
+      () => updateNexterPreferencesForUser(user.id, { uid: user.id, language: 'en' }),
+      /FORBIDDEN_FIELD/
+    );
+    const after = await getUserById(user.id);
+    assert.equal(after?.coinBalance, beforeCoins);
+    assert.equal(after?.nexterPreferences.language, 'de');
+  });
+
+  it('onboarding setup and settings writes omit server metadata', () => {
+    const setup = repo('frontend/src/pages/onboarding/NexterSetupPage.tsx');
+    const settings = repo('frontend/src/v2/pages/SettingsHubPage.tsx');
+    const fields = repo('frontend/src/components/nexter/NexterPersonalizationFields.tsx');
+    assert.match(setup, /toNexterPreferencesWriteBody/);
+    assert.match(settings, /toNexterPreferencesWriteBody/);
+    assert.match(setup, /personalizationDraftFromPrefs/);
+    assert.match(settings, /personalizationDraftFromPrefs/);
+    assert.match(fields, /Server metadata such as updatedAt is never copied/);
+    assert.equal(setup.includes('...draft'), false);
+    assert.equal(settings.includes('...draft'), false);
+    const writeFn = fields.slice(fields.indexOf('export function toNexterPreferencesWriteBody'));
+    assert.equal(writeFn.includes('updatedAt'), false);
   });
 });

@@ -16,6 +16,8 @@ import { Button } from '@/components/ui';
 import {
   NexterPersonalizationFields,
   emptyPersonalizationDraft,
+  personalizationDraftFromPrefs,
+  toNexterPreferencesWriteBody,
   type PersonalizationDraft,
 } from '@/components/nexter/NexterPersonalizationFields';
 import { applyNexterAppearance } from '@/lib/nexter-appearance';
@@ -42,36 +44,20 @@ function emptyDraft(name: string): PersonalizationDraft {
 }
 
 function loadDraft(userName: string, prefs?: PersonalizationDraft | null): { step: number; draft: PersonalizationDraft } {
-  const base = emptyDraft(userName);
-  const merge = (partial?: Partial<PersonalizationDraft>): PersonalizationDraft => ({
-    ...base,
-    ...partial,
-    addressAs: partial?.addressAs?.trim() || base.addressAs,
-    platforms: Array.isArray(partial?.platforms) ? partial.platforms : base.platforms,
-    creationInterests: Array.isArray(partial?.creationInterests)
-      ? partial.creationInterests
-      : base.creationInterests,
-    stylePreferences: Array.isArray(partial?.stylePreferences)
-      ? partial.stylePreferences
-      : base.stylePreferences,
-    creatorGoals: Array.isArray(partial?.creatorGoals) ? partial.creatorGoals : base.creatorGoals,
-    customPrimary: partial?.customPrimary === undefined ? base.customPrimary : partial.customPrimary,
-    customAccent: partial?.customAccent === undefined ? base.customAccent : partial.customAccent,
-  });
   try {
     const raw = sessionStorage.getItem(DRAFT_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as { step?: number; draft?: Partial<PersonalizationDraft> };
       return {
         step: typeof parsed.step === 'number' ? Math.max(0, Math.min(STEPS.length - 1, parsed.step)) : 0,
-        draft: merge(parsed.draft),
+        draft: personalizationDraftFromPrefs(parsed.draft, userName),
       };
     }
   } catch {
     /* ignore */
   }
-  if (prefs) return { step: 0, draft: merge(prefs) };
-  return { step: 0, draft: base };
+  if (prefs) return { step: 0, draft: personalizationDraftFromPrefs(prefs, userName) };
+  return { step: 0, draft: emptyDraft(userName) };
 }
 
 function NexterBubble({ children }: { children: string }) {
@@ -146,11 +132,12 @@ export function NexterSetupPage() {
     setSaving(true);
     setError(null);
     try {
-      await api.auth.updateNexterPreferences({
-        ...draft,
-        addressAs: draft.addressAs.trim() || user?.displayName || 'Creator',
-        personalizationCompleted: true,
-      });
+      await api.auth.updateNexterPreferences(
+        toNexterPreferencesWriteBody(draft, {
+          addressAs: draft.addressAs.trim() || user?.displayName || 'Creator',
+          personalizationCompleted: true,
+        })
+      );
       sessionStorage.removeItem(DRAFT_KEY);
       await refreshUser();
       navigate('/dashboard', { replace: true });

@@ -18,7 +18,8 @@ import {
 } from '@ucbs/shared';
 import {
   NexterPersonalizationFields,
-  emptyPersonalizationDraft,
+  personalizationDraftFromPrefs,
+  toNexterPreferencesWriteBody,
   type PersonalizationDraft,
 } from '@/components/nexter/NexterPersonalizationFields';
 import { applyNexterAppearance } from '@/lib/nexter-appearance';
@@ -47,22 +48,7 @@ const SECTIONS = [
 
 function draftFromUser(user: UserProfile | null): PersonalizationDraft {
   const prefs = user?.nexterPreferences;
-  const base = emptyPersonalizationDraft(prefs?.addressAs || user?.displayName || '');
-  return {
-    ...base,
-    language: prefs?.language ?? user?.locale ?? base.language,
-    addressAs: prefs?.addressAs || user?.displayName || '',
-    voiceCatalogId: prefs?.voiceCatalogId ?? base.voiceCatalogId,
-    voiceOutputEnabled: prefs?.voiceOutputEnabled !== false,
-    uiTheme: prefs?.uiTheme ?? base.uiTheme,
-    accentPreset: prefs?.accentPreset ?? base.accentPreset,
-    customPrimary: prefs?.customPrimary ?? null,
-    customAccent: prefs?.customAccent ?? null,
-    platforms: prefs?.platforms ?? [],
-    creationInterests: prefs?.creationInterests ?? [],
-    stylePreferences: prefs?.stylePreferences ?? [],
-    creatorGoals: prefs?.creatorGoals ?? [],
-  };
+  return personalizationDraftFromPrefs(prefs, prefs?.addressAs || user?.displayName || '');
 }
 
 function sanitizeClientDisplayName(name: string): { value: string; error: string | null } {
@@ -340,11 +326,12 @@ export function SettingsHubPage() {
       }
       if (!sameDraft(draft, savedDraft)) {
         try {
-          await api.auth.updateNexterPreferences({
-            ...draft,
-            addressAs: draft.addressAs.trim() || nameCheck.value || 'Creator',
-            personalizationCompleted: true,
-          });
+          await api.auth.updateNexterPreferences(
+            toNexterPreferencesWriteBody(draft, {
+              addressAs: draft.addressAs.trim() || nameCheck.value || 'Creator',
+              personalizationCompleted: true,
+            })
+          );
         } catch (err) {
           prefsOk = false;
           prefsMsg = err instanceof ApiError ? err.message : 'Einstellungen speichern fehlgeschlagen';

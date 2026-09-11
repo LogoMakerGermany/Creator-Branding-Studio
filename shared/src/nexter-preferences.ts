@@ -216,6 +216,19 @@ function sanitizeIdList<T extends string>(raw: unknown, allowed: readonly T[], m
   return out;
 }
 
+/** Server-owned fields stored with preferences. Never accepted from client patches. */
+export const NEXTER_PREFERENCE_METADATA_KEYS = [
+  'updatedAt',
+  'createdAt',
+  'version',
+  'timestamps',
+] as const;
+export type NexterPreferenceMetadataKey = (typeof NEXTER_PREFERENCE_METADATA_KEYS)[number];
+
+export function isNexterPreferenceMetadataKey(value: string): value is NexterPreferenceMetadataKey {
+  return (NEXTER_PREFERENCE_METADATA_KEYS as readonly string[]).includes(value);
+}
+
 export interface NexterPreferences {
   language: string;
   addressAs: string;
@@ -232,6 +245,7 @@ export interface NexterPreferences {
   /** When false, Nexter spoken playback is off — text chat still works. */
   voiceOutputEnabled: boolean;
   personalizationCompleted: boolean;
+  /** Server-managed write stamp. Clients may read it; patches must not set it. */
   updatedAt: string;
 }
 
