@@ -21,6 +21,22 @@ function generateId(): string {
   return randomUUID();
 }
 
+/** Firestore rejects `undefined` field values. JSON omits them; Admin SDK does not. */
+export function omitUndefinedFields<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => omitUndefinedFields(item)) as T;
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      if (nested === undefined) continue;
+      out[key] = omitUndefinedFields(nested);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 /** Ensure older Firestore docs satisfy the current CreatorDNA shape. */
 export function normalizeDna(raw: CreatorDNA): CreatorDNA {
   return {
@@ -374,7 +390,7 @@ async function saveVersionSnapshot(dna: CreatorDNA, changeDescription?: string):
   }
 
   const db = getFirestore();
-  await db.collection('dna_versions').doc(version.id).set(version);
+  await db.collection('dna_versions').doc(version.id).set(omitUndefinedFields(version));
 }
 
 async function persistDnaDocument(dna: CreatorDNA, userId: string): Promise<void> {
@@ -400,7 +416,7 @@ async function persistDnaDocument(dna: CreatorDNA, userId: string): Promise<void
       });
     }
   }
-  batch.set(db.collection('creator_dna').doc(dna.id), dna);
+  batch.set(db.collection('creator_dna').doc(dna.id), omitUndefinedFields(dna));
   await batch.commit();
 }
 
@@ -441,7 +457,7 @@ export async function upsertDna(input: DnaWriteInput): Promise<CreatorDNA> {
       });
     }
   }
-  batch.set(db.collection('creator_dna').doc(id), dna);
+  batch.set(db.collection('creator_dna').doc(id), omitUndefinedFields(dna));
   await batch.commit();
   await saveVersionSnapshot(dna, 'DNA erstellt');
   await syncCharacterSidecar(dna);
@@ -462,7 +478,7 @@ export async function createLinkedDna(
   }
 
   const db = getFirestore();
-  await db.collection('creator_dna').doc(id).set(dna);
+  await db.collection('creator_dna').doc(id).set(omitUndefinedFields(dna));
   return dna;
 }
 

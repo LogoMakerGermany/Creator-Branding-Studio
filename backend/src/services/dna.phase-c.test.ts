@@ -281,3 +281,82 @@ describe('phase C — dna service persistence', () => {
     assert.equal(nexterCtx.locks?.colors, true);
   });
 });
+
+function undefinedPaths(value: unknown, path = ''): string[] {
+  if (value === undefined) return [path || '(root)'];
+  if (value === null || typeof value !== 'object') return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item, i) => undefinedPaths(item, `${path}[${i}]`));
+  }
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, nested]) =>
+    undefinedPaths(nested, path ? `${path}.${key}` : key)
+  );
+}
+
+describe('onboarding DNA Firestore payload', () => {
+  it('strips undefined fields that Firestore would reject on POST /dna', async () => {
+    const { omitUndefinedFields, upsertDna } = await import('./dna.service.js');
+    const { readFileSync } = await import('node:fs');
+    const { dirname, join } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'dna.service.ts'), 'utf8');
+    assert.match(src, /omitUndefinedFields\(dna\)/);
+    assert.match(src, /omitUndefinedFields\(version\)/);
+    assert.doesNotMatch(src, /\.set\(dna\)/);
+    assert.doesNotMatch(src, /\.set\(version\)/);
+
+    const raw = {
+      id: 'dna-onboarding',
+      userId: 'user-onboarding',
+      name: 'TreffNix',
+      type: 'creator',
+      mascot: '',
+      styleDirection: 'gaming',
+      primaryColors: ['#1E40AF'],
+      secondaryColors: ['#22D3EE'],
+      brandingStyle: 'Streaming',
+      aiAnalysis: undefined,
+      lightingStyle: undefined,
+      dimension: undefined,
+      projectId: undefined,
+      typography: undefined,
+      atmosphere: undefined,
+      outputPrefs: undefined,
+    };
+    assert.ok(undefinedPaths(raw).length > 0);
+    const safe = omitUndefinedFields(raw);
+    assert.deepEqual(undefinedPaths(safe), []);
+    assert.equal('aiAnalysis' in safe, false);
+    assert.equal('projectId' in safe, false);
+
+    const kept = omitUndefinedFields({
+      present: false,
+      count: 0,
+      mascot: '',
+      note: null,
+      nested: { locked: false, extra: undefined },
+      skip: undefined,
+    });
+    assert.equal(kept.present, false);
+    assert.equal(kept.count, 0);
+    assert.equal(kept.mascot, '');
+    assert.equal(kept.note, null);
+    assert.equal(kept.nested.locked, false);
+    assert.equal('extra' in kept.nested, false);
+    assert.equal('skip' in kept, false);
+
+    const created = await upsertDna({
+      userId: `onboard-${randomUUID()}`,
+      name: 'TreffNix',
+      mascot: undefined,
+      styleDirection: 'gaming',
+      primaryColors: ['#1E40AF'],
+      secondaryColors: ['#22D3EE'],
+      targetPlatforms: ['twitch'],
+      brandingStyle: 'Streaming',
+    });
+    assert.deepEqual(undefinedPaths(omitUndefinedFields(created)), []);
+    assert.equal(created.name, 'TreffNix');
+    assert.deepEqual(created.primaryColors, ['#1E40AF']);
+  });
+});
