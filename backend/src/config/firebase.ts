@@ -113,3 +113,48 @@ export async function verifyIdToken(token: string): Promise<admin.auth.DecodedId
 
   return getAuth().verifyIdToken(token);
 }
+
+export async function createFirebaseCustomToken(uid: string): Promise<string> {
+  initializeFirebase();
+  if (isDevMode()) {
+    return `dev_custom_${uid}`;
+  }
+  if (!admin.apps.length) {
+    throw new Error('Authentication service unavailable');
+  }
+  return getAuth().createCustomToken(uid);
+}
+
+export async function lookupFirebaseUserByEmail(
+  email: string
+): Promise<{ uid: string; emailVerified: boolean } | null> {
+  initializeFirebase();
+  if (isDevMode() || !admin.apps.length) {
+    return null;
+  }
+  try {
+    const user = await getAuth().getUserByEmail(email);
+    return { uid: user.uid, emailVerified: user.emailVerified === true };
+  } catch (err) {
+    const code = (err as { code?: string })?.code;
+    if (code === 'auth/user-not-found') return null;
+    throw err;
+  }
+}
+
+export async function createFirebaseAuthUser(input: {
+  email: string;
+  emailVerified: boolean;
+  displayName?: string;
+}): Promise<{ uid: string }> {
+  initializeFirebase();
+  if (isDevMode() || !admin.apps.length) {
+    throw new Error('Authentication service unavailable');
+  }
+  const user = await getAuth().createUser({
+    email: input.email,
+    emailVerified: input.emailVerified,
+    displayName: input.displayName,
+  });
+  return { uid: user.uid };
+}

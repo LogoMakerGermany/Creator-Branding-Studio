@@ -7,8 +7,6 @@ export type AuthProvider =
   | 'discord'
   | 'twitch'
   | 'tiktok'
-  | 'github'
-  | 'apple'
   | 'microsoft'
   | 'email';
 

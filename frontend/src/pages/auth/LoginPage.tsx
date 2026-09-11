@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from '@ucbs/shared';
 import { Button, Input, CardTitle, CardDescription } from '@/components/ui';
@@ -9,14 +9,12 @@ import { formatAuthError } from '@/lib/auth-errors';
 import { api } from '@/services/api';
 import type { AuthProviderId } from '@/lib/auth-providers';
 
-const OAUTH_PROVIDERS: { id: AuthProviderId; label: string; available: boolean }[] = [
-  { id: 'google', label: 'Google', available: true },
-  { id: 'github', label: 'GitHub', available: false },
-  { id: 'apple', label: 'Apple', available: false },
-  { id: 'microsoft', label: 'Microsoft', available: false },
-  { id: 'discord', label: 'Discord', available: false },
-  { id: 'twitch', label: 'Twitch', available: false },
-  { id: 'tiktok', label: 'TikTok', available: false },
+const OAUTH_LABELS: { id: AuthProviderId; label: string }[] = [
+  { id: 'google', label: 'Google' },
+  { id: 'discord', label: 'Discord' },
+  { id: 'twitch', label: 'Twitch' },
+  { id: 'tiktok', label: 'TikTok' },
+  { id: 'microsoft', label: 'Microsoft' },
 ];
 
 export function LoginPage() {
@@ -46,12 +44,40 @@ export function LoginPage() {
   const [registrationOpen, setRegistrationOpen] = useState(true);
   const [legalAccepted, setLegalAccepted] = useState(false);
   const [legalError, setLegalError] = useState<string | null>(null);
+  const [oauth, setOauth] = useState<{
+    google?: boolean;
+    discord?: boolean;
+    twitch?: boolean;
+    tiktok?: boolean;
+    microsoft?: boolean;
+  } | null>(null);
+
+  const oauthProviders = useMemo(
+    () =>
+      OAUTH_LABELS.map((p) => ({
+        ...p,
+        available:
+          p.id === 'google'
+            ? true
+            : p.id === 'discord'
+              ? oauth?.discord === true
+              : p.id === 'twitch'
+                ? oauth?.twitch === true
+                : p.id === 'tiktok'
+                  ? oauth?.tiktok === true
+                  : p.id === 'microsoft'
+                    ? oauth?.microsoft === true
+                    : false,
+      })),
+    [oauth]
+  );
 
   useEffect(() => {
     api.status()
       .then((status) => {
         setBackendOnline(true);
         setDevLoginEnabled(status.features.devLogin);
+        setOauth(status.features.oauth ?? null);
       })
       .catch(() => setBackendOnline(false));
 
@@ -93,7 +119,8 @@ export function LoginPage() {
   }
 
   async function handleOAuth(provider: AuthProviderId) {
-    const entry = OAUTH_PROVIDERS.find((p) => p.id === provider);
+    if (loading) return;
+    const entry = oauthProviders.find((p) => p.id === provider);
     if (!entry?.available) {
       setError('Dieser Anmeldeanbieter ist derzeit nicht verfügbar.');
       return;
@@ -269,14 +296,21 @@ export function LoginPage() {
           )}
           {!showReset && (
             <div className="mt-6 grid gap-2 sm:grid-cols-2">
-              {OAUTH_PROVIDERS.map((p) => (
+              {oauthProviders.map((p) => (
                 <button
                   key={p.id}
+                  id={`oauth-login-${p.id}`}
                   type="button"
                   disabled={loading || !p.available || (isRegister && !registrationOpen)}
                   onClick={() => handleOAuth(p.id)}
-                  aria-disabled={!p.available}
-                  title={p.available ? undefined : `${p.label} ist derzeit nicht verfügbar`}
+                  aria-disabled={!p.available || loading}
+                  aria-busy={loading || undefined}
+                  aria-label={
+                    p.available
+                      ? `Mit ${p.label} anmelden`
+                      : `${p.label} ist derzeit nicht verfügbar`
+                  }
+                  title={p.available ? `Mit ${p.label} anmelden` : `${p.label} ist derzeit nicht verfügbar`}
                   className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-surface-900 py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-white/10 disabled:opacity-50"
                 >
                   {p.available ? p.label : `${p.label} (nicht verfügbar)`}

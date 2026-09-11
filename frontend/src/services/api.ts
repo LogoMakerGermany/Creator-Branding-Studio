@@ -214,6 +214,20 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ displayName }),
       }),
+    completeOAuth: (ticket: string) =>
+      request<{
+        customToken: string;
+        provider: 'discord' | 'twitch' | 'tiktok';
+        inviteCode?: string;
+        legalAcceptance?: { termsVersion: string; privacyVersion: string };
+      }>('/api/v1/auth/oauth/complete', {
+        method: 'POST',
+        body: JSON.stringify({ ticket }),
+      }),
+    startOAuthLink: (provider: 'discord') =>
+      request<{ url: string }>(`/api/v1/auth/oauth/${provider}/link/start`, {
+        method: 'POST',
+      }),
     updateProfile: (body: { displayName?: string; locale?: string }) =>
       request<{ user: UserProfile }>('/api/v1/auth/me', {
         method: 'PATCH',
@@ -2567,7 +2581,18 @@ export interface PlatformStatus {
   customEmailProvider?: { name: string; status: 'configured' | 'not_configured'; liveChecked?: boolean };
   rtmp: { server: string; appName: string; provider: string };
   ai: Record<string, { configured: boolean; liveChecked: boolean; available: boolean | null }>;
-  features: { devLogin: boolean; devCoinPurchase: boolean; liveStreaming: boolean };
+  features: {
+    devLogin: boolean;
+    devCoinPurchase: boolean;
+    liveStreaming: boolean;
+    oauth?: {
+      google: boolean;
+      discord: boolean;
+      twitch: boolean;
+      tiktok: boolean;
+      microsoft: boolean;
+    };
+  };
   killSwitches?: { generationsEnabled: boolean; paymentsEnabled: boolean };
 }
 

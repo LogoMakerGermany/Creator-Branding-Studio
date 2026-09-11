@@ -82,6 +82,11 @@ describe('Railway production environment alignment', () => {
     assert.doesNotMatch(repo('frontend/src/lib/firebase.ts'), new RegExp(OLD_PROJECT));
     assert.equal(repo('backend/src/config/env.ts').includes(OLD_PROJECT), false);
     assert.equal(repo('backend/src/config/env.ts').includes(retiredHost), false);
+    assert.equal(repo('frontend/src/lib/auth-errors.ts').includes(retiredHost), false);
+    assert.equal(repo('frontend/src/pages/auth/LoginPage.tsx').includes(retiredHost), false);
+    assert.equal(repo('frontend/src/lib/runtime-config.ts').includes(retiredHost), false);
+    assert.equal(repo('frontend/src/lib/auth-providers.ts').includes("'github'"), false);
+    assert.equal(repo('frontend/src/lib/auth-providers.ts').includes("'apple'"), false);
   });
 
   it('production fail-closed, invite_only, welcome 50, and payments stay unchanged', () => {

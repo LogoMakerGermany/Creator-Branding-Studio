@@ -6,6 +6,7 @@ import { listUserFiles } from './file-cloud.service.js';
 import { ServiceError } from '../lib/errors.js';
 import { writeAdminAudit } from './admin-audit.service.js';
 import { listFeedbackForUserExport, redactFeedbackForAccountDelete } from './feedback.service.js';
+import { deleteOAuthIdentitiesForUser, listOAuthIdentitiesForUser } from './oauth.service.js';
 
 export const ACCOUNT_DELETE_CONFIRMATION = 'DELETE_ACCOUNT';
 
@@ -19,6 +20,7 @@ export interface AccountExport {
   nexterQuotes: unknown[];
   jobs: unknown[];
   support: unknown[];
+  oauthIdentities: unknown[];
   retention: {
     paymentsAndLedger: 'retained';
     adminAudit: 'retained';
@@ -53,7 +55,7 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
   const user = await getUserById(userId);
   if (!user) throw new ServiceError(404, 'NOT_FOUND', 'Nutzer nicht gefunden');
 
-  const [projects, files, coinTransactions, nexterSessions, nexterQuotes, generationJobs, support] =
+  const [projects, files, coinTransactions, nexterSessions, nexterQuotes, generationJobs, support, oauthIdentities] =
     await Promise.all([
       listProjects(userId, { includeDeleted: true }),
       listUserFiles(userId),
@@ -62,6 +64,7 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
       dsListWhere('nexterQuotes', { userId }),
       dsListWhere('generationJobs', { userId }),
       listFeedbackForUserExport(userId),
+      listOAuthIdentitiesForUser(userId),
     ]);
 
   const safeUser = stripSecrets({
@@ -69,6 +72,7 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
     email: user.email,
     displayName: user.displayName,
     role: user.role,
+    authProviders: user.authProviders,
     coinBalance: user.coinBalance,
     locale: user.locale,
     nexterPreferences: user.nexterPreferences,
@@ -96,6 +100,14 @@ export async function exportAccountData(userId: string): Promise<AccountExport> 
     nexterQuotes: stripSecrets(nexterQuotes),
     jobs: stripSecrets(generationJobs),
     support: stripSecrets(support),
+    oauthIdentities: stripSecrets(
+      oauthIdentities.map((identity) => ({
+        provider: identity.provider,
+        providerUserId: identity.providerUserId,
+        emailVerified: identity.emailVerified,
+        createdAt: identity.createdAt,
+      }))
+    ),
     retention: {
       paymentsAndLedger: 'retained',
       adminAudit: 'retained',
@@ -125,6 +137,7 @@ export async function requestAccountDeletion(
   }
 
   await redactFeedbackForAccountDelete(userId);
+  await deleteOAuthIdentitiesForUser(userId);
 
   const sessions = await dsListWhere('nexterSessions', { userId });
   for (const session of sessions) {

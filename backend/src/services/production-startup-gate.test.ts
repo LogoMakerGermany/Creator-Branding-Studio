@@ -106,6 +106,11 @@ describe('production startup gate — payments off, providers optional, Firebase
         assert.equal(names.includes('FIREBASE_PRIVATE_KEY'), false);
         assert.equal(names.includes('FIREBASE_STORAGE_BUCKET'), false);
         assert.equal(names.includes('PUBLIC_FIREBASE_API_KEY'), false);
+        assert.equal(names.includes('DISCORD_CLIENT_ID'), false);
+        assert.equal(names.includes('DISCORD_CLIENT_SECRET'), false);
+        assert.equal(names.includes('TWITCH_CLIENT_SECRET'), false);
+        assert.equal(names.includes('TIKTOK_CLIENT_SECRET'), false);
+        assert.equal(names.includes('MICROSOFT_CLIENT_SECRET'), false);
         assert.equal(validateProductionConfig(), true);
       }
     );

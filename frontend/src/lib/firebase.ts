@@ -2,11 +2,11 @@ import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
-  GithubAuthProvider,
   OAuthProvider,
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendEmailVerification,
@@ -27,16 +27,8 @@ import { authActionContinueUrl } from './auth-action-url';
 export { isFirebaseConfigured };
 export type { AuthProviderId };
 
-/** All OAuth providers use redirect — popups fail on Railway, mobile, and with strict COOP/CSP. */
-const REDIRECT_PROVIDERS = new Set<AuthProviderId>([
-  'google',
-  'github',
-  'apple',
-  'microsoft',
-  'discord',
-  'twitch',
-  'tiktok',
-]);
+/** Firebase-hosted OAuth only. Discord/Twitch/TikTok use the server bridge. */
+const REDIRECT_PROVIDERS = new Set<AuthProviderId>(['google', 'microsoft']);
 
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
@@ -63,14 +55,6 @@ function providerFor(id: AuthProviderId): AuthProvider {
   switch (id) {
     case 'google':
       return new GoogleAuthProvider();
-    case 'github':
-      return new GithubAuthProvider();
-    case 'apple': {
-      const p = new OAuthProvider('apple.com');
-      p.addScope('email');
-      p.addScope('name');
-      return p;
-    }
     case 'microsoft': {
       const p = new OAuthProvider('microsoft.com');
       p.addScope('email');
@@ -78,12 +62,6 @@ function providerFor(id: AuthProviderId): AuthProvider {
       p.addScope('profile');
       return p;
     }
-    case 'discord':
-      return new OAuthProvider('oidc.discord');
-    case 'twitch':
-      return new OAuthProvider('oidc.twitch');
-    case 'tiktok':
-      return new OAuthProvider('oidc.tiktok');
     default:
       throw new Error(`Unsupported OAuth provider: ${id}`);
   }
@@ -130,10 +108,12 @@ export async function loginWithGoogle(): Promise<User> {
 
 /** @deprecated use loginWithProvider(id) */
 export async function loginWithOAuth(providerId: string): Promise<User> {
-  const a = getFirebaseAuth();
-  if (!a) throw new Error('Firebase nicht konfiguriert');
-  const result = await signInWithPopup(a, new OAuthProvider(providerId));
-  return result.user;
+  if (providerId !== 'google.com' && providerId !== 'microsoft.com') {
+    const err = new Error('Dieser Anmeldeanbieter ist derzeit nicht verfügbar.');
+    (err as { code?: string }).code = 'auth/operation-not-allowed';
+    throw err;
+  }
+  return loginWithProvider(providerId === 'microsoft.com' ? 'microsoft' : 'google');
 }
 
 export async function loginWithEmail(email: string, password: string): Promise<User> {
@@ -250,6 +230,13 @@ export async function reloadCurrentUserAndToken(): Promise<{ emailVerified: bool
   return { emailVerified: a.currentUser.emailVerified };
 }
 
+export async function completeOAuthCustomToken(customToken: string): Promise<User> {
+  const a = getFirebaseAuth();
+  if (!a) throw new Error('Firebase nicht konfiguriert');
+  const result = await signInWithCustomToken(a, customToken);
+  return result.user;
+}
+
 export async function changeAccountPassword(currentPassword: string, newPassword: string): Promise<void> {
   const a = getFirebaseAuth();
   const user = a?.currentUser;
@@ -259,8 +246,3 @@ export async function changeAccountPassword(currentPassword: string, newPassword
   await updatePassword(user, newPassword);
 }
 
-export const OAUTH_PROVIDERS = {
-  discord: 'oidc.discord',
-  twitch: 'oidc.twitch',
-  tiktok: 'oidc.tiktok',
-} as const;

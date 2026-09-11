@@ -181,6 +181,7 @@ describe('Firebase rules & index deploy preparation', () => {
       ['balance_ledger', [['userId', 'ASCENDING'], ['createdAt', 'DESCENDING']]],
       ['billable_charges', [['userId', 'ASCENDING'], ['createdAt', 'DESCENDING']]],
       ['admin_audit_logs', [['targetUserId', 'ASCENDING'], ['createdAt', 'DESCENDING']]],
+      ['oauth_identities', [['firebaseUid', 'ASCENDING'], ['createdAt', 'DESCENDING']]],
     ];
     assert.equal(parsed.indexes.length, required.length);
     for (const [collection, fields] of required) {

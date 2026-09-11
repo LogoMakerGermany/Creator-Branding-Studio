@@ -22,8 +22,8 @@ export function requestContext(req: Request, res: Response, next: NextFunction):
 
   const started = Date.now();
   res.on('finish', () => {
-    const route = req.originalUrl || req.url || '';
-    if (shouldSkipRequestLog(route.split('?')[0] || '')) return;
+    const route = (req.originalUrl || req.url || '').split('?')[0] || '';
+    if (shouldSkipRequestLog(route)) return;
     const durationMs = Date.now() - started;
     const status = res.statusCode;
     const slow = isSlowRequest(durationMs);

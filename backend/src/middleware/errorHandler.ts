@@ -75,7 +75,7 @@ export function errorHandler(
     event: 'unhandled_error',
     requestId,
     method: req.method,
-    route: req.originalUrl,
+    route: (req.originalUrl || '').split('?')[0],
     status: 500,
     code: 'INTERNAL_ERROR',
     message: isProduction() ? err.name : sanitizeProviderError(err),

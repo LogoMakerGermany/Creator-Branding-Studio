@@ -76,8 +76,6 @@ authRoutes.post(
           'discord',
           'twitch',
           'tiktok',
-          'github',
-          'apple',
           'microsoft',
           'email',
         ])

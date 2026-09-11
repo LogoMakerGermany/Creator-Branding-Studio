@@ -27,6 +27,10 @@ const DISPLAY_NAME_MAX = 100;
 const CONNECTED_PROVIDER_LABELS: Record<string, string> = {
   email: 'E-Mail / Passwort',
   google: 'Google',
+  discord: 'Discord',
+  twitch: 'Twitch',
+  tiktok: 'TikTok',
+  microsoft: 'Microsoft',
 };
 
 const SECTIONS = [
@@ -233,6 +237,8 @@ export function SettingsHubPage() {
   const [screenshot, setScreenshot] = useState<string | undefined>();
   const [feedbackStatus, setFeedbackStatus] = useState<string | null>(null);
   const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [discordAvailable, setDiscordAvailable] = useState(false);
+  const [linkingDiscord, setLinkingDiscord] = useState(false);
 
   const savedDraft = useMemo(() => draftFromUser(user), [user]);
   const savedName = user?.displayName ?? '';
@@ -262,6 +268,10 @@ export function SettingsHubPage() {
           err instanceof ApiError ? err.message : 'Stimmenkatalog konnte nicht geladen werden. Andere Einstellungen bleiben nutzbar.'
         );
       });
+    api
+      .status()
+      .then((s) => setDiscordAvailable(s.features.oauth?.discord === true))
+      .catch(() => setDiscordAvailable(false));
   }, []);
 
   useEffect(() => {
@@ -413,10 +423,24 @@ export function SettingsHubPage() {
     await logout();
   }
 
+  async function linkDiscord() {
+    if (linkingDiscord || !discordAvailable) return;
+    setLinkingDiscord(true);
+    setPasswordStatus(null);
+    try {
+      const { url } = await api.auth.startOAuthLink('discord');
+      window.location.assign(url);
+    } catch (err) {
+      setPasswordStatus(formatAuthError(err));
+      setLinkingDiscord(false);
+    }
+  }
+
   const firebaseUser = getFirebaseAuth()?.currentUser ?? null;
   const emailVerified = user?.emailVerified ?? firebaseUser?.emailVerified;
   const needsEmailVerification = user?.needsEmailVerification === true;
   const canChangePassword = (user?.authProviders ?? []).includes('email') && !isDevMode;
+  const discordLinked = (user?.authProviders ?? []).includes('discord');
   const connectedProviders = (user?.authProviders ?? []).filter((id) => id in CONNECTED_PROVIDER_LABELS);
   const nameError = displayName !== savedName ? sanitizeClientDisplayName(displayName).error : null;
 
@@ -609,6 +633,26 @@ export function SettingsHubPage() {
             onClick={() => void sendPasswordReset()}
           >
             Passwort-Reset senden
+          </Button>
+          <Button
+            variant="secondary"
+            className="min-h-11"
+            loading={linkingDiscord}
+            disabled={!discordAvailable || discordLinked || linkingDiscord}
+            aria-label={
+              discordLinked
+                ? 'Discord ist bereits verbunden'
+                : discordAvailable
+                  ? 'Discord mit diesem Konto verknüpfen'
+                  : 'Discord ist derzeit nicht verfügbar'
+            }
+            onClick={() => void linkDiscord()}
+          >
+            {discordLinked
+              ? 'Discord verbunden'
+              : discordAvailable
+                ? 'Discord verknüpfen'
+                : 'Discord (nicht verfügbar)'}
           </Button>
           <Button variant="ghost" className="min-h-11" onClick={() => void handleLogout()}>
             Abmelden

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authRoutes, brandingRoutes } from './auth.routes.js';
+import { oauthRoutes } from './oauth.routes.js';
 import {
   logoRoutes,
   bannerRoutes,
@@ -86,6 +87,7 @@ apiRouter.use('/social-studio', socialStudioRoutes);
 apiRouter.use('/feedback', feedbackRoutes);
 apiRouter.use('/legal', legalRoutes);
 
+apiRouter.use('/auth/oauth', oauthRoutes);
 apiRouter.use('/auth', authRoutes);
 apiRouter.use('/dna', dnaRoutes);
 apiRouter.use('/logo', logoRoutes);

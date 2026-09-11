@@ -272,10 +272,17 @@ describe('auth & onboarding local closure — frontend contracts & safety', () =
   it('unsupported OAuth is not a fake login; google remains the working provider', () => {
     const login = repo('frontend/src/pages/auth/LoginPage.tsx');
     const ctx = repo('frontend/src/context/AuthContext.tsx');
-    assert.match(login, /available: true/);
-    assert.match(login, /nicht verfügbar/);
     assert.match(login, /id: 'google'/);
-    assert.match(ctx, /provider !== 'google'/);
+    assert.match(login, /id: 'discord'/);
+    assert.match(login, /id: 'twitch'/);
+    assert.match(login, /id: 'tiktok'/);
+    assert.match(login, /id: 'microsoft'/);
+    assert.doesNotMatch(login, /GitHub/);
+    assert.doesNotMatch(login, /Apple/);
+    assert.match(login, /nicht verfügbar/);
+    assert.match(login, /oauth\?\.discord/);
+    assert.match(ctx, /isFirebaseHostedOAuth/);
+    assert.match(ctx, /isBridgeOAuthProvider/);
     assert.match(login, /autoComplete="email"/);
     assert.match(login, /current-password/);
     assert.match(login, /Falls ein Konto existiert/);
@@ -290,6 +297,39 @@ describe('auth & onboarding local closure — frontend contracts & safety', () =
     assert.match(formatAuthError({ code: 'INVALID_TOKEN', message: 'x' }), /Sitzung/);
     const err = new Error(`TypeError: at Object.foo\n${'x'.repeat(200)}`);
     assert.equal(formatAuthError(err).includes('at Object'), false);
+
+    const retiredHost = ['creatorbrandingstudioultimate', 'production.up.railway.app'].join('-');
+    const retiredProject = ['creatorstudio', '519eb'].join('-');
+    const poisonedDomain = formatAuthError({
+      code: 'auth/unauthorized-domain',
+      message: `Firebase: ${retiredHost} is not authorized`,
+    });
+    assert.match(poisonedDomain, /nicht autorisiert/);
+    assert.equal(poisonedDomain.includes(retiredHost), false);
+    assert.equal(poisonedDomain.includes(retiredProject), false);
+    const leakedFallback = formatAuthError({
+      code: 'unknown-provider-message',
+      message: `Use https://${retiredHost} / ${retiredProject}`,
+    });
+    assert.equal(leakedFallback.includes(retiredHost), false);
+    assert.equal(leakedFallback.includes(retiredProject), false);
+
+    const g = globalThis as { window?: { location: { host: string } } };
+    const prevWindow = g.window;
+    g.window = { location: { host: 'nexter-creator-studio-production.up.railway.app' } };
+    try {
+      assert.match(
+        formatAuthError({ code: 'auth/unauthorized-domain', message: retiredHost }),
+        /nexter-creator-studio-production\.up\.railway\.app/
+      );
+      assert.equal(
+        formatAuthError({ code: 'auth/unauthorized-domain', message: retiredHost }).includes(retiredHost),
+        false
+      );
+    } finally {
+      if (prevWindow === undefined) delete g.window;
+      else g.window = prevWindow;
+    }
   });
 
   it('password change, reset, logout, loading, a11y, no secret/token/password leaks', () => {

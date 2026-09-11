@@ -5,6 +5,7 @@ import { DashboardLayout, AuthLayout } from '@/components/layout';
 import { ProtectedRoute, PublicOnlyRoute, AdminRoute } from '@/components/auth/ProtectedRoute';
 import { LandingPage } from '@/pages/landing/LandingPage';
 import { LoginPage } from '@/pages/auth/LoginPage';
+import { OAuthCompletePage } from '@/pages/auth/OAuthCompletePage';
 import { VerifyEmailPage } from '@/pages/auth/VerifyEmailPage';
 import { CreatorDNAPage } from '@/pages/creator-dna/CreatorDNAPage';
 import { LogoStudioPage, BannerStudioPage, FacecamStudioPage, OverlayStudioPage, StickerStudioPage } from '@/pages/studios';
@@ -158,6 +159,7 @@ export function AppRoutes() {
             </PublicOnlyRoute>
           }
         />
+        <Route path="/login/oauth/complete" element={<OAuthCompletePage />} />
       </Route>
 
       <Route

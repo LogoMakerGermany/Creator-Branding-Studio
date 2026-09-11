@@ -16,6 +16,7 @@ import {
   isResendConfigured,
   getFirebaseAuthEmailStatus,
   getCustomEmailProviderStatus,
+  getOAuthPublicAvailability,
 } from '../config/env.js';
 import { shouldServeStatic } from '../middleware/static.js';
 import { asyncHandler, sendSuccess } from '../middleware/errorHandler.js';
@@ -65,6 +66,7 @@ statusRoutes.get(
         liveStreaming: false,
         euroPricing: true,
         inviteCodes: true,
+        oauth: getOAuthPublicAvailability(),
       },
     };
 

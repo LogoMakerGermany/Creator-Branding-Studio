@@ -16,17 +16,19 @@ function exc(r, n, l) { !read(r).includes(n) ? ok(l) : fail(l, n); }
 
 console.log('\n=== Etappe 3 Auth — Static Tests ===\n');
 
-inc('shared/src/user.ts', "'github'", 'github auth provider type');
+exc('shared/src/user.ts', "'github'", 'github is not an auth provider');
+exc('shared/src/user.ts', "'apple'", 'apple is not an auth provider');
 inc('shared/src/user.ts', "'microsoft'", 'microsoft auth provider type');
-inc('frontend/src/lib/firebase.ts', 'GithubAuthProvider', 'GitHub Firebase provider');
-inc('frontend/src/lib/firebase.ts', "OAuthProvider('apple.com')", 'Apple OAuth');
+exc('frontend/src/lib/firebase.ts', 'GithubAuthProvider', 'GitHub Firebase provider is absent');
+exc('frontend/src/lib/firebase.ts', "OAuthProvider('apple.com')", 'Apple OAuth is absent');
 inc('frontend/src/lib/firebase.ts', "OAuthProvider('microsoft.com')", 'Microsoft OAuth');
 inc('frontend/src/lib/auth-providers.ts', 'resolveAuthProvider', 'provider resolver');
-inc('frontend/src/pages/auth/LoginPage.tsx', "'github'", 'GitHub login button');
+exc('frontend/src/pages/auth/LoginPage.tsx', "'github'", 'GitHub login button is absent');
+exc('frontend/src/pages/auth/LoginPage.tsx', "'apple'", 'Apple login button is absent');
 inc('frontend/src/context/AuthContext.tsx', 'resolveAuthProvider', 'sync with provider id');
-inc('backend/src/routes/auth.routes.ts', "'github'", 'backend provider validation');
+exc('backend/src/routes/auth.routes.ts', "'github'", 'backend does not accept github login');
+exc('backend/src/routes/auth.routes.ts', "'apple'", 'backend does not accept apple login');
 exc('backend/src/routes/auth.routes.ts', "authProvider: 'firebase'", 'no generic firebase provider');
-inc('docs/ETAPPE3-AUTH-SETUP.md', 'oidc.discord', 'OIDC setup docs');
 inc('scripts/sync-firebase-env.mjs', 'apps:sdkconfig', 'firebase env sync script');
 
 console.log(`\n--- Result: ${passed} passed, ${failed} failed ---\n`);

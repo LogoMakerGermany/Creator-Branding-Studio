@@ -179,6 +179,14 @@ describe('email delivery local closure', () => {
     assert.match(formatAuthError({ code: 'EMAIL_ALREADY_VERIFIED', message: 'x' }), /bereits bestätigt/);
     assert.match(formatAuthError({ code: 'AUTH_REQUIRED', message: 'x' }), /Sitzung/);
     assert.equal(errors.includes('creatorbrandingstudioultimate-production.up.railway.app'), false);
+    const retiredHost = 'creatorbrandingstudioultimate-production.up.railway.app';
+    assert.equal(
+      formatAuthError({ code: 'auth/unauthorized-domain', message: retiredHost }).includes(retiredHost),
+      false
+    );
+    assert.equal(login.includes(retiredHost), false);
+    assert.equal(login.includes("'github'"), false);
+    assert.equal(login.includes("'apple'"), false);
   });
 
   it('action continue URLs are environment-aware and reject open redirects', () => {

@@ -18,7 +18,7 @@ import {
   resetPassword,
   type AuthProviderId,
 } from '@/lib/firebase';
-import { resolveAuthProvider } from '@/lib/auth-providers';
+import { resolveAuthProvider, isBridgeOAuthProvider, isFirebaseHostedOAuth } from '@/lib/auth-providers';
 import { formatAuthError } from '@/lib/auth-errors';
 import { api, ApiError, setAuthToken, type UserProfile, type CreatorDNA } from '@/services/api';
 import { applyNexterAppearance, resetNexterAppearance } from '@/lib/nexter-appearance';
@@ -26,6 +26,7 @@ import { AUTH_TOKEN_STORAGE_KEY } from '@/lib/auth-session';
 
 const PENDING_INVITE_KEY = 'pending_invite_code';
 const PENDING_LEGAL_KEY = 'pending_legal_acceptance';
+const PENDING_OAUTH_PROVIDER_KEY = 'pending_oauth_provider';
 
 interface AuthContextValue {
   user: UserProfile | null;
@@ -74,6 +75,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 async function syncProfile(displayName?: string, authProvider?: string) {
   const inviteCode = sessionStorage.getItem(PENDING_INVITE_KEY) || undefined;
+  const pendingOAuth = sessionStorage.getItem(PENDING_OAUTH_PROVIDER_KEY) || undefined;
+  const resolvedProvider = pendingOAuth || authProvider;
   let legal: { termsVersion: string; privacyVersion: string } | undefined;
   try {
     const raw = sessionStorage.getItem(PENDING_LEGAL_KEY);
@@ -82,10 +85,12 @@ async function syncProfile(displayName?: string, authProvider?: string) {
     legal = undefined;
   }
   try {
-    await api.auth.sync(displayName, authProvider, inviteCode, legal);
+    await api.auth.sync(displayName, resolvedProvider, inviteCode, legal);
     sessionStorage.removeItem(PENDING_INVITE_KEY);
     sessionStorage.removeItem(PENDING_LEGAL_KEY);
+    sessionStorage.removeItem(PENDING_OAUTH_PROVIDER_KEY);
   } catch (err) {
+    sessionStorage.removeItem(PENDING_OAUTH_PROVIDER_KEY);
     const msg = formatAuthError(err);
     const code = err instanceof ApiError ? err.code : '';
     if (
@@ -220,7 +225,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const loginProvider = async (provider: AuthProviderId) => {
-    if (provider !== 'google') {
+    if (isBridgeOAuthProvider(provider)) {
+      const params = new URLSearchParams();
+      const invite = sessionStorage.getItem(PENDING_INVITE_KEY);
+      if (invite) {
+        params.set('inviteCode', invite);
+        params.set('intent', 'register');
+      } else {
+        params.set('intent', 'login');
+      }
+      try {
+        const raw = sessionStorage.getItem(PENDING_LEGAL_KEY);
+        if (raw) {
+          const legal = JSON.parse(raw) as { termsVersion?: string; privacyVersion?: string };
+          if (legal.termsVersion) params.set('termsVersion', legal.termsVersion);
+          if (legal.privacyVersion) params.set('privacyVersion', legal.privacyVersion);
+        }
+      } catch {
+        /* ignore malformed legal payload */
+      }
+      window.location.assign(`/api/v1/auth/oauth/${provider}/start?${params.toString()}`);
+      throw new Error('Weiterleitung zum Anbieter …');
+    }
+    if (!isFirebaseHostedOAuth(provider)) {
       const err = new Error('Dieser Anmeldeanbieter ist derzeit nicht verfügbar.');
       (err as { code?: string }).code = 'auth/operation-not-allowed';
       throw err;

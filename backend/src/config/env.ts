@@ -210,6 +210,75 @@ export function getPrimaryFrontendUrl(): string {
   return getFrontendUrls()[0] || 'http://localhost:5173';
 }
 
+export type BridgeOAuthProvider = 'discord' | 'twitch' | 'tiktok';
+
+export function isOAuthBridgeProvider(id: string): id is BridgeOAuthProvider {
+  return id === 'discord' || id === 'twitch' || id === 'tiktok';
+}
+
+function oauthPairConfigured(idKey: string, secretKey: string): boolean {
+  return Boolean(readEnv(idKey) && readEnv(secretKey));
+}
+
+export function isDiscordOAuthConfigured(): boolean {
+  return oauthPairConfigured('DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET');
+}
+
+export function isTwitchOAuthConfigured(): boolean {
+  return oauthPairConfigured('TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET');
+}
+
+export function isTikTokOAuthConfigured(): boolean {
+  return oauthPairConfigured('TIKTOK_CLIENT_ID', 'TIKTOK_CLIENT_SECRET');
+}
+
+/** Microsoft uses Firebase Auth's native microsoft.com provider. Client ID here is the enable flag. */
+export function isMicrosoftOAuthConfigured(): boolean {
+  return Boolean(readEnv('MICROSOFT_CLIENT_ID'));
+}
+
+export function getOAuthPublicAvailability(): {
+  google: boolean;
+  discord: boolean;
+  twitch: boolean;
+  tiktok: boolean;
+  microsoft: boolean;
+} {
+  return {
+    google: true,
+    discord: isDiscordOAuthConfigured(),
+    twitch: isTwitchOAuthConfigured(),
+    tiktok: isTikTokOAuthConfigured(),
+    microsoft: isMicrosoftOAuthConfigured(),
+  };
+}
+
+export function getDiscordOAuthCredentials(): { clientId: string; clientSecret: string } | null {
+  const clientId = readEnv('DISCORD_CLIENT_ID');
+  const clientSecret = readEnv('DISCORD_CLIENT_SECRET');
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
+}
+
+export function getTwitchOAuthCredentials(): { clientId: string; clientSecret: string } | null {
+  const clientId = readEnv('TWITCH_CLIENT_ID');
+  const clientSecret = readEnv('TWITCH_CLIENT_SECRET');
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
+}
+
+export function getTikTokOAuthCredentials(): { clientId: string; clientSecret: string } | null {
+  const clientId = readEnv('TIKTOK_CLIENT_ID');
+  const clientSecret = readEnv('TIKTOK_CLIENT_SECRET');
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
+}
+
+/** Public origin for OAuth redirects. Production callers must reject localhost/UCBS hosts. */
+export function getOAuthPublicOrigin(): string {
+  return getPrimaryFrontendUrl().replace(/\/+$/, '');
+}
+
 // ─── Stripe (secrets + price IDs) ───────────────────────────────────────────
 
 export function getStripeSecretKey(): string | undefined {
