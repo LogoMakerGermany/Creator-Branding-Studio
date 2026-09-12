@@ -6,6 +6,8 @@ import {
   STREAMSET_PACK_COIN_COST,
   STREAMSET_PLATFORMS,
   STREAMSET_TABS,
+  STREAMSET_THREE_PART_COIN_COST,
+  STREAMSET_THREE_PART_SLOT_IDS,
   type StreamsetPlatform,
   type StreamsetTab,
 } from '@ucbs/shared';
@@ -23,6 +25,8 @@ import { formatCoins } from '@/lib/utils';
 import { GlassCard } from '@/v2/components/GlassCard';
 
 const PACK_COST = STREAMSET_PACK_COIN_COST;
+const THREE_PART_COST = STREAMSET_THREE_PART_COIN_COST;
+const THREE_PART_SLOTS = [...STREAMSET_THREE_PART_SLOT_IDS];
 
 function userMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) return err.message;
@@ -116,6 +120,7 @@ export function StreamsetStudioPage() {
   const totalCount = status?.assets?.length ?? 12;
   const hasImages = jobs.some((j) => j.imageUrl);
   const canPayPack = (user?.coinBalance ?? 0) >= PACK_COST;
+  const canPayThreePart = (user?.coinBalance ?? 0) >= THREE_PART_COST;
   const coinBalance = user?.coinBalance ?? 0;
   const estimatedCoins = draft?.estimatedCoins ?? 0;
   const expectedBalanceAfter = Math.max(0, coinBalance - estimatedCoins);
@@ -159,6 +164,46 @@ export function StreamsetStudioPage() {
     } finally {
       setLoading(false);
       setLoadingKey(null);
+    }
+  }
+
+  async function runThreePart() {
+    if (confirming || loading) return;
+    setConfirming(true);
+    setLoading(true);
+    setLoadingKey('three-part');
+    setError(null);
+    setQuoteReady(null);
+    setSlotIds(THREE_PART_SLOTS);
+    pulse('generating', 60000);
+    try {
+      const quoted = await api.streamset.quote({
+        projectId: projectId ?? undefined,
+        platform,
+        selectedSlotIds: THREE_PART_SLOTS,
+        creatorName: includeCreatorName ? creatorName || undefined : '',
+        includeCreatorName,
+      });
+      const res = await api.streamset.confirm(quoted.quote.id);
+      setJobs(res.jobs ?? []);
+      setShowProgress(true);
+      setQuoteReady(null);
+      await refreshUser();
+      await loadStatus();
+      pulse('success');
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'INSUFFICIENT_COINS') {
+        setError('Nicht genügend Coins. Es wurde nichts abgebucht und kein Job gestartet.');
+      } else {
+        setError(userMessage(err, 'Streamset – 3 Teile fehlgeschlagen'));
+      }
+      pulse('warning');
+      await refreshUser();
+      await loadStatus();
+    } finally {
+      setLoading(false);
+      setLoadingKey(null);
+      setConfirming(false);
     }
   }
 
@@ -295,7 +340,7 @@ export function StreamsetStudioPage() {
       title="Streamset Studio"
       description="Aus Creator DNA das komplette Stream-Set — Overlay, Banner, Facecam und Sticker über die echten Generatoren"
       coinCost={draft?.estimatedCoins ?? PACK_COST}
-      nexterHint="Soll ich dir daraus ein vollständiges Streamset erstellen?"
+      nexterHint="Soll ich dir daraus ein Komplettset erstellen?"
     >
       <div className="space-y-4" data-testid="streamset-wizard">
         {!activeDna && !status?.dna && (
@@ -552,6 +597,17 @@ export function StreamsetStudioPage() {
             </div>
 
             <Button
+              data-testid="streamset-three-part"
+              onClick={() => void runThreePart()}
+              disabled={loading || !dnaName || !canPayThreePart}
+              className="w-full gap-2"
+              variant="outline"
+            >
+              {loadingKey === 'three-part'
+                ? 'Nexter arbeitet …'
+                : `Streamset – 3 Teile (${formatCoins(THREE_PART_COST)} Coins)`}
+            </Button>
+            <Button
               data-testid="streamset-pack"
               onClick={() => void runPack()}
               disabled={loading || !dnaName || !canPayPack}
@@ -560,7 +616,7 @@ export function StreamsetStudioPage() {
               <Layers className="h-4 w-4" />
               {loadingKey === 'pack'
                 ? 'Nexter arbeitet …'
-                : `Komplettes Streamset (${formatCoins(PACK_COST)} Coins)`}
+                : `Komplettset (${formatCoins(PACK_COST)} Coins)`}
             </Button>
             {completedCount > 0 && (
               <Button

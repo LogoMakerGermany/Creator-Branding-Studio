@@ -343,7 +343,7 @@ export function LogoStudioPage() {
         sourceLogoJobId: jobId,
         projectId: projectId ?? undefined,
       });
-      queueNexterPrompt('Komplettes Streamset daraus erstellen');
+      queueNexterPrompt('Komplettset daraus erstellen');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Streamset-Entwurf fehlgeschlagen');
     }
@@ -373,7 +373,7 @@ export function LogoStudioPage() {
       }
       nexterHint={
         projects.some((p) => p.status === 'completed')
-          ? 'Soll ich dir daraus ein vollständiges Streamset erstellen?'
+          ? 'Soll ich dir daraus ein Komplettset erstellen?'
           : 'Logo Studio'
       }
     >
@@ -394,7 +394,7 @@ export function LogoStudioPage() {
                 data-testid="logo-to-streamset"
                 className="min-h-11 rounded-full border border-[var(--ucbs-accent-cyan)]/40 bg-[var(--ucbs-accent-cyan)]/10 px-3 py-2 text-xs font-medium text-[var(--ucbs-accent-cyan)] hover:bg-[var(--ucbs-accent-cyan)]/20"
               >
-                Soll ich dir daraus ein vollständiges Streamset erstellen?
+                Soll ich dir daraus ein Komplettset erstellen?
               </Link>
             </span>
           </StudioSuccessBanner>

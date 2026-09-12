@@ -124,11 +124,11 @@ nexterRoutes.post(
       const doneMsg = result.jobIds.length
         ? `Erledigt. ${result.coinsSpent} Coins abgezogen, neuer Stand: ${result.newBalance}.`
         : 'Generierung abgeschlossen.';
-      const streamsetAsk = 'Soll ich dir daraus ein vollständiges Streamset erstellen?';
+      const streamsetAsk = 'Soll ich dir daraus ein Komplettset erstellen?';
       const session = await appendAssistantMessage(
         req.user!.uid,
         result.quote.kind === 'logo'
-          ? `${doneMsg} ${streamsetAsk} Das Paket kostet ${COIN_COSTS[CoinSpendCategory.STREAMSET_PACK]} Coins und startet erst, wenn du auf Erstellen klickst.`
+          ? `${doneMsg} ${streamsetAsk} Das Komplettset kostet ${COIN_COSTS[CoinSpendCategory.STREAMSET_PACK]} Coins und startet erst, wenn du auf Erstellen klickst.`
           : doneMsg,
         {
           suggestions:

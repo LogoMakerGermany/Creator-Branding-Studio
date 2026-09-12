@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   COIN_COSTS,
   CoinSpendCategory,
+  STREAMSET_PACK_ITEMS,
+  keysForStreamsetThreePart,
   NEXTER_STUDIO_PATHS,
   detectMusicQuoteIntent,
   detectVoiceQuoteIntent,
@@ -257,7 +259,11 @@ export function detectQuoteKind(message: string): NexterQuoteKind | null {
   if (detectLayoutStudioIntent(message)) return null;
   const lower = message.toLowerCase();
   if (parseVideoClosureCommand(message)?.wantTranscribe) return 'captions';
-  if (/streamset|komplettes?\s+(twitch|stream)|vollst(ä|a)ndiges?\s+(stream)?set|daraus ein.*streamset/.test(lower)) {
+  if (
+    /streamset|komplettset|komplettes?\s+(twitch|stream)|vollst(ä|a)ndiges?\s+(stream)?set|daraus ein.*streamset|3\s*teile/.test(
+      lower
+    )
+  ) {
     return 'streamset';
   }
   if (detectMusicQuoteIntent(message)) {
@@ -545,13 +551,32 @@ export function openStudioAction(path: string, label: string): NexterAction {
   };
 }
 
+export function detectStreamsetThreePartIntent(message: string): boolean {
+  const lower = message.toLowerCase();
+  return /3\s*teile|streamset\s*[-–]\s*3|starter[- ]?set/.test(lower) && !/komplettset|komplettes?\s+streamset|vollst(ä|a)ndiges?\s+streamset/.test(lower);
+}
+
+export function defaultStreamsetQuoteKeys(message: string, platform?: string): string[] {
+  if (detectStreamsetThreePartIntent(message)) {
+    const resolved =
+      platform === 'tiktok' || platform === 'youtube' || platform === 'discord' || platform === 'twitch'
+        ? platform
+        : 'twitch';
+    return keysForStreamsetThreePart(resolved);
+  }
+  return STREAMSET_PACK_ITEMS.map((item) => item.key);
+}
+
 export function quoteActions(
   kind: NexterQuoteKind,
   quoteId: string,
   isChange = false,
-  extras?: { expiresAt?: string; coinBalance?: number }
+  extras?: { expiresAt?: string; coinBalance?: number; coinCost?: number }
 ): NexterAction[] {
-  const cost = coinCostForKind(kind);
+  const cost =
+    typeof extras?.coinCost === 'number' && Number.isFinite(extras.coinCost)
+      ? Math.max(0, Math.floor(extras.coinCost))
+      : coinCostForKind(kind);
   const studioByKind: Record<NexterQuoteKind, string> = {
     streamset: NEXTER_STUDIO_PATHS.streamset,
     logo: NEXTER_STUDIO_PATHS.logo,
@@ -609,7 +634,7 @@ export function buildActions(
   quoteId?: string,
   quoteKind?: NexterQuoteKind,
   isChange = false,
-  quoteExtras?: { expiresAt?: string; coinBalance?: number }
+  quoteExtras?: { expiresAt?: string; coinBalance?: number; coinCost?: number }
 ): { suggestions: string[]; actions: NexterAction[] } {
   const suggestions: string[] = [];
   const actions: NexterAction[] = [];
@@ -648,7 +673,7 @@ export function buildActions(
   if (!ctx.hasDna) suggestions.push('Creator DNA anlegen');
   else if (ctx.lastModule === 'logo' || Boolean(ctx.lastLogoId)) {
     suggestions.push(
-      'Wenn du möchtest, können wir daraus später einen Facecam-Rahmen und ein vollständiges Streamset ableiten.'
+      'Wenn du möchtest, können wir daraus später einen Facecam-Rahmen und ein Komplettset ableiten.'
     );
   } else if (ctx.lastModule === 'mockup') {
     suggestions.push('Zeig mir schwarze Tasse');

@@ -64,7 +64,8 @@ describe('landing page local closure', () => {
     assert.match(landing, /nicht dasselbe wie ein vollständiges Overlay/);
     assert.match(landing, /Overlay Studio/);
     assert.match(landing, /Sticker, Badge & Emote/);
-    assert.match(landing, /STREAMSET_PACK_ITEMS\.map/);
+    assert.match(landing, /Komplettset \(200 Coins\)/);
+    assert.match(landing, /Streamset – 3 Teile/);
     assert.equal(STREAMSET_PACK_ITEMS.length, 12);
     assert.deepEqual(
       STREAMSET_PACK_ITEMS.map((i) => i.key),

@@ -396,8 +396,10 @@ export function LandingPage() {
               ))}
             </div>
 
-            <h3 className="mt-12 font-display text-lg font-semibold text-white">Streamset-Pack</h3>
-            <p className="mt-2 text-sm text-zinc-400">Die 12 vorhandenen Bestandteile des zentralen Streamset-Katalogs:</p>
+            <h3 className="mt-12 font-display text-lg font-semibold text-white">Komplettset (200 Coins)</h3>
+            <p className="mt-2 text-sm text-zinc-400">
+              Die 12 Bestandteile des Komplettsets. Streamset – 3 Teile (Facecam, Startscreen, Banner) kostet 75 Coins.
+            </p>
             <ul className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {STREAMSET_PACK_ITEMS.map((item) => (
                 <li

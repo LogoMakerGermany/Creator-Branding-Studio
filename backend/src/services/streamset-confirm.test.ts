@@ -16,7 +16,7 @@ import { getOrCreateUser } from './user.service.js';
 import { upsertDna } from './dna.service.js';
 import { createProject } from './project.service.js';
 import { getJobsByUser } from './ai.service.js';
-import { deductAmount, getCoinBalance, getTransactions, refundOnce } from './coins.service.js';
+import { deductAmount, getCoinBalance, getTransactions, refundOnce, addCoins } from './coins.service.js';
 import { dsSet } from '../lib/data-store.js';
 import { ServiceError } from '../lib/errors.js';
 import { isPaidProviderTestBlocked } from '../lib/media-providers.js';
@@ -65,6 +65,7 @@ async function seedCreator(label: string) {
     type: 'streamset',
     dnaId: dna.id,
   });
+  await addCoins(user.id, 250, 'test-topup', 'bonus', { sourceType: 'admin' });
   return { user, dna, project };
 }
 
@@ -203,7 +204,12 @@ describe('streamset quote confirm + selective generation', () => {
     const before = await getCoinBalance(user.id);
     await confirmStreamsetQuote(user.id, quote.id);
     const txs = await getTransactions(user.id, 50);
+    const spend = txsOf(txs, 'spend', quote.id)[0];
     assert.equal(txsOf(txs, 'spend', quote.id).length, 1);
+    assert.equal(quote.coinCost, 75);
+    assert.equal(Math.abs(spend?.amount ?? 0), 75);
+    assert.equal(spend?.category, CoinSpendCategory.STREAMSET_THREE_PART);
+    assert.equal(spend?.description, 'Streamset – 3 Teile');
     assert.equal(await getCoinBalance(user.id), before - quote.coinCost);
   });
 
@@ -446,6 +452,7 @@ describe('streamset quote confirm + selective generation', () => {
     });
     assert.equal(await getCoinBalance(user.id), before);
     assert.match(src('streamset.service.ts').split('export async function generateStreamsetPack')[1] ?? '', /executeQuotedStreamset/);
-    assert.equal(COIN_COSTS[CoinSpendCategory.STREAMSET_PACK], 50);
+    assert.equal(COIN_COSTS[CoinSpendCategory.STREAMSET_PACK], 200);
+    assert.equal(COIN_COSTS[CoinSpendCategory.STREAMSET_THREE_PART], 75);
   });
 });

@@ -130,7 +130,7 @@ export function BannerStudioPage() {
   async function queueStreamset() {
     setLoading(true);
     try {
-      queueNexterPrompt('Soll ich dir daraus ein vollständiges Streamset erstellen?');
+      queueNexterPrompt('Soll ich dir daraus ein Komplettset erstellen?');
     } finally {
       setLoading(false);
     }

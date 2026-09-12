@@ -34,7 +34,7 @@ export function BrandingGeneratorPage() {
     }
     setLoading(true);
     setError('Branding-Paket startet nur über Nexter nach Bestätigung (Streamset / Für X Coins erstellen).');
-    queueNexterPrompt('Mach mir ein komplettes Streamset.');
+    queueNexterPrompt('Mach mir ein Komplettset.');
     setLoading(false);
   }
 

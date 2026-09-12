@@ -180,8 +180,19 @@ describe('coins UI local closure — pricing, quotes, confirm', () => {
     }
     const streamset = byCategory.get(CoinSpendCategory.STREAMSET_PACK);
     assert.ok(streamset);
-    assert.equal(streamset!.pricing, 'quote');
-    assert.match(streamset!.note ?? '', /vor Generierung berechnet/);
+    assert.equal(streamset!.pricing, 'fixed');
+    assert.equal(streamset!.coins, 200);
+    assert.equal(streamset!.label, 'Komplettset');
+    const threePart = byCategory.get(CoinSpendCategory.STREAMSET_THREE_PART);
+    assert.ok(threePart);
+    assert.equal(threePart!.pricing, 'fixed');
+    assert.equal(threePart!.coins, 75);
+    assert.equal(threePart!.label, 'Streamset – 3 Teile');
+    const custom = catalog.items.find((i) => i.id === 'streamset_custom');
+    assert.ok(custom);
+    assert.equal(custom!.pricing, 'quote');
+    assert.equal(custom!.coins, null);
+    assert.equal(Object.values(COIN_COSTS).includes(135), false);
     const change = catalog.items.find((i) => i.id === 'change_request');
     assert.ok(change);
     assert.equal(change!.pricing, 'quote');

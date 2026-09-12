@@ -35,6 +35,14 @@ import { isDevMode } from '../../config/env.js';
 
 const COLLECTION = 'nexterQuotes';
 
+function selectedKeysFromPayload(payload?: Record<string, unknown>): string[] | null {
+  const raw = payload?.selectedKeys;
+  if (Array.isArray(raw) && raw.length > 0 && raw.every((key) => typeof key === 'string' && key.length > 0)) {
+    return raw as string[];
+  }
+  return null;
+}
+
 export async function createQuote(
   userId: string,
   kind: NexterQuoteKind,
@@ -43,11 +51,21 @@ export async function createQuote(
   coinCost?: number
 ): Promise<NexterQuote> {
   const now = Date.now();
+  let resolvedPayload = payload;
+  let resolvedCost =
+    typeof coinCost === 'number' && Number.isFinite(coinCost) ? Math.max(0, Math.floor(coinCost)) : coinCostForKind(kind);
+  if (kind === 'streamset') {
+    const selectedKeys = selectedKeysFromPayload(payload) ?? STREAMSET_PACK_ITEMS.map((item) => item.key);
+    resolvedPayload = { ...(payload ?? {}), selectedKeys };
+    if (!(typeof coinCost === 'number' && Number.isFinite(coinCost))) {
+      resolvedCost = coinCostForStreamsetSelection(selectedKeys).total;
+    }
+  }
   const quote: NexterQuote = {
     id: randomUUID(),
     userId,
     kind,
-    coinCost: typeof coinCost === 'number' && Number.isFinite(coinCost) ? Math.max(0, Math.floor(coinCost)) : coinCostForKind(kind),
+    coinCost: resolvedCost,
     status: 'pending',
     createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + NEXTER_QUOTE_TTL_MS).toISOString(),
@@ -55,8 +73,8 @@ export async function createQuote(
   if (typeof projectId === 'string' && projectId.trim()) {
     quote.projectId = projectId.trim();
   }
-  if (payload !== undefined) {
-    quote.payload = payload;
+  if (resolvedPayload !== undefined) {
+    quote.payload = resolvedPayload;
   }
   await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
   return quote;

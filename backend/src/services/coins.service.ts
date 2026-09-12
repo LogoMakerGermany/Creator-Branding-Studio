@@ -686,11 +686,18 @@ const STUDIO_CATALOG: Array<{
   { id: 'video_edit', category: CoinSpendCategory.VIDEO_EDIT, label: 'Video-Captions (Provider)', pricing: 'fixed' },
   { id: 'shorts', category: CoinSpendCategory.SHORTS_CLIP, label: 'Shorts-Clip', pricing: 'fixed' },
   {
-    id: 'streamset',
+    id: 'komplettset',
     category: CoinSpendCategory.STREAMSET_PACK,
-    label: 'Streamset',
-    pricing: 'quote',
-    note: 'Preis wird vor Generierung berechnet. Gesamtpaket oder Auswahl nach Server-Pricing.',
+    label: 'Komplettset',
+    pricing: 'fixed',
+    note: '12 Streamset-Assets (Screens, Overlays, Banner, Facecam, Sticker).',
+  },
+  {
+    id: 'streamset_three_part',
+    category: CoinSpendCategory.STREAMSET_THREE_PART,
+    label: 'Streamset – 3 Teile',
+    pricing: 'fixed',
+    note: 'Facecam, Startscreen und Banner.',
   },
   { id: 'branding_pack', category: CoinSpendCategory.BRANDING_PACK, label: 'Branding-Paket', pricing: 'fixed' },
   { id: 'ultimate', category: CoinSpendCategory.ULTIMATE_CREATOR_PACK, label: 'Ultimate-Creator-Paket', pricing: 'fixed' },
@@ -727,6 +734,13 @@ export function getPublicCoinCatalog(): {
       coins: null,
       pricing: 'quote',
       note: 'Preis wird vor Generierung berechnet (Modulpreis der Original-Generierung).',
+    },
+    {
+      id: 'streamset_custom',
+      label: 'Streamset – Auswahl',
+      coins: null,
+      pricing: 'quote',
+      note: 'Andere Zusammenstellungen werden vor Generierung aus den Einzelpreisen berechnet.',
     },
   ];
   return { currency: 'Coins', items, freeActions: FREE_ACTION_CATALOG };

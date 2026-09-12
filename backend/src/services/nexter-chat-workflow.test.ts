@@ -322,6 +322,9 @@ describe('nexter chat local closure — quotes, coins, ownership, safety', () =>
   });
 
   it('quote action extras, UI a11y and provider/payment safety stay in place', () => {
+    const priced = quoteActions('streamset', 'quote-ss', false, { coinCost: 75 });
+    assert.equal(priced[0]?.coinCost, 75);
+    assert.match(priced[1]?.label ?? '', /75 Coins/);
     const extras = quoteActions('logo', 'quote-ui', false, {
       expiresAt: '2099-01-01T00:00:00.000Z',
       coinBalance: 40,

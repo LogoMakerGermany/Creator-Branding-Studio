@@ -33,6 +33,8 @@ import {
   overlayNeedsFollowUp,
   parseStickerIntent,
   stickerNeedsFollowUp,
+  STREAMSET_PACK_COIN_COST,
+  STREAMSET_THREE_PART_COIN_COST,
   NEXTER_STUDIO_PATHS,
   coinCostForStreamsetSelection,
   buildNexterGreeting,
@@ -103,6 +105,7 @@ import {
   detectLanguagePreferenceWrite,
   looksLikeConstraintFollowUp,
   pendingKindFromHistory,
+  defaultStreamsetQuoteKeys,
 } from './tools.service.js';
 import { getVideoProject, saveEditPlan, saveSubtitleEdits } from '../media.service.js';
 import { getJob, getJobsByUser } from '../ai.service.js';
@@ -189,8 +192,8 @@ async function persistSession(session: NexterSession): Promise<void> {
   await dsSet(COLLECTION, session.id, session as unknown as Record<string, unknown>);
 }
 
-function quoteUiExtras(quote: { expiresAt: string }, coinBalance: number) {
-  return { expiresAt: quote.expiresAt, coinBalance };
+function quoteUiExtras(quote: { expiresAt: string; coinCost?: number }, coinBalance: number) {
+  return { expiresAt: quote.expiresAt, coinBalance, coinCost: quote.coinCost };
 }
 
 function insufficientCoinsPrefix(balance: number, cost: number): string {
@@ -1923,6 +1926,10 @@ export async function nexterChat(
               })()
           : quoteKind === 'captions'
             ? { videoProjectId: ctx.videoProjectId, reviewRequired: true }
+            : quoteKind === 'streamset'
+              ? {
+                  selectedKeys: defaultStreamsetQuoteKeys(message, ctx.preferredPlatforms?.[0]),
+                }
             : undefined;
     const quote = await createQuote(userId, quoteKind, meta?.projectId, quotePayload);
     quoteId = quote.id;
@@ -1934,6 +1941,7 @@ export async function nexterChat(
   const { suggestions, actions } = buildActions(message, ctx, quoteId, quoteKind, isChangeQuote, {
     expiresAt: quoteExpiresAt,
     coinBalance: ctx.coinBalance,
+    coinCost: quoteCost ?? undefined,
   });
   const warning = warnBadSettings(message);
   const format = recommendFormat(message, ctx);
@@ -2205,7 +2213,7 @@ function devReply(input: {
   } else if (input.quoteKind && input.quotedCost != null) {
     if (input.continuity) parts.push(input.continuity);
     parts.push(
-      `Ich kann daraus ${input.quoteKind === 'streamset' ? 'ein komplettes Streamset' : input.quoteKind === 'mockup' ? 'ein Lifestyle-Mockup' : input.quoteKind === 'animation' ? 'eine Animation (Intro/Outro/Loop/Stinger)' : input.quoteKind === 'music' ? 'einen Musik-Track' : input.quoteKind === 'voice' ? 'ein Voiceover' : input.quoteKind === 'text' ? 'ein Content-Paket (Hook, Titel, Caption, Hashtags, CTA)' : input.quoteKind === 'captions' ? 'automatische Untertitel (danach zur Prüfung, nichts wird blind eingebrannt)' : `ein ${input.quoteKind}`} erstellen. Kosten: ${input.quotedCost} Coins. ${input.musicBrief ? `${input.musicBrief} ` : ''}${/änder|dunkler|aggressiv|variante|facecam|kleiner|transparent/i.test(last) ? 'Das ist eine KI-Variante auf Basis des bestehenden Designs, keine Pixel-genaue Layer-Bearbeitung. ' : ''}Es startet erst, wenn du auf Erstellen klickst.`
+      `Ich kann daraus ${input.quoteKind === 'streamset' ? (input.quotedCost === STREAMSET_THREE_PART_COIN_COST ? 'ein Streamset – 3 Teile' : input.quotedCost === STREAMSET_PACK_COIN_COST ? 'ein Komplettset' : 'ein Streamset') : input.quoteKind === 'mockup' ? 'ein Lifestyle-Mockup' : input.quoteKind === 'animation' ? 'eine Animation (Intro/Outro/Loop/Stinger)' : input.quoteKind === 'music' ? 'einen Musik-Track' : input.quoteKind === 'voice' ? 'ein Voiceover' : input.quoteKind === 'text' ? 'ein Content-Paket (Hook, Titel, Caption, Hashtags, CTA)' : input.quoteKind === 'captions' ? 'automatische Untertitel (danach zur Prüfung, nichts wird blind eingebrannt)' : `ein ${input.quoteKind}`} erstellen. Kosten: ${input.quotedCost} Coins. ${input.musicBrief ? `${input.musicBrief} ` : ''}${/änder|dunkler|aggressiv|variante|facecam|kleiner|transparent/i.test(last) ? 'Das ist eine KI-Variante auf Basis des bestehenden Designs, keine Pixel-genaue Layer-Bearbeitung. ' : ''}Es startet erst, wenn du auf Erstellen klickst.`
     );
   } else if (detectOpenStudio(last)) {
     parts.push('Ich öffne das Studio über die Aktion unter dieser Nachricht.');

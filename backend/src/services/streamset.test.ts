@@ -5,11 +5,13 @@ import {
   CoinSpendCategory,
   STREAMSET_PACK_COIN_COST,
   STREAMSET_PACK_ITEMS,
+  STREAMSET_THREE_PART_COIN_COST,
   STREAMSET_TABS,
   CREATOR_ASSET_CATALOG,
   STREAM_LAYOUT_PRESETS,
   assetRequiresTransparency,
   coinCostForStreamsetSelection,
+  keysForStreamsetThreePart,
   jobMatchesStreamsetAsset,
   missingStreamsetLabels,
   optionsForStreamsetItem,
@@ -47,7 +49,9 @@ describe('phase D — streamset catalog', () => {
       ['screens', 'overlays', 'banner', 'facecam', 'sticker']
     );
     assert.equal(STREAMSET_PACK_COIN_COST, COIN_COSTS[CoinSpendCategory.STREAMSET_PACK]);
-    assert.equal(STREAMSET_PACK_COIN_COST, 50);
+    assert.equal(STREAMSET_PACK_COIN_COST, 200);
+    assert.equal(COIN_COSTS[CoinSpendCategory.STREAMSET_THREE_PART], 75);
+    assert.equal(Object.values(COIN_COSTS).includes(135), false);
     assert.deepEqual(streamsetCatalogKeys(), keys);
   });
 
@@ -203,12 +207,25 @@ describe('streamset catalog — creator asset types and transparency', () => {
     assert.equal(STREAM_LAYOUT_PRESETS.twitch.width, 1920);
   });
 
-  it('selection cost uses COIN_COSTS and pack discount only for the full 12', () => {
+  it('selection cost uses COIN_COSTS, Komplettset 200, and Streamset – 3 Teile 75', () => {
     const one = coinCostForStreamsetSelection(['facecam']);
     assert.equal(one.total, COIN_COSTS[CoinSpendCategory.FACECAM_GENERATION]);
     assert.equal(one.packDiscountApplied, false);
+    assert.equal(one.pricingSku, 'a_la_carte');
     const pack = coinCostForStreamsetSelection(STREAMSET_PACK_ITEMS.map((i) => i.key));
     assert.equal(pack.total, STREAMSET_PACK_COIN_COST);
+    assert.equal(pack.total, 200);
+    assert.equal(pack.pricingSku, 'komplettset');
     assert.equal(pack.packDiscountApplied, true);
+    const three = coinCostForStreamsetSelection(keysForStreamsetThreePart('twitch'));
+    assert.deepEqual(three.itemCosts.map((row) => row.key).sort(), ['facecam', 'starting-soon', 'twitch-banner'].sort());
+    assert.equal(three.total, STREAMSET_THREE_PART_COIN_COST);
+    assert.equal(three.total, 75);
+    assert.equal(three.pricingSku, 'three_part');
+    const otherThree = coinCostForStreamsetSelection(['facecam', 'hud', 'starting-soon']);
+    assert.equal(otherThree.pricingSku, 'a_la_carte');
+    assert.notEqual(otherThree.total, 75);
+    assert.notEqual(otherThree.total, 135);
+    assert.notEqual(pack.total, 135);
   });
 });

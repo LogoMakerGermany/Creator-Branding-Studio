@@ -84,8 +84,8 @@ export function UltimateCreatorPage() {
     setError('Ultimate-Creator-Paket startet nur über Nexter nach Bestätigung (Streamset / Für X Coins erstellen).');
     queueNexterPrompt(
       form.name.trim()
-        ? `Mach mir ein komplettes Streamset für ${form.name.trim()}.`
-        : 'Mach mir ein komplettes Streamset.'
+        ? `Mach mir ein Komplettset für ${form.name.trim()}.`
+        : 'Mach mir ein Komplettset.'
     );
     setLoading(false);
   }

@@ -25,6 +25,7 @@ import {
   detectExternalPublishIntent,
   detectChangeIntent,
   resolveChangeTarget,
+  defaultStreamsetQuoteKeys,
 } from './tools.service.js';
 
 const emptyCtx: NexterContextSnapshot = {
@@ -90,7 +91,28 @@ describe('nexter tools — open_studio', () => {
   it('maps Streamset intent to quote kind streamset', () => {
     assert.equal(detectQuoteKind('Soll ich dir daraus ein vollständiges Streamset erstellen?'), 'streamset');
     assert.equal(detectQuoteKind('Mach mir ein komplettes Streamset'), 'streamset');
-    assert.equal(coinCostForKind('streamset'), 50);
+    assert.equal(detectQuoteKind('Mach mir ein Komplettset'), 'streamset');
+    assert.equal(detectQuoteKind('Streamset – 3 Teile'), 'streamset');
+    assert.equal(coinCostForKind('streamset'), 200);
+    assert.deepEqual(defaultStreamsetQuoteKeys('Mach mir ein Komplettset'), [
+      'starting-soon',
+      'brb',
+      'offline',
+      'ending',
+      'just-chatting',
+      'hud',
+      'panel',
+      'alert',
+      'twitch-banner',
+      'youtube-banner',
+      'facecam',
+      'sticker',
+    ]);
+    assert.deepEqual(defaultStreamsetQuoteKeys('Streamset – 3 Teile', 'twitch'), [
+      'facecam',
+      'starting-soon',
+      'twitch-banner',
+    ]);
   });
 
   it('maps lifestyle / Zeig mir schwarze Tasse to mockup quote, not navigation', () => {
@@ -129,7 +151,7 @@ describe('nexter tools — open_studio', () => {
 
   it('after a logo job suggests a Streamset pack', () => {
     const { suggestions } = buildActions('Was fehlt noch?', { ...dnaCtx, lastModule: 'logo' });
-    assert.ok(suggestions.some((s) => /vollständiges Streamset/i.test(s)));
+    assert.ok(suggestions.some((s) => /Komplettset/i.test(s)));
   });
 });
 
@@ -138,7 +160,8 @@ describe('nexter tools — quotes and confirmation', () => {
     assert.equal(coinCostForKind('logo'), COIN_COSTS[CoinSpendCategory.LOGO_GENERATION]);
     assert.equal(coinCostForKind('streamset'), COIN_COSTS[CoinSpendCategory.STREAMSET_PACK]);
     assert.equal(COIN_COSTS[CoinSpendCategory.LOGO_GENERATION], 15);
-    assert.equal(COIN_COSTS[CoinSpendCategory.STREAMSET_PACK], 50);
+    assert.equal(COIN_COSTS[CoinSpendCategory.STREAMSET_PACK], 200);
+    assert.equal(COIN_COSTS[CoinSpendCategory.STREAMSET_THREE_PART], 75);
   });
 
   it('buildActions without quoteId never starts a paid job', () => {

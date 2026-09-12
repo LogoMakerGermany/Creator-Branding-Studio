@@ -142,6 +142,13 @@ export const STREAMSET_TABS: { id: StreamsetTab; label: string }[] = [
 
 export const STREAMSET_PACK_COIN_COST = COIN_COSTS[CoinSpendCategory.STREAMSET_PACK];
 
+/** Configurator slots that make up STREAMSET – 3 TEILE (Facecam, Startscreen, Banner). */
+export const STREAMSET_THREE_PART_SLOT_IDS = ['facecam', 'starting-screen', 'banner'] as const;
+
+export const STREAMSET_THREE_PART_COIN_COST = COIN_COSTS[CoinSpendCategory.STREAMSET_THREE_PART];
+
+export type StreamsetPricingSku = 'komplettset' | 'three_part' | 'a_la_carte';
+
 export const STREAMSET_KIND_DEFAULT: Record<StreamsetGeneratorKind, string> = {
   overlay: 'starting-soon',
   banner: 'twitch-banner',
@@ -390,10 +397,30 @@ export function sameKeySet(a: string[], b: string[]): boolean {
   return left.every((key, i) => key === right[i]);
 }
 
+export function keysForStreamsetThreePart(platform: StreamsetPlatform): string[] {
+  const slots = STREAMSET_THREE_PART_SLOT_IDS.map((id) => STREAMSET_CONFIGURATOR_SLOTS.find((slot) => slot.id === id)).filter(
+    (slot): slot is StreamsetConfiguratorSlot => Boolean(slot)
+  );
+  return [...new Set(slots.flatMap((slot) => keysForConfiguratorSlot(slot, platform)).filter((key) => Boolean(getStreamsetAsset(key))))];
+}
+
+export function isStreamsetThreePartSelection(keys: string[]): boolean {
+  return STREAMSET_PLATFORMS.some((platform) => sameKeySet(keys, keysForStreamsetThreePart(platform)));
+}
+
+export function streamsetOfferLabel(sku: StreamsetPricingSku): string {
+  if (sku === 'komplettset') return 'Komplettset';
+  if (sku === 'three_part') return 'Streamset – 3 Teile';
+  return 'Streamset';
+}
+
 export function coinCostForStreamsetSelection(keys: string[]): {
   itemCosts: Array<{ key: string; label: string; coinCost: number }>;
   total: number;
   packDiscountApplied: boolean;
+  pricingSku: StreamsetPricingSku;
+  spendCategory: CoinSpendCategory;
+  ledgerDescription: string;
 } {
   const items = keys
     .map((key) => getStreamsetAsset(key))
@@ -404,12 +431,35 @@ export function coinCostForStreamsetSelection(keys: string[]): {
     coinCost: COIN_COSTS[item.coinCategory],
   }));
   const aLaCarte = itemCosts.reduce((sum, row) => sum + row.coinCost, 0);
+  const selectedKeys = items.map((item) => item.key);
   const packKeys = STREAMSET_PACK_ITEMS.map((item) => item.key);
-  const packDiscountApplied = sameKeySet(items.map((i) => i.key), packKeys);
+  if (sameKeySet(selectedKeys, packKeys)) {
+    return {
+      itemCosts,
+      total: STREAMSET_PACK_COIN_COST,
+      packDiscountApplied: true,
+      pricingSku: 'komplettset',
+      spendCategory: CoinSpendCategory.STREAMSET_PACK,
+      ledgerDescription: 'Komplettset',
+    };
+  }
+  if (isStreamsetThreePartSelection(selectedKeys)) {
+    return {
+      itemCosts,
+      total: STREAMSET_THREE_PART_COIN_COST,
+      packDiscountApplied: true,
+      pricingSku: 'three_part',
+      spendCategory: CoinSpendCategory.STREAMSET_THREE_PART,
+      ledgerDescription: 'Streamset – 3 Teile',
+    };
+  }
   return {
     itemCosts,
-    total: packDiscountApplied ? STREAMSET_PACK_COIN_COST : aLaCarte,
-    packDiscountApplied,
+    total: aLaCarte,
+    packDiscountApplied: false,
+    pricingSku: 'a_la_carte',
+    spendCategory: CoinSpendCategory.STREAMSET_PACK,
+    ledgerDescription: 'Streamset Generierung',
   };
 }
 

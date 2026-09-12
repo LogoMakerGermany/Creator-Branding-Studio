@@ -642,7 +642,7 @@ export function OverlayStudioPage() {
                         onClick={() => {
                           setLoading(true);
                           try {
-                            queueNexterPrompt('Soll ich dir daraus ein vollständiges Streamset erstellen?');
+                            queueNexterPrompt('Soll ich dir daraus ein Komplettset erstellen?');
                           } finally {
                             setLoading(false);
                           }

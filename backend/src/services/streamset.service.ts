@@ -1,6 +1,5 @@
 import {
   applyLockedDnaToGeneration,
-  CoinSpendCategory,
   COIN_COSTS,
   STREAMSET_PACK_COIN_COST,
   STREAMSET_PACK_ITEMS,
@@ -302,16 +301,16 @@ export async function executeQuotedStreamset(
   const idempotencyKey = input.quoteId
     ? `quote-confirm:${input.quoteId}:${attempt}`
     : `charge:${chargeId}`;
-  const coinResult = await deductAmount(userId, pricing.total, 'Streamset Generierung', {
+  const coinResult = await deductAmount(userId, pricing.total, pricing.ledgerDescription, {
     idempotencyKey,
     sourceType: 'generation',
     sourceId: chargeId,
     quoteId: input.quoteId,
-    category: CoinSpendCategory.STREAMSET_PACK,
+    category: pricing.spendCategory,
     persistCharge: {
       id: chargeId,
-      category: CoinSpendCategory.STREAMSET_PACK,
-      description: 'Streamset Generierung',
+      category: pricing.spendCategory,
+      description: pricing.ledgerDescription,
       quoteId: input.quoteId,
       jobId: batchId,
     },
@@ -482,7 +481,7 @@ export async function generateStreamsetPack(
     throw new ServiceError(
       503,
       'AI_GENERATION_FAILED',
-      'Streamset Komplettpaket fehlgeschlagen — Coins wurden erstattet'
+      'Komplettset fehlgeschlagen — Coins wurden erstattet'
     );
   }
   return {

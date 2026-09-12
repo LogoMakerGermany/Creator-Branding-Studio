@@ -62,6 +62,7 @@ export enum CoinSpendCategory {
   MARKETPLACE_PURCHASE = 'marketplace_purchase',
   MOCKUP_GENERATION = 'mockup_generation',
   STREAMSET_PACK = 'streamset_pack',
+  STREAMSET_THREE_PART = 'streamset_three_part',
   TEXT_GENERATION = 'text_generation',
   SHORTS_CLIP = 'shorts_clip',
   ANIMATION_GENERATION = 'animation_generation',
@@ -83,7 +84,10 @@ export const COIN_COSTS: Record<CoinSpendCategory, number> = {
   [CoinSpendCategory.VIDEO_EDIT]: 20,
   [CoinSpendCategory.MARKETPLACE_PURCHASE]: 0,
   [CoinSpendCategory.MOCKUP_GENERATION]: 8,
-  [CoinSpendCategory.STREAMSET_PACK]: 50,
+  /** Komplettset: full STREAMSET_PACK_ITEMS (12 assets). Obsolete 135 must not be reused. */
+  [CoinSpendCategory.STREAMSET_PACK]: 200,
+  /** Streamset – 3 Teile: Facecam + Startscreen + Banner. */
+  [CoinSpendCategory.STREAMSET_THREE_PART]: 75,
   [CoinSpendCategory.TEXT_GENERATION]: 2,
   [CoinSpendCategory.SHORTS_CLIP]: 20,
   [CoinSpendCategory.ANIMATION_GENERATION]: 25,
