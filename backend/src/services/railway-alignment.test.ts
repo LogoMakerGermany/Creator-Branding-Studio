@@ -116,6 +116,8 @@ describe('Railway production environment alignment', () => {
     assert.match(railwayExample, /YOUR-NEXTER-SERVICE\.up\.railway\.app/);
     assert.doesNotMatch(railwayExample, /creatorbrandingstudioultimate-production\.up\.railway\.app/);
     assert.match(railwayExample, /PUBLIC_FIREBASE_PROJECT_ID=/);
+    assert.match(railwayExample, /NEXTER_CHAT_ENABLED=false/);
+    assert.doesNotMatch(railwayExample, /VITE_OPENAI|PUBLIC_OPENAI/);
     assert.match(railwayExample, /# NEVER in production:/);
     const activeBypass = railwayExample
       .split(/\r?\n/)

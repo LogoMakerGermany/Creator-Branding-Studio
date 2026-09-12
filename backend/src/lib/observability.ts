@@ -8,7 +8,7 @@ const SLOW_REQUEST_MS = 8_000;
 const SECRET_KEY_NAME =
   /password|passwd|secret|authorization|cookie|api[_-]?key|private[_-]?key|refresh[_-]?token|id[_-]?token|action[_-]?code|oobcode|service[_-]?account/i;
 const SECRET_VALUE =
-  /BEGIN PRIVATE KEY|sk_live|sk_test|whsec_|AIza[0-9A-Za-z_-]{20,}|Bearer\s+[A-Za-z0-9._-]{12,}|re_[A-Za-z0-9]{10,}/;
+  /BEGIN PRIVATE KEY|sk_live|sk_test|sk-[A-Za-z0-9_-]{20,}|whsec_|AIza[0-9A-Za-z_-]{20,}|Bearer\s+[A-Za-z0-9._-]{12,}|re_[A-Za-z0-9]{10,}/;
 const SIGNED_URL_HINT = /X-Goog-Signature|GoogleAccessId|X-Amz-Signature/i;
 const JWT_HINT = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\./;
 

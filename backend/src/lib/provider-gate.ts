@@ -5,8 +5,8 @@ import { withDevLock } from './dev-mutex.js';
 import { getSystemSettings } from '../services/system-settings.service.js';
 
 const CHAT_USAGE_COLLECTION = 'nexter_chat_usage';
-const CHAT_WINDOW_MS = 60 * 60 * 1000;
-const CHAT_MAX_PER_WINDOW = 40;
+export const NEXTER_CHAT_WINDOW_MS = 60 * 60 * 1000;
+export const NEXTER_CHAT_MAX_PER_WINDOW = 40;
 
 export const LEGACY_IMAGE_GENERATE_MESSAGE =
   'Bildgenerierung startet nur über Nexter nach Bestätigung (Für X Coins erstellen).';
@@ -37,11 +37,11 @@ export async function consumeNexterChatProviderSlot(userId: string): Promise<{ o
       | null;
     const windowStart = typeof row?.windowStart === 'number' ? row.windowStart : 0;
     const count = typeof row?.count === 'number' ? row.count : 0;
-    if (!windowStart || now - windowStart >= CHAT_WINDOW_MS) {
+    if (!windowStart || now - windowStart >= NEXTER_CHAT_WINDOW_MS) {
       await dsSet(CHAT_USAGE_COLLECTION, userId, { windowStart: now, count: 1 });
       return { ok: true, count: 1 };
     }
-    if (count >= CHAT_MAX_PER_WINDOW) {
+    if (count >= NEXTER_CHAT_MAX_PER_WINDOW) {
       return { ok: false, count };
     }
     const next = count + 1;

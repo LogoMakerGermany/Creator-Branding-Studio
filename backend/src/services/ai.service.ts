@@ -1,7 +1,12 @@
 import type { BannerConfig, CreatorDNA, FacecamConfig, LogoConfig, MockupConfig, OverlayConfig, StickerConfig, StudioExportUrls } from '@ucbs/shared';
 import { CoinSpendCategory, applyLockedDnaToGeneration, buildDnaPromptContext } from '@ucbs/shared';
 import { randomUUID } from 'node:crypto';
-import { getOpenAiApiKey, getReplicateApiToken, areImageGenerationsEnabled } from '../config/env.js';
+import {
+  getOpenAiApiKey,
+  getReplicateApiToken,
+  areImageGenerationsEnabled,
+  isOpenAiImageGenerationLiveEnabled,
+} from '../config/env.js';
 import { getActiveDna, resolveDnaForRequest } from './dna.service.js';
 import { withCoinCharge, withCoinChargePack } from '../lib/billable-job.js';
 import { requireImageProvider, isPaidProviderTestBlocked } from '../lib/media-providers.js';
@@ -224,6 +229,7 @@ export async function generateImage(
   if (!areImageGenerationsEnabled()) {
     throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
   }
+  const liveOpenAiImages = Boolean(getOpenAiApiKey()) && isOpenAiImageGenerationLiveEnabled();
   if (
     (options.module === 'logo' ||
       options.module === 'banner' ||
@@ -231,7 +237,7 @@ export async function generateImage(
       options.module === 'overlay' ||
       options.module === 'sticker' ||
       options.module === 'mockup') &&
-    !getOpenAiApiKey() &&
+    !liveOpenAiImages &&
     !getReplicateApiToken()
   ) {
     const mock =
@@ -252,7 +258,7 @@ export async function generateImage(
   const size = options.size ?? (options.module === 'banner' ? '1792x1024' : '1024x1024');
   const quality = options.hd ? 'hd' : 'standard';
 
-  if (getOpenAiApiKey()) {
+  if (liveOpenAiImages) {
     const url = await generateWithOpenAI(prompt, size, quality);
     return { imageUrl: url, provider: 'openai', exports: buildExports(url, options.module) };
   }
@@ -295,8 +301,7 @@ async function generateWithOpenAI(
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`OpenAI API error: ${err}`);
+    throw new Error(`OpenAI API error (${res.status})`);
   }
 
   const data = (await res.json()) as { data: { url: string }[] };

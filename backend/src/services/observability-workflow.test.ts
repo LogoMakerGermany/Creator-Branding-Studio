@@ -142,6 +142,7 @@ describe('observability local closure', () => {
     assert.equal(redactLogString('Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.aaa.bbb'), 'Bearer [redacted]');
     assert.match(redactLogString('user creator@example.com failed'), /\[email\]/);
     assert.equal(redactLogString('prefix sk_live suffix'), '[redacted]');
+    assert.equal(redactLogString('prefix sk-abcdefghijklmnopqrstuvwxyz12 suffix'), '[redacted]');
     assert.equal(redactLogString('whsec_abc'), '[redacted]');
     assert.equal(redactLogString('re_abcdefghijklmnopqrstuv'), '[redacted]');
     assert.equal(

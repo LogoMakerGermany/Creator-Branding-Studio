@@ -75,8 +75,41 @@ export function areImageGenerationsEnabled(): boolean {
   return areGenerationsEnabled() && readEnv('IMAGE_GENERATIONS_ENABLED') !== 'false';
 }
 
+/**
+ * Live DALL·E / OpenAI image calls. Fail-closed.
+ * OPENAI_API_KEY alone (e.g. for Nexter text-chat) does not enable image generation.
+ * Only the exact value "true" on IMAGE_GENERATIONS_ENABLED allows a live image provider call.
+ */
+export function isOpenAiImageGenerationLiveEnabled(): boolean {
+  return areGenerationsEnabled() && readEnv('IMAGE_GENERATIONS_ENABLED')?.toLowerCase() === 'true';
+}
+
 export function areVideoGenerationsEnabled(): boolean {
   return areGenerationsEnabled() && readEnv('VIDEO_GENERATIONS_ENABLED') !== 'false';
+}
+
+/**
+ * Nexter text-chat kill switch. Fail-closed.
+ * Missing, empty, or any value other than "true" keeps chat disabled.
+ * OPENAI_API_KEY alone must not enable chat.
+ */
+export function isNexterChatEnabled(): boolean {
+  return readEnv('NEXTER_CHAT_ENABLED')?.toLowerCase() === 'true';
+}
+
+export const NEXTER_CHAT_MODEL_DEFAULT = 'gpt-4o-mini';
+const NEXTER_CHAT_MODEL_ALLOWLIST = new Set([NEXTER_CHAT_MODEL_DEFAULT]);
+
+/** Server-controlled chat model. Unknown / missing OPENAI_CHAT_MODEL → gpt-4o-mini. Client cannot choose. */
+export function getNexterChatModel(): string {
+  const raw = readEnv('OPENAI_CHAT_MODEL');
+  if (raw && NEXTER_CHAT_MODEL_ALLOWLIST.has(raw)) return raw;
+  return NEXTER_CHAT_MODEL_DEFAULT;
+}
+
+/** Chat is available only when the explicit gate is on AND a server-side OpenAI key exists. */
+export function isNexterChatProviderAvailable(): boolean {
+  return isNexterChatEnabled() && Boolean(getOpenAiApiKey());
 }
 
 export function arePaymentsEnabled(): boolean {
@@ -429,7 +462,9 @@ export function getAiProviderStatus(): Record<string, ProviderConfigStatus> {
 }
 
 export function hasImageAiProvider(): boolean {
-  return Boolean(getOpenAiApiKey() || getReplicateApiToken());
+  return Boolean(
+    (getOpenAiApiKey() && isOpenAiImageGenerationLiveEnabled()) || getReplicateApiToken()
+  );
 }
 
 export function getResendApiKey(): string | undefined {

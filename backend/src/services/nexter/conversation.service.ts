@@ -54,12 +54,17 @@ import {
   type NexterQuoteKind,
   type NexterSession,
 } from '@ucbs/shared';
-import { isDevMode, isProduction, getOpenAiApiKey, areGenerationsEnabled } from '../../config/env.js';
+import {
+  isDevMode,
+  isProduction,
+  getOpenAiApiKey,
+  getNexterChatModel,
+  isNexterChatProviderAvailable,
+} from '../../config/env.js';
 import { dsGet, dsSet, dsDelete, dsList } from '../../lib/data-store.js';
 import { ServiceError } from '../../lib/errors.js';
 import { isPaidProviderTestBlocked } from '../../lib/media-providers.js';
 import { consumeNexterChatProviderSlot } from '../../lib/provider-gate.js';
-import { getSystemSettings } from '../system-settings.service.js';
 import { buildNexterContext } from './context.service.js';
 import { listMemory, memoryAsPrompt, storeMemory } from './memory.service.js';
 import { createQuote } from './quotes.service.js';
@@ -115,6 +120,62 @@ import {
 
 const COLLECTION = 'nexterSessions';
 const MAX_NEXTER_MESSAGES = 60;
+const NEXTER_CHAT_PROVIDER_HISTORY = 8;
+const NEXTER_CHAT_MAX_OUTPUT_TOKENS = 700;
+const NEXTER_CHAT_TIMEOUT_MS = 45_000;
+const liveNexterChatInFlight = new Set<string>();
+
+function shouldCallLiveNexterChatProvider(): boolean {
+  return (
+    isNexterChatProviderAvailable() &&
+    !isPaidProviderTestBlocked() &&
+    !process.env.NODE_TEST
+  );
+}
+
+async function fetchNexterChatCompletion(
+  system: string,
+  history: Array<{ role: string; content: string }>
+): Promise<string> {
+  const key = getOpenAiApiKey();
+  if (!key) {
+    throw new ServiceError(503, 'AI_UNAVAILABLE', 'AI PROVIDER NOT CONFIGURED');
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), NEXTER_CHAT_TIMEOUT_MS);
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: getNexterChatModel(),
+        messages: [{ role: 'system', content: system }, ...history],
+        max_tokens: NEXTER_CHAT_MAX_OUTPUT_TOKENS,
+      }),
+    });
+    if (!res.ok) {
+      throw new ServiceError(503, 'AI_PROVIDER_ERROR', `OpenAI-Fehler (${res.status})`);
+    }
+    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const content = data.choices?.[0]?.message?.content?.trim();
+    if (!content) {
+      throw new ServiceError(503, 'AI_INVALID_RESPONSE', 'Leere Modellantwort');
+    }
+    return content;
+  } catch (err) {
+    if (err instanceof ServiceError) throw err;
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new ServiceError(503, 'AI_TIMEOUT', 'Nexter-Chat zeitüberschritten');
+    }
+    throw new ServiceError(503, 'AI_PROVIDER_ERROR', 'OpenAI-Fehler');
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function capSessionMessages(session: NexterSession): void {
   if (session.messages.length <= MAX_NEXTER_MESSAGES) return;
@@ -2070,52 +2131,33 @@ ${input.format ? `FORMAT: ${input.format}` : ''}
 ${input.musicBrief ? `AUFTRAG (intern erkannt): ${input.musicBrief}` : ''}
 ${input.quoteKind && input.quotedCost != null ? `Angebot: ${input.quoteKind} für ${input.quotedCost} Coins. Sage die Kosten klar.` : ''}`;
 
-  const settings = await getSystemSettings().catch(() => ({ generationsEnabled: true }));
-  const chatProviderAllowed =
-    Boolean(getOpenAiApiKey() && !process.env.NODE_TEST) &&
-    !isPaidProviderTestBlocked() &&
-    areGenerationsEnabled() &&
-    settings.generationsEnabled;
-
-  if (chatProviderAllowed) {
+  if (shouldCallLiveNexterChatProvider()) {
     const slot = await consumeNexterChatProviderSlot(input.userId);
     if (!slot.ok) {
-      if (isProduction()) {
-        throw new ServiceError(
-          429,
-          'NEXTER_CHAT_LIMIT',
-          'Nexter-Chat-Limit erreicht. Bitte später erneut versuchen.'
-        );
-      }
-    } else {
-      try {
-        const history = input.messages.slice(-8).map((m) => ({
-          role: m.role === 'system' ? 'system' : m.role,
-          content: m.content,
-        }));
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${getOpenAiApiKey()}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [{ role: 'system', content: system }, ...history],
-            max_tokens: 700,
-          }),
-        });
-        if (res.ok) {
-          const data = (await res.json()) as { choices: { message: { content: string } }[] };
-          const content = data.choices[0]?.message?.content?.trim();
-          if (content) {
-            const extras = [input.warning, input.format].filter(Boolean);
-            return extras.length ? `${content}\n\n${extras.join('\n')}` : content;
-          }
-        }
-      } catch {
-        /* fallback */
-      }
+      throw new ServiceError(
+        429,
+        'NEXTER_CHAT_LIMIT',
+        'Nexter-Chat-Limit erreicht. Bitte später erneut versuchen.'
+      );
+    }
+    if (liveNexterChatInFlight.has(input.userId)) {
+      throw new ServiceError(
+        429,
+        'NEXTER_CHAT_LIMIT',
+        'Nexter-Chat läuft bereits. Bitte warten.'
+      );
+    }
+    liveNexterChatInFlight.add(input.userId);
+    try {
+      const history = input.messages.slice(-NEXTER_CHAT_PROVIDER_HISTORY).map((m) => ({
+        role: m.role === 'system' ? 'system' : m.role,
+        content: m.content,
+      }));
+      const content = await fetchNexterChatCompletion(system, history);
+      const extras = [input.warning, input.format].filter(Boolean);
+      return extras.length ? `${content}\n\n${extras.join('\n')}` : content;
+    } finally {
+      liveNexterChatInFlight.delete(input.userId);
     }
   }
 

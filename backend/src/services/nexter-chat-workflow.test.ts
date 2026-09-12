@@ -348,7 +348,11 @@ describe('nexter chat local closure — quotes, coins, ownership, safety', () =>
     assert.equal(isPaidProviderTestBlocked(), true);
     assert.equal(arePaymentsEnabled(), false);
     const conv = src('src/services/nexter/conversation.service.ts');
-    assert.match(conv, /getOpenAiApiKey\(\) && !process\.env\.NODE_TEST/);
+    assert.match(conv, /isNexterChatProviderAvailable/);
+    assert.match(conv, /NODE_TEST/);
+    assert.match(conv, /NEXTER_CHAT_TIMEOUT_MS = 45_000/);
+    assert.match(conv, /NEXTER_CHAT_MAX_OUTPUT_TOKENS = 700/);
+    assert.match(conv, /NEXTER_CHAT_PROVIDER_HISTORY = 8/);
     assert.doesNotMatch(conv, /confirmQuote\(/);
   });
 });
