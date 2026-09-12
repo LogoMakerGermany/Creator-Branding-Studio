@@ -1,5 +1,6 @@
 import { devStore, isDevMode } from './dev-store.js';
 import { getFirestore } from '../config/firebase.js';
+import { omitUndefinedFields } from './firestore-payload.js';
 import type { Query } from 'firebase-admin/firestore';
 
 type ListOptions = {
@@ -28,13 +29,14 @@ export async function dsSet(
   id: string,
   data: Record<string, unknown>
 ): Promise<void> {
+  const payload = omitUndefinedFields({ ...data, id });
   if (isDevMode()) {
-    devStore.saveToCollection(collection, id, data);
+    devStore.saveToCollection(collection, id, payload);
     return;
   }
 
   const db = getFirestore();
-  await db.collection(collection).doc(id).set({ ...data, id }, { merge: true });
+  await db.collection(collection).doc(id).set(payload, { merge: true });
 }
 
 export async function dsDelete(collection: string, id: string): Promise<void> {

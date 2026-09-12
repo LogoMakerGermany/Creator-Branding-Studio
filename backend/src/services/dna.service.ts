@@ -13,28 +13,15 @@ import type {
 import { DNA_PLATFORMS, applyDnaLocks, mergeAnalysisIntoDna, pickDnaForRequest } from '@ucbs/shared';
 import { devStore, isDevMode } from '../lib/dev-store.js';
 import { getFirestore } from '../config/firebase.js';
+import { omitUndefinedFields } from '../lib/firestore-payload.js';
 import { randomUUID } from 'node:crypto';
 import { analyzeCreatorAssets } from './dna-analysis.service.js';
 import { getCharacterDna, saveCharacterDna } from './creator-dna-engine/ccd-storage.service.js';
 
+export { omitUndefinedFields };
+
 function generateId(): string {
   return randomUUID();
-}
-
-/** Firestore rejects `undefined` field values. JSON omits them; Admin SDK does not. */
-export function omitUndefinedFields<T>(value: T): T {
-  if (Array.isArray(value)) {
-    return value.map((item) => omitUndefinedFields(item)) as T;
-  }
-  if (value !== null && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-      if (nested === undefined) continue;
-      out[key] = omitUndefinedFields(nested);
-    }
-    return out as T;
-  }
-  return value;
 }
 
 /** Ensure older Firestore docs satisfy the current CreatorDNA shape. */

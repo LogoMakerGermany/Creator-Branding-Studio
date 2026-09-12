@@ -51,9 +51,13 @@ export async function createQuote(
     status: 'pending',
     createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + NEXTER_QUOTE_TTL_MS).toISOString(),
-    projectId,
-    payload,
   };
+  if (typeof projectId === 'string' && projectId.trim()) {
+    quote.projectId = projectId.trim();
+  }
+  if (payload !== undefined) {
+    quote.payload = payload;
+  }
   await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
   return quote;
 }

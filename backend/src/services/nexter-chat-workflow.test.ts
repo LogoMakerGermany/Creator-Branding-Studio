@@ -11,7 +11,8 @@ import { createProject } from './project.service.js';
 import { deductAmount, getCoinBalance } from './coins.service.js';
 import { saveUserFile } from './file-cloud.service.js';
 import { ServiceError } from '../lib/errors.js';
-import { dsSet } from '../lib/data-store.js';
+import { dsGet, dsSet } from '../lib/data-store.js';
+import { omitUndefinedFields } from '../lib/firestore-payload.js';
 import { isPaidProviderTestBlocked } from '../lib/media-providers.js';
 import { arePaymentsEnabled } from '../config/env.js';
 import { updateNexterPreferencesForUser } from './nexter/preferences.service.js';
@@ -22,7 +23,7 @@ import {
   getOrCreateNexterSession,
   nexterChat,
 } from './nexter/conversation.service.js';
-import { confirmQuote, createQuote, getQuote } from './nexter/quotes.service.js';
+import { confirmQuote, createQuote, getQuote, listOwnedQuotes } from './nexter/quotes.service.js';
 import {
   detectChatConfirmIntent,
   detectCoinQuestion,
@@ -349,5 +350,100 @@ describe('nexter chat local closure — quotes, coins, ownership, safety', () =>
     const conv = src('src/services/nexter/conversation.service.ts');
     assert.match(conv, /getOpenAiApiKey\(\) && !process\.env\.NODE_TEST/);
     assert.doesNotMatch(conv, /confirmQuote\(/);
+  });
+});
+
+describe('nexter chat Firestore undefined payload compatibility', () => {
+  function undefinedPaths(value: unknown, path = ''): string[] {
+    if (value === undefined) return [path || '(root)'];
+    if (value === null || typeof value !== 'object') return [];
+    if (Array.isArray(value)) {
+      return value.flatMap((item, i) => undefinedPaths(item, `${path}[${i}]`));
+    }
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, nested]) =>
+      undefinedPaths(nested, path ? `${path}.${key}` : key)
+    );
+  }
+
+  it('persists a Nexter session without inventing a projectId', async () => {
+    const user = await getOrCreateUser(randomUUID(), `${randomUUID()}@nexter-noproj.test`, 'NoProj');
+    const session = await nexterChat(user.id, 'Hallo Nexter, merke dir diese Nachricht.');
+    assert.equal('projectId' in session, false);
+    const stored = await dsGet('nexterSessions', session.id);
+    assert.ok(stored);
+    assert.equal(stored.userId, user.id);
+    assert.equal('projectId' in stored, false);
+    assert.deepEqual(undefinedPaths(stored), []);
+    const owned = await getNexterSessionForUser(session.id, user.id);
+    assert.equal(owned?.id, session.id);
+    const foreign = await getNexterSessionForUser(session.id, 'other-user');
+    assert.equal(foreign, null);
+  });
+
+  it('keeps a valid projectId on quotes and does not invent one when missing', async () => {
+    const { user, project } = await seed('proj-id');
+    const withProject = await createQuote(user.id, 'logo', project.id, { note: 'owned' });
+    assert.equal(withProject.projectId, project.id);
+    const loadedOwned = await getQuote(user.id, withProject.id);
+    assert.equal(loadedOwned?.projectId, project.id);
+    assert.equal(loadedOwned?.userId, user.id);
+    assert.equal(await getQuote('other-user', withProject.id), null);
+
+    const withoutProject = await createQuote(user.id, 'logo');
+    assert.equal(withoutProject.projectId, undefined);
+    assert.equal('projectId' in withoutProject, false);
+    const stored = await dsGet('nexterQuotes', withoutProject.id);
+    assert.ok(stored);
+    assert.equal('projectId' in stored, false);
+    assert.notEqual(stored.projectId, '');
+    assert.deepEqual(undefinedPaths(stored), []);
+
+    const logo = await nexterChat(user.id, 'Mach mir ein Logo.');
+    assert.equal(hasStartGeneration(logo), true);
+    const quotes = await listOwnedQuotes(user.id);
+    assert.equal(quotes.some((q) => q.projectId === ''), false);
+    assert.equal(
+      quotes.every((q) => q.projectId === undefined || q.projectId === project.id),
+      true
+    );
+  });
+
+  it('strips undefined but keeps false / 0 / empty string / null', () => {
+    const raw = {
+      projectId: undefined,
+      layoutId: undefined,
+      generationJobId: undefined,
+      parentSessionId: undefined,
+      activeProjectId: undefined,
+      provider: undefined,
+      tool: undefined,
+      result: undefined,
+      metadata: { extra: undefined, locked: false },
+      present: false,
+      count: 0,
+      mascot: '',
+      note: null,
+    };
+    const safe = omitUndefinedFields(raw);
+    assert.deepEqual(undefinedPaths(safe), []);
+    assert.equal('projectId' in safe, false);
+    assert.equal('layoutId' in safe, false);
+    assert.equal(safe.present, false);
+    assert.equal(safe.count, 0);
+    assert.equal(safe.mascot, '');
+    assert.equal(safe.note, null);
+    assert.equal(safe.metadata.locked, false);
+    assert.equal('extra' in safe.metadata, false);
+  });
+
+  it('sanitizes Firestore writes through dsSet and does not enable ignoreUndefinedProperties', () => {
+    const store = src('src/lib/data-store.ts');
+    assert.match(store, /omitUndefinedFields/);
+    assert.doesNotMatch(store, /ignoreUndefinedProperties/);
+    const quotes = src('src/services/nexter/quotes.service.ts');
+    assert.doesNotMatch(quotes, /projectId\s*\|\|\s*['"]{2}/);
+    const conv = src('src/services/nexter/conversation.service.ts');
+    assert.match(conv, /persistSession/);
+    assert.match(conv, /dsSet\(COLLECTION, session\.id/);
   });
 });
