@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { NexterOrbState } from '@ucbs/shared';
+import { clampNexterAudioLevel, type NexterOrbState } from '@ucbs/shared';
 
 interface NexterUiState {
   orbState: NexterOrbState;
@@ -27,7 +27,7 @@ export const useNexterStore = create<NexterUiState>((set) => ({
   setOrbState: (orbState) => set({ orbState }),
   setPanelOpen: (panelOpen) => set({ panelOpen }),
   setStudioHint: (studioHint) => set({ studioHint }),
-  setAudioLevel: (audioLevel) => set({ audioLevel }),
+  setAudioLevel: (audioLevel) => set({ audioLevel: clampNexterAudioLevel(audioLevel) }),
   queueNexterPrompt: (prompt) => set({ pendingPrompt: prompt, panelOpen: true }),
   consumePendingPrompt: () => set({ pendingPrompt: null }),
   pulse: (orbState, ms = 1800) => {

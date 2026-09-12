@@ -204,3 +204,137 @@ body {
 .ucbs-anim-slide-down { animation-name: ucbs-anim-slide-down; }
 .ucbs-anim-logo-reveal { animation-name: ucbs-anim-logo-reveal; }
 
+.nexter-orb-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.nexter-orb {
+  --nexter-orb-primary: var(--ucbs-accent-cyan, #3b82f6);
+  --nexter-orb-secondary: var(--ucbs-accent-purple, #a855f7);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nexter-orb--responsive {
+  width: 100%;
+  height: 100%;
+}
+
+.nexter-orb__glass {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  overflow: hidden;
+  isolation: isolate;
+  container-type: size;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.34), transparent 38%),
+    radial-gradient(circle at 70% 78%, color-mix(in srgb, var(--nexter-orb-secondary) 22%, transparent), transparent 46%),
+    radial-gradient(circle at 50% 58%, rgba(6, 10, 22, 0.28), rgba(3, 5, 12, 0.78) 72%);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.42),
+    inset 0 -14px 22px rgba(4, 6, 16, 0.45),
+    0 0 22px color-mix(in srgb, var(--nexter-orb-primary) 26%, transparent),
+    0 0 42px color-mix(in srgb, var(--nexter-orb-secondary) 16%, transparent);
+  backdrop-filter: blur(12px) saturate(1.15);
+  transition: box-shadow 420ms ease;
+}
+
+.nexter-orb[data-state='listening'] .nexter-orb__glass,
+.nexter-orb[data-state='speaking'] .nexter-orb__glass {
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.42),
+    inset 0 -14px 22px rgba(4, 6, 16, 0.45),
+    0 0 28px color-mix(in srgb, var(--nexter-orb-primary) 38%, transparent),
+    0 0 52px color-mix(in srgb, var(--nexter-orb-secondary) 24%, transparent);
+}
+
+.nexter-orb[data-state='thinking'] .nexter-orb__glass,
+.nexter-orb[data-state='generating'] .nexter-orb__glass {
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.4),
+    inset 0 -16px 24px rgba(4, 6, 16, 0.5),
+    0 0 26px color-mix(in srgb, var(--nexter-orb-primary) 34%, transparent),
+    0 0 40px color-mix(in srgb, var(--nexter-orb-secondary) 28%, transparent);
+}
+
+.nexter-orb[data-state='success'] .nexter-orb__glass {
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.42),
+    0 0 24px color-mix(in srgb, var(--ucbs-accent-green, #34d399) 32%, transparent);
+}
+
+.nexter-orb[data-state='warning'] .nexter-orb__glass {
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.4),
+    0 0 20px color-mix(in srgb, var(--nexter-orb-secondary) 28%, transparent);
+}
+
+.nexter-orb[data-state='error'] .nexter-orb__glass {
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.35),
+    0 0 18px color-mix(in srgb, #fb7185 28%, transparent);
+}
+
+.nexter-orb__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  z-index: 0;
+}
+
+.nexter-orb__mark {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 44cqmin;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: #f8fafc;
+  -webkit-text-stroke: 0.045em rgba(8, 12, 24, 0.45);
+  text-shadow:
+    0 0 6px rgba(255, 255, 255, 0.95),
+    0 0 14px color-mix(in srgb, var(--nexter-orb-primary) 90%, white),
+    0 0 26px var(--nexter-orb-secondary);
+}
+
+.nexter-orb__specular {
+  pointer-events: none;
+  position: absolute;
+  z-index: 3;
+  left: 16%;
+  top: 10%;
+  width: 38%;
+  height: 24%;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0));
+  filter: blur(1.2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nexter-orb__glass {
+    transition: none;
+    box-shadow:
+      inset 0 1px 2px rgba(255, 255, 255, 0.3),
+      0 0 14px color-mix(in srgb, var(--nexter-orb-primary) 16%, transparent);
+  }
+}
+
+

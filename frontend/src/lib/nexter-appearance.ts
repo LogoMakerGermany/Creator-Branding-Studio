@@ -42,6 +42,8 @@ export function applyNexterAppearance(prefs?: Partial<AppearanceDraft> | null): 
   root.style.setProperty('--ucbs-accent-cyan', cyan);
   root.style.setProperty('--ucbs-accent-purple', purple);
   root.style.setProperty('--ucbs-accent-green', green);
+  root.style.setProperty('--nexter-orb-primary', cyan);
+  root.style.setProperty('--nexter-orb-secondary', purple);
   root.style.setProperty('--color-ucbs-accent-cyan', cyan);
   root.style.setProperty('--color-ucbs-accent-purple', purple);
   root.style.setProperty('--color-ucbs-accent-green', green);

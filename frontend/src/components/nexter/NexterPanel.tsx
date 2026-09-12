@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Mic, Plus, Send, Volume2 } from 'lucide-react';
 import { api, ApiError, type NexterChatMessage, type NexterAction } from '@/services/api';
-import { COIN_COSTS, CoinSpendCategory } from '@ucbs/shared';
+import { COIN_COSTS, CoinSpendCategory, nexterOrbStatusLabel } from '@ucbs/shared';
 import { useNexterStore } from '@/v2/store/nexter-store';
 import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 import { useAuth } from '@/context/AuthContext';
@@ -102,7 +102,7 @@ export function NexterPanel({
       pulse(awaitingConfirm ? 'warning' : 'success');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Nexter ist gerade nicht erreichbar');
-      pulse('warning');
+      pulse('error');
     } finally {
       setLoading(false);
     }
@@ -129,9 +129,10 @@ export function NexterPanel({
     speakingRef.current = true;
     audioCleanupRef.current?.();
     try {
-      setOrbState('listening');
+      setOrbState('thinking');
       const res = await api.nexter.speak(last.content);
       const audio = new Audio(res.audioUrl);
+      setOrbState('speaking');
       const ctx = new AudioContext();
       const source = ctx.createMediaElementSource(audio);
       const analyser = ctx.createAnalyser();
@@ -310,7 +311,9 @@ export function NexterPanel({
         <NexterOrb state={orb} size={compact ? 44 : 56} audioLevel={audioLevel} />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-white">NEXTER</p>
-          <p className="truncate text-[11px] text-zinc-500">Dein KI-Assistent · {formatCoins(coinBalance)}</p>
+          <p className="truncate text-[11px] text-zinc-500">
+            Dein KI-Assistent · {nexterOrbStatusLabel(orb)} · {formatCoins(coinBalance)}
+          </p>
         </div>
         <button
           type="button"

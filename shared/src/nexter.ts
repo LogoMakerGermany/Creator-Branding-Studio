@@ -1,12 +1,48 @@
 /** NEXTER — central creator OS assistant (user-facing). MAGIK stays the logo prompt engine. */
 
-export type NexterOrbState =
-  | 'idle'
-  | 'listening'
-  | 'thinking'
-  | 'generating'
-  | 'success'
-  | 'warning';
+export const NEXTER_ORB_STATES = [
+  'idle',
+  'listening',
+  'thinking',
+  'speaking',
+  'generating',
+  'success',
+  'warning',
+  'error',
+] as const;
+
+export type NexterOrbState = (typeof NEXTER_ORB_STATES)[number];
+
+export const NEXTER_ORB_STATUS_LABEL: Record<NexterOrbState, string> = {
+  idle: 'Bereit',
+  listening: 'Hört zu',
+  thinking: 'Denkt nach',
+  speaking: 'Spricht',
+  generating: 'Generiert',
+  success: 'Fertig',
+  warning: 'Achtung',
+  error: 'Fehler',
+};
+
+export function isNexterOrbState(value: unknown): value is NexterOrbState {
+  return typeof value === 'string' && (NEXTER_ORB_STATES as readonly string[]).includes(value);
+}
+
+export function resolveNexterOrbState(value: unknown): NexterOrbState {
+  return isNexterOrbState(value) ? value : 'idle';
+}
+
+export function nexterOrbStatusLabel(value: unknown): string {
+  return NEXTER_ORB_STATUS_LABEL[resolveNexterOrbState(value)];
+}
+
+export function clampNexterAudioLevel(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return 0;
+  if (n < 0) return 0;
+  if (n > 1) return 1;
+  return n;
+}
 
 export type NexterToolName =
   | 'open_studio'
