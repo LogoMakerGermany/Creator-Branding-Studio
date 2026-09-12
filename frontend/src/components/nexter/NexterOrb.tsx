@@ -11,25 +11,25 @@ const DEFAULT_PRIMARY = '#3b82f6';
 const DEFAULT_SECONDARY = '#a855f7';
 
 const INTENSITY: Record<NexterOrbState, number> = {
-  idle: 0.32,
-  listening: 0.68,
-  thinking: 0.58,
-  speaking: 0.74,
-  generating: 0.8,
-  success: 0.86,
-  warning: 0.52,
-  error: 0.7,
+  idle: 0.38,
+  listening: 0.72,
+  thinking: 0.64,
+  speaking: 0.78,
+  generating: 0.84,
+  success: 0.9,
+  warning: 0.56,
+  error: 0.74,
 };
 
 const SPEED: Record<NexterOrbState, number> = {
-  idle: 0.42,
-  listening: 1.05,
-  thinking: 0.88,
-  speaking: 1.28,
-  generating: 1.18,
-  success: 1.45,
-  warning: 0.72,
-  error: 1.55,
+  idle: 0.38,
+  listening: 1.02,
+  thinking: 0.82,
+  speaking: 1.22,
+  generating: 1.12,
+  success: 1.35,
+  warning: 0.68,
+  error: 1.48,
 };
 
 function readCssColor(name: string, fallback: string): string {
@@ -57,6 +57,20 @@ function rgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+function mixHex(a: string, b: string, t: number): string {
+  const [r1, g1, b1] = parseRgb(a, [59, 130, 246]);
+  const [r2, g2, b2] = parseRgb(b, [248, 250, 252]);
+  const m = Math.min(1, Math.max(0, t));
+  return `rgb(${Math.round(r1 + (r2 - r1) * m)}, ${Math.round(g1 + (g2 - g1) * m)}, ${Math.round(b1 + (b2 - b1) * m)})`;
+}
+
+function arcLife(t: number, seed: number, cycle: number): number {
+  const phase = ((t * 0.22 + seed * 0.17) % cycle) / cycle;
+  if (phase < 0.12) return phase / 0.12;
+  if (phase > 0.78) return Math.max(0, (1 - phase) / 0.22);
+  return 1;
+}
+
 export function NexterOrb({
   state = 'idle',
   size = 72,
@@ -66,6 +80,7 @@ export function NexterOrb({
   className,
   decorative = false,
   responsive = false,
+  variant = 'plasma',
 }: {
   state?: NexterOrbState | string;
   size?: number;
@@ -75,6 +90,7 @@ export function NexterOrb({
   className?: string;
   decorative?: boolean;
   responsive?: boolean;
+  variant?: 'plasma' | 'identity';
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -88,8 +104,10 @@ export function NexterOrb({
   colorsRef.current = { primary: primaryColor, secondary: secondaryColor };
 
   const resolved = resolveNexterOrbState(state);
+  const identity = variant === 'identity';
 
   useEffect(() => {
+    if (identity) return;
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas) return;
@@ -124,9 +142,36 @@ export function NexterOrb({
         colorsRef.current.secondary ||
         readCssColor('--nexter-orb-secondary', readCssColor('--ucbs-accent-purple', DEFAULT_SECONDARY));
       if (s === 'success') return [readCssColor('--ucbs-accent-green', '#34d399'), primary];
-      if (s === 'warning') return [secondary, '#fbbf24'];
+      if (s === 'warning') return [secondary, '#f59e0b'];
       if (s === 'error') return [secondary, '#fb7185'];
       return [primary, secondary];
+    }
+
+    function strokeArc(
+      cx: number,
+      cy: number,
+      angle: number,
+      inner: number,
+      outer: number,
+      segs: number,
+      jagged: number,
+      t: number,
+      seed: number
+    ) {
+      gfx.beginPath();
+      for (let k = 0; k <= segs; k++) {
+        const p = k / segs;
+        const reach = inner + (outer - inner) * p;
+        const sway = Math.sin(t * 1.55 + seed + p * 6.4) * jagged * (0.22 + (1 - p) * 0.78);
+        const drift = Math.cos(t * 0.9 + seed * 1.6 + p * 4.2) * jagged * 0.38 * (1 - p);
+        const a = angle + Math.sin(t * 0.35 + seed * 0.8 + p * 1.8) * 0.11;
+        const perp = a + Math.PI / 2;
+        const x = cx + Math.cos(a) * reach + Math.cos(perp) * (sway + drift);
+        const y = cy + Math.sin(a) * reach + Math.sin(perp) * (sway + drift);
+        if (k === 0) gfx.moveTo(x, y);
+        else gfx.lineTo(x, y);
+      }
+      gfx.stroke();
     }
 
     function draw(s: NexterOrbState, audio: number, reduceMotion: boolean, t: number) {
@@ -143,123 +188,143 @@ export function NexterOrb({
       }
 
       const [c1, c2] = palette(s);
-      const target = INTENSITY[s] + audio * (s === 'speaking' || s === 'listening' ? 0.22 : 0.08);
-      intensity = reduceMotion ? target : intensity + (target - intensity) * 0.085;
+      const highlight = mixHex(c1, '#f8fafc', 0.72);
+      const target = INTENSITY[s] + audio * (s === 'speaking' || s === 'listening' ? 0.24 : 0.08);
+      intensity = reduceMotion ? target : intensity + (target - intensity) * 0.08;
       const speed = SPEED[s];
-      const pulse =
+      const breathe =
         reduceMotion
-          ? 1 + intensity * 0.04
-          : 1 + Math.sin(t * (s === 'idle' ? 0.9 : 1.6 + speed * 0.35)) * (0.018 + intensity * 0.035);
-      const jitter = s === 'error' ? Math.sin(t * 7.2) * 0.028 : s === 'warning' ? Math.sin(t * 3.1) * 0.012 : 0;
+          ? 1 + intensity * 0.03
+          : 1 + Math.sin(t * (s === 'idle' ? 0.72 : 1.35 + speed * 0.28)) * (0.016 + intensity * 0.03);
+      const jitter = s === 'error' ? Math.sin(t * 8.4) * 0.03 : s === 'warning' ? Math.sin(t * 2.6) * 0.01 : 0;
       const cx = pixelSize / 2;
       const cy = pixelSize / 2;
-      const r = pixelSize * 0.42;
+      const r = pixelSize * 0.485;
+      const thinking = s === 'thinking';
+      const generating = s === 'generating';
+      const listening = s === 'listening';
+      const speaking = s === 'speaking';
+      const inward = thinking || generating ? 0.22 : listening ? 0.04 : 0.1;
 
       gfx.clearRect(0, 0, pixelSize, pixelSize);
 
-      const aura = gfx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r * 1.18);
-      aura.addColorStop(0, rgba(c1, 0.18 + intensity * 0.22));
-      aura.addColorStop(0.55, rgba(c2, 0.1 + intensity * 0.08));
+      const aura = gfx.createRadialGradient(cx, cy, r * 0.18, cx, cy, r * 1.12);
+      aura.addColorStop(0, rgba(c1, 0.16 + intensity * 0.2));
+      aura.addColorStop(0.58, rgba(c2, 0.08 + intensity * 0.07));
       aura.addColorStop(1, 'rgba(0,0,0,0)');
       gfx.fillStyle = aura;
       gfx.beginPath();
-      gfx.arc(cx, cy, r * 1.16 * pulse, 0, Math.PI * 2);
+      gfx.arc(cx, cy, r * 1.08 * breathe, 0, Math.PI * 2);
       gfx.fill();
 
       gfx.save();
       gfx.beginPath();
-      gfx.arc(cx, cy, r * pulse, 0, Math.PI * 2);
+      gfx.arc(cx, cy, r * breathe, 0, Math.PI * 2);
       gfx.clip();
 
-      const voidFill = gfx.createRadialGradient(cx, cy + r * 0.12, r * 0.05, cx, cy, r);
-      voidFill.addColorStop(0, 'rgba(10, 14, 28, 0.35)');
-      voidFill.addColorStop(0.55, 'rgba(4, 7, 16, 0.82)');
-      voidFill.addColorStop(1, 'rgba(2, 4, 10, 0.96)');
+      const voidFill = gfx.createRadialGradient(cx - r * 0.18, cy - r * 0.28, r * 0.04, cx + r * 0.12, cy + r * 0.22, r);
+      voidFill.addColorStop(0, 'rgba(14, 22, 42, 0.22)');
+      voidFill.addColorStop(0.42, 'rgba(5, 8, 18, 0.78)');
+      voidFill.addColorStop(1, 'rgba(2, 3, 8, 0.96)');
       gfx.fillStyle = voidFill;
       gfx.fillRect(cx - r, cy - r, r * 2, r * 2);
 
-      const coreGlow = gfx.createRadialGradient(cx, cy, r * 0.04, cx, cy, r * (0.42 + intensity * 0.18));
-      coreGlow.addColorStop(0, rgba(c1, 0.55 + intensity * 0.35));
-      coreGlow.addColorStop(0.45, rgba(c2, 0.22 + intensity * 0.18));
-      coreGlow.addColorStop(1, 'rgba(0,0,0,0)');
-      gfx.fillStyle = coreGlow;
+      const nebula = gfx.createRadialGradient(cx, cy, r * 0.02, cx, cy, r * (0.58 + intensity * 0.16));
+      nebula.addColorStop(0, rgba(highlight, 0.28 + intensity * 0.22));
+      nebula.addColorStop(0.28, rgba(c1, 0.34 + intensity * 0.28));
+      nebula.addColorStop(0.62, rgba(c2, 0.16 + intensity * 0.14));
+      nebula.addColorStop(1, 'rgba(0,0,0,0)');
+      gfx.fillStyle = nebula;
       gfx.beginPath();
-      gfx.arc(cx, cy, r * 0.62 * pulse, 0, Math.PI * 2);
+      gfx.arc(cx, cy, r * (thinking ? 0.52 : 0.7) * breathe, 0, Math.PI * 2);
       gfx.fill();
 
-      const inward = s === 'thinking' || s === 'generating' ? 0.18 : 0.08;
-      const boltCount = reduceMotion ? 4 : s === 'listening' || s === 'speaking' || s === 'generating' ? 9 : s === 'error' ? 8 : 6;
       gfx.lineCap = 'round';
       gfx.lineJoin = 'round';
-      for (let i = 0; i < boltCount; i++) {
-        const seed = i * 1.37;
-        const a = t * speed * 0.55 + (i * Math.PI * 2) / boltCount + Math.sin(t * 0.7 + seed) * 0.18;
-        const inner = r * (0.16 + inward + (s === 'thinking' ? 0.08 : 0)) * pulse;
-        const outer = r * (0.92 + Math.sin(t * 1.8 + seed) * 0.04 + audio * 0.06 + jitter) * pulse;
-        const jagged = reduceMotion ? 1.2 : 3.8 + intensity * 5.5;
-        gfx.strokeStyle = rgba(i % 2 ? c2 : c1, 0.28 + intensity * 0.42);
-        gfx.lineWidth = Math.max(0.8, pixelSize / (s === 'idle' ? 92 : 70));
-        gfx.beginPath();
-        const x0 = cx + Math.cos(a) * outer;
-        const y0 = cy + Math.sin(a) * outer;
-        const x1 = cx + Math.cos(a) * inner;
-        const y1 = cy + Math.sin(a) * inner;
-        gfx.moveTo(x0, y0);
-        const segs = reduceMotion ? 2 : 5;
-        for (let k = 1; k <= segs; k++) {
-          const p = k / segs;
-          const wobble = Math.sin(t * 2.4 + seed + p * 9) * jagged * (1 - p);
-          const perp = a + Math.PI / 2;
-          gfx.lineTo(x0 + (x1 - x0) * p + Math.cos(perp) * wobble, y0 + (y1 - y0) * p + Math.sin(perp) * wobble);
-        }
-        gfx.stroke();
 
-        if (!reduceMotion && i % 2 === 0) {
-          const mid = 0.45;
-          const mx = x0 + (x1 - x0) * mid;
-          const my = y0 + (y1 - y0) * mid;
-          const ba = a + 0.55 * Math.sin(t + seed);
-          gfx.strokeStyle = rgba(c1, 0.18 + intensity * 0.22);
-          gfx.lineWidth = Math.max(0.6, pixelSize / 110);
-          gfx.beginPath();
-          gfx.moveTo(mx, my);
-          gfx.lineTo(cx + Math.cos(ba) * inner * 1.15, cy + Math.sin(ba) * inner * 1.15);
-          gfx.stroke();
-        }
-      }
+      const layers: Array<{ count: number; alpha: number; width: number; inner: number; outer: number; jagged: number }> = [
+        { count: reduceMotion ? 3 : 7, alpha: 0.16, width: pixelSize / 52, inner: r * 0.2, outer: r * 0.72, jagged: 5.5 },
+        { count: reduceMotion ? 4 : 9, alpha: 0.34, width: pixelSize / 78, inner: r * (0.12 + inward), outer: r * 0.9, jagged: 7.2 },
+        { count: reduceMotion ? 2 : 4, alpha: 0.55, width: pixelSize / 110, inner: r * (0.1 + inward * 0.6), outer: r * 0.96, jagged: 4.4 },
+      ];
 
-      const sparks = reduceMotion ? 3 : 9;
+      layers.forEach((layer, layerIndex) => {
+        const extra = generating ? 1 : listening || speaking ? 1 : 0;
+        const count = Math.min(layer.count + extra, 11);
+        for (let i = 0; i < count; i++) {
+          const seed = i * 1.618 + layerIndex * 4.1;
+          const life = reduceMotion ? 0.72 : arcLife(t * speed, seed, 3.6 + (i % 4) * 0.55);
+          if (life < 0.08) continue;
+          const a =
+            t * speed * (0.18 + layerIndex * 0.07) +
+            (i * Math.PI * 2) / count +
+            Math.sin(t * 0.45 + seed) * 0.28 +
+            jitter;
+          const outer =
+            layer.outer * breathe * (1 + Math.sin(t * 1.3 + seed) * 0.045 + audio * 0.08 + (listening ? 0.05 : 0));
+          const inner = layer.inner * breathe * (thinking ? 1.25 : 1);
+          gfx.strokeStyle = rgba(i % 2 ? c2 : i % 3 === 0 ? highlight : c1, (layer.alpha + intensity * 0.22) * life);
+          gfx.lineWidth = Math.max(0.7, layer.width);
+          strokeArc(cx, cy, a, inner, outer, reduceMotion ? 3 : 7, reduceMotion ? 1.1 : layer.jagged * (0.7 + intensity * 0.5), t, seed);
+
+          if (!reduceMotion && layerIndex > 0 && i % 2 === 0 && life > 0.45) {
+            const mid = inner + (outer - inner) * 0.42;
+            const fork = a + (i % 2 ? 0.42 : -0.38) * (0.7 + Math.sin(t + seed));
+            gfx.strokeStyle = rgba(c1, (0.14 + intensity * 0.18) * life);
+            gfx.lineWidth = Math.max(0.55, layer.width * 0.65);
+            strokeArc(cx, cy, fork, mid * 0.72, mid + (outer - mid) * 0.35, 4, layer.jagged * 0.55, t, seed + 2.2);
+          }
+        }
+      });
+
+      const sparks = reduceMotion ? 3 : 8;
       for (let i = 0; i < sparks; i++) {
-        const life = (t * (0.08 + intensity * 0.06) + i * 0.13) % 1;
-        const dist = r * (0.9 - life * (0.62 + inward));
-        const a = i * 0.95 + t * 0.12 * speed;
-        const px = cx + Math.cos(a) * dist;
-        const py = cy + Math.sin(a * 1.05) * dist;
-        gfx.fillStyle = rgba(i % 2 ? c2 : c1, (1 - life) * (0.25 + intensity * 0.45));
+        const life = (t * (0.07 + intensity * 0.05) + i * 0.14) % 1;
+        const dist = r * (0.88 - life * (0.58 + inward));
+        const a = i * 0.92 + t * 0.1 * speed;
+        gfx.fillStyle = rgba(i % 2 ? highlight : c2, (1 - life) * (0.18 + intensity * 0.32));
         gfx.beginPath();
-        gfx.arc(px, py, Math.max(0.7, pixelSize * 0.008 * (1 - life)), 0, Math.PI * 2);
+        gfx.arc(cx + Math.cos(a) * dist, cy + Math.sin(a * 1.04) * dist, Math.max(0.6, pixelSize * 0.006 * (1 - life)), 0, Math.PI * 2);
         gfx.fill();
       }
 
-      const coreR = r * (0.16 + intensity * 0.04 + audio * 0.03) * pulse;
-      const core = gfx.createRadialGradient(cx - coreR * 0.28, cy - coreR * 0.32, 1, cx, cy, coreR);
-      core.addColorStop(0, 'rgba(248,250,252,0.42)');
-      core.addColorStop(0.32, rgba(c1, 0.9));
-      core.addColorStop(1, rgba(c2, 0.55));
+      const coreR = r * (0.13 + intensity * 0.045 + audio * 0.05 + (thinking ? 0.02 : 0)) * breathe;
+      const outerCore = gfx.createRadialGradient(cx, cy, coreR * 0.2, cx, cy, coreR * 2.4);
+      outerCore.addColorStop(0, rgba(highlight, 0.22 + intensity * 0.18));
+      outerCore.addColorStop(1, 'rgba(0,0,0,0)');
+      gfx.fillStyle = outerCore;
+      gfx.beginPath();
+      gfx.arc(cx, cy, coreR * 2.35, 0, Math.PI * 2);
+      gfx.fill();
+
+      const core = gfx.createRadialGradient(cx - coreR * 0.3, cy - coreR * 0.38, 1, cx, cy, coreR);
+      core.addColorStop(0, 'rgba(255,255,255,0.55)');
+      core.addColorStop(0.28, rgba(highlight, 0.7));
+      core.addColorStop(0.7, rgba(c1, 0.55));
+      core.addColorStop(1, rgba(c2, 0.12));
       gfx.fillStyle = core;
       gfx.beginPath();
       gfx.arc(cx, cy, coreR, 0, Math.PI * 2);
       gfx.fill();
       gfx.restore();
 
-      const rim = gfx.createRadialGradient(cx - r * 0.35, cy - r * 0.42, r * 0.1, cx, cy, r * pulse);
-      rim.addColorStop(0.82, 'rgba(255,255,255,0)');
-      rim.addColorStop(0.93, 'rgba(255,255,255,0.28)');
-      rim.addColorStop(1, 'rgba(255,255,255,0.04)');
-      gfx.strokeStyle = rim;
-      gfx.lineWidth = Math.max(1.2, pixelSize * 0.018);
+      if (listening && !reduceMotion) {
+        gfx.strokeStyle = rgba(c1, 0.18 + Math.sin(t * 3.2) * 0.08);
+        gfx.lineWidth = Math.max(1, pixelSize * 0.008);
+        gfx.beginPath();
+        gfx.arc(cx, cy, r * breathe * (0.98 + Math.sin(t * 2.4) * 0.012), 0, Math.PI * 2);
+        gfx.stroke();
+      }
+
+      gfx.strokeStyle = 'rgba(255,255,255,0.22)';
+      gfx.lineWidth = Math.max(0.8, pixelSize * 0.007);
       gfx.beginPath();
-      gfx.arc(cx, cy, r * pulse - gfx.lineWidth / 2, 0, Math.PI * 2);
+      gfx.arc(cx, cy, r * breathe - gfx.lineWidth / 2, 0, Math.PI * 2);
+      gfx.stroke();
+
+      gfx.strokeStyle = 'rgba(8,12,24,0.28)';
+      gfx.beginPath();
+      gfx.arc(cx + r * 0.08, cy + r * 0.12, r * breathe * 0.97, 0.15 * Math.PI, 0.95 * Math.PI);
       gfx.stroke();
     }
 
@@ -309,13 +374,18 @@ export function NexterOrb({
       document.removeEventListener('visibilitychange', onVis);
       mq?.removeEventListener('change', onMotion);
     };
-  }, [responsive]);
+  }, [responsive, identity]);
 
   return (
     <div
       ref={wrapRef}
-      className={cn('nexter-orb', responsive && 'nexter-orb--responsive', className)}
-      style={responsive ? undefined : { width: size, height: size }}
+      className={cn(
+        'nexter-orb',
+        responsive && 'nexter-orb--responsive',
+        identity && 'nexter-orb--identity',
+        className
+      )}
+      style={responsive || identity ? undefined : { width: size, height: size }}
       aria-hidden={decorative || undefined}
       aria-label={decorative ? undefined : `Nexter ${nexterOrbStatusLabel(resolved)}`}
       aria-live={decorative ? undefined : 'polite'}
@@ -323,11 +393,11 @@ export function NexterOrb({
       role={decorative ? undefined : 'img'}
     >
       <div className="nexter-orb__glass">
-        <canvas ref={canvasRef} className="nexter-orb__canvas" aria-hidden="true" />
+        {identity ? null : <canvas ref={canvasRef} className="nexter-orb__canvas" aria-hidden="true" />}
         <span className="nexter-orb__mark" aria-hidden="true">
           N
         </span>
-        <span className="nexter-orb__specular" aria-hidden="true" />
+        {identity ? null : <span className="nexter-orb__specular" aria-hidden="true" />}
       </div>
     </div>
   );

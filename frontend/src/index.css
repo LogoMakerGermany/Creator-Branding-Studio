@@ -213,6 +213,16 @@ body {
   overflow: visible;
 }
 
+.nexter-orb-status {
+  margin-top: -0.15rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--nexter-orb-primary, #3b82f6) 62%, white);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--nexter-orb-primary, #3b82f6) 35%, transparent);
+}
+
 .nexter-orb {
   --nexter-orb-primary: var(--ucbs-accent-cyan, #3b82f6);
   --nexter-orb-secondary: var(--ucbs-accent-purple, #a855f7);
@@ -228,6 +238,16 @@ body {
   height: 100%;
 }
 
+.nexter-orb--identity {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.nexter-orb--identity-compact {
+  width: 2rem;
+  height: 2rem;
+}
+
 .nexter-orb__glass {
   position: relative;
   width: 100%;
@@ -237,17 +257,26 @@ body {
   isolation: isolate;
   container-type: size;
   background:
-    radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.34), transparent 38%),
-    radial-gradient(circle at 70% 78%, color-mix(in srgb, var(--nexter-orb-secondary) 22%, transparent), transparent 46%),
-    radial-gradient(circle at 50% 58%, rgba(6, 10, 22, 0.28), rgba(3, 5, 12, 0.78) 72%);
-  border: 1px solid rgba(255, 255, 255, 0.32);
+    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.38), transparent 32%),
+    radial-gradient(circle at 78% 82%, color-mix(in srgb, var(--nexter-orb-secondary) 16%, transparent), transparent 42%),
+    radial-gradient(circle at 50% 58%, rgba(4, 8, 18, 0.18), rgba(2, 4, 10, 0.55) 74%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow:
-    inset 0 1px 2px rgba(255, 255, 255, 0.42),
-    inset 0 -14px 22px rgba(4, 6, 16, 0.45),
-    0 0 22px color-mix(in srgb, var(--nexter-orb-primary) 26%, transparent),
-    0 0 42px color-mix(in srgb, var(--nexter-orb-secondary) 16%, transparent);
-  backdrop-filter: blur(12px) saturate(1.15);
+    inset 0 1px 1px rgba(255, 255, 255, 0.38),
+    inset 0 -16px 28px rgba(2, 4, 12, 0.42),
+    0 0 18px color-mix(in srgb, var(--nexter-orb-primary) 18%, transparent),
+    0 0 36px color-mix(in srgb, var(--nexter-orb-secondary) 10%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
   transition: box-shadow 420ms ease;
+}
+
+.nexter-orb--identity .nexter-orb__glass {
+  background:
+    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.28), transparent 46%),
+    radial-gradient(circle at 50% 60%, color-mix(in srgb, var(--nexter-orb-primary) 22%, transparent), rgba(4, 6, 14, 0.85) 70%);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.3),
+    0 0 10px color-mix(in srgb, var(--nexter-orb-primary) 28%, transparent);
 }
 
 .nexter-orb[data-state='listening'] .nexter-orb__glass,
@@ -303,16 +332,22 @@ body {
   align-items: center;
   justify-content: center;
   font-family: var(--font-display), system-ui, sans-serif;
-  font-weight: 800;
-  font-size: 44cqmin;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  font-size: 32cqmin;
+  letter-spacing: 0.06em;
   line-height: 1;
-  color: #f8fafc;
-  -webkit-text-stroke: 0.045em rgba(8, 12, 24, 0.45);
+  color: rgba(236, 248, 255, 0.9);
+  -webkit-text-stroke: 0.02em rgba(8, 16, 32, 0.22);
   text-shadow:
-    0 0 6px rgba(255, 255, 255, 0.95),
-    0 0 14px color-mix(in srgb, var(--nexter-orb-primary) 90%, white),
-    0 0 26px var(--nexter-orb-secondary);
+    0 0 8px rgba(255, 255, 255, 0.45),
+    0 0 16px color-mix(in srgb, var(--nexter-orb-primary) 55%, transparent);
+}
+
+.nexter-orb--identity .nexter-orb__mark {
+  font-size: 48cqmin;
+  font-weight: 800;
+  color: rgba(248, 250, 252, 0.94);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--nexter-orb-primary) 55%, transparent);
 }
 
 .nexter-orb__specular {

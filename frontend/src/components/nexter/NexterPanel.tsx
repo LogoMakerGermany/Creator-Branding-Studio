@@ -19,7 +19,7 @@ export function NexterPanel({
   const { activeDna, refreshUser, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const { orbState, setOrbState, pulse, studioHint, audioLevel, setAudioLevel, pendingPrompt, consumePendingPrompt } =
+  const { orbState, setOrbState, pulse, studioHint, setAudioLevel, pendingPrompt, consumePendingPrompt } =
     useNexterStore();
   const activeProjectId = useBrandProjectStore((s) => s.activeProjectId);
   const [messages, setMessages] = useState<NexterChatMessage[]>([]);
@@ -308,7 +308,12 @@ export function NexterPanel({
       aria-label="Nexter Chat"
     >
       <div className="flex items-center gap-3 border-b border-white/5 px-4 py-3">
-        <NexterOrb state={orb} size={compact ? 44 : 56} audioLevel={audioLevel} />
+        <NexterOrb
+          variant="identity"
+          state={orb}
+          decorative
+          className={compact ? 'nexter-orb--identity-compact' : undefined}
+        />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-white">NEXTER</p>
           <p className="truncate text-[11px] text-zinc-500">

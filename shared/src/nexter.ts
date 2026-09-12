@@ -16,11 +16,11 @@ export type NexterOrbState = (typeof NEXTER_ORB_STATES)[number];
 export const NEXTER_ORB_STATUS_LABEL: Record<NexterOrbState, string> = {
   idle: 'Bereit',
   listening: 'Hört zu',
-  thinking: 'Denkt nach',
+  thinking: 'Denkt',
   speaking: 'Spricht',
-  generating: 'Generiert',
-  success: 'Fertig',
-  warning: 'Achtung',
+  generating: 'Erstellt',
+  success: 'Erfolgreich',
+  warning: 'Hinweis',
   error: 'Fehler',
 };
 
