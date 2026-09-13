@@ -76,6 +76,19 @@ function hash(n: number): number {
   return x - Math.floor(x);
 }
 
+function eyeOpenAmount(t: number, reduceMotion: boolean): number {
+  if (reduceMotion) return 1;
+  const span = 8.6;
+  const window = Math.floor(t / span);
+  const offset = 1.4 + hash(window * 19.7 + 4.1) * 6.2;
+  const dur = 0.08 + hash(window * 8.3 + 2.2) * 0.05;
+  const local = t - window * span;
+  if (local < offset || local > offset + dur) return 1;
+  const p = (local - offset) / dur;
+  if (p < 0.42) return 1 - (p / 0.42) * 0.9;
+  return 0.1 + ((p - 0.42) / 0.58) * 0.9;
+}
+
 export function NexterOrb({
   state = 'idle',
   size = 72,
@@ -189,6 +202,103 @@ export function NexterOrb({
       return { midA: c1A, midR: c1R, endA, endR: eR };
     }
 
+    function drawEyes(
+      cx: number,
+      cy: number,
+      r: number,
+      c1: string,
+      c2: string,
+      s: NexterOrbState,
+      audio: number,
+      reduceMotion: boolean,
+      t: number,
+      intensity: number
+    ) {
+      const open = eyeOpenAmount(t, reduceMotion);
+      const thinking = s === 'thinking';
+      const listening = s === 'listening';
+      const speaking = s === 'speaking';
+      const generating = s === 'generating';
+      const pulse = reduceMotion ? 1 : 1 + Math.sin(t * 0.52) * 0.07;
+      const focus = thinking ? 0.9 : generating ? 0.94 : 1;
+      const bright =
+        (0.52 + intensity * 0.38 + (listening || speaking ? audio * 0.22 : 0) + (s === 'success' ? 0.1 : 0)) *
+        pulse *
+        (s === 'error' ? 0.72 + Math.abs(Math.sin(t * 9.2)) * 0.22 : 1);
+      const driftX = reduceMotion ? 0 : Math.sin(t * 0.18) * r * 0.008;
+      const driftY = reduceMotion ? 0 : Math.cos(t * 0.14) * r * 0.006;
+      const shake = s === 'error' && !reduceMotion ? Math.sin(t * 11.4) * r * 0.004 : 0;
+      const spread = r * (thinking ? 0.148 : 0.16);
+      const baseY = cy - r * 0.11 + driftY;
+      const eyeRx = r * 0.056 * focus;
+      const eyeRy = r * 0.068 * focus * Math.max(0.12, open);
+      const mid = mixHex(c2, c1, 0.32);
+      const core = mixHex(mid, s === 'warning' ? '#f8e7c8' : '#f8fafc', s === 'warning' ? 0.28 : 0.58);
+
+      const mist = gfx.createRadialGradient(cx + driftX, baseY, r * 0.02, cx + driftX, baseY, r * 0.3);
+      mist.addColorStop(0, 'rgba(4, 6, 16, 0.42)');
+      mist.addColorStop(0.38, rgba(c2, 0.14 * bright));
+      mist.addColorStop(1, 'rgba(0,0,0,0)');
+      gfx.fillStyle = mist;
+      gfx.beginPath();
+      gfx.ellipse(cx + driftX, baseY, r * 0.3, r * 0.2, 0, 0, Math.PI * 2);
+      gfx.fill();
+
+      for (const side of [-1, 1] as const) {
+        const ex = cx + side * spread + driftX + shake * side;
+        const ey = baseY;
+        const glow = gfx.createRadialGradient(ex, ey, eyeRx * 0.18, ex, ey, eyeRx * 3.4);
+        glow.addColorStop(0, rgba(core, (0.62 + intensity * 0.2) * bright * open));
+        glow.addColorStop(0.28, rgba(mid, (0.42 + intensity * 0.18) * bright * open));
+        glow.addColorStop(0.62, rgba(c2, 0.18 * bright * open));
+        glow.addColorStop(1, 'rgba(0,0,0,0)');
+        gfx.fillStyle = glow;
+        gfx.beginPath();
+        gfx.ellipse(ex, ey, eyeRx * 3.35, eyeRy * 3.5, 0, 0, Math.PI * 2);
+        gfx.fill();
+
+        const body = gfx.createRadialGradient(ex - eyeRx * 0.18, ey - eyeRy * 0.22, 1, ex, ey, eyeRx);
+        body.addColorStop(0, rgba(core, 0.92 * bright * open));
+        body.addColorStop(0.42, rgba(mid, 0.78 * bright * open));
+        body.addColorStop(0.78, rgba(c2, 0.4 * bright * open));
+        body.addColorStop(1, rgba(c2, 0.04));
+        gfx.fillStyle = body;
+        gfx.beginPath();
+        gfx.ellipse(ex, ey, eyeRx, eyeRy, 0, 0, Math.PI * 2);
+        gfx.fill();
+
+        const spark = gfx.createRadialGradient(ex - eyeRx * 0.2, ey - eyeRy * 0.28, 0, ex, ey, eyeRx * 0.42);
+        spark.addColorStop(0, `rgba(255,255,255,${0.42 * bright * open})`);
+        spark.addColorStop(1, 'rgba(255,255,255,0)');
+        gfx.fillStyle = spark;
+        gfx.beginPath();
+        gfx.ellipse(ex, ey, eyeRx * 0.38, eyeRy * 0.4, 0, 0, Math.PI * 2);
+        gfx.fill();
+
+        if (!reduceMotion && open > 0.7) {
+          const seed = 41.2 + side * 16.8;
+          const life = arcLife(t * (s === 'idle' ? 0.38 : 0.9), seed, 5.4);
+          if (life > 0.22) {
+            const startA = Math.atan2(ey - cy, ex - cx);
+            const startR = Math.hypot(ex - cx, ey - cy);
+            gfx.strokeStyle = rgba(c2, 0.14 * life * bright);
+            gfx.lineWidth = Math.max(0.45, r / 90);
+            strokeBolt(
+              cx,
+              cy,
+              startA,
+              startR * 0.82,
+              startA + side * (0.35 + hash(seed) * 0.55),
+              Math.min(r * 0.93, startR + r * (0.16 + hash(seed + 1) * 0.12)),
+              t,
+              seed,
+              r * 0.93
+            );
+          }
+        }
+      }
+    }
+
     function draw(s: NexterOrbState, audio: number, reduceMotion: boolean, t: number) {
       pixelSize = measure();
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -244,9 +354,9 @@ export function NexterOrb({
       gfx.fillStyle = voidFill;
       gfx.fillRect(cx - r, cy - r, r * 2, r * 2);
 
-      const nebula = gfx.createRadialGradient(cx, cy, r * 0.02, cx, cy, r * (0.58 + intensity * 0.16));
-      nebula.addColorStop(0, rgba(highlight, 0.22 + intensity * 0.18));
-      nebula.addColorStop(0.28, rgba(c1, 0.3 + intensity * 0.24));
+      const nebula = gfx.createRadialGradient(cx, cy + r * 0.08, r * 0.04, cx, cy, r * (0.58 + intensity * 0.16));
+      nebula.addColorStop(0, 'rgba(6, 8, 18, 0.35)');
+      nebula.addColorStop(0.28, rgba(c1, 0.22 + intensity * 0.18));
       nebula.addColorStop(0.62, rgba(c2, 0.14 + intensity * 0.12));
       nebula.addColorStop(1, 'rgba(0,0,0,0)');
       gfx.fillStyle = nebula;
@@ -336,24 +446,16 @@ export function NexterOrb({
       }
 
       const coreR = r * (0.11 + intensity * 0.04 + audio * 0.05 + (thinking ? 0.025 : 0)) * breathe;
-      const outerCore = gfx.createRadialGradient(cx, cy, coreR * 0.15, cx, cy, coreR * 2.8);
-      outerCore.addColorStop(0, rgba(highlight, 0.2 + intensity * 0.16));
-      outerCore.addColorStop(0.45, rgba(c1, 0.12 + intensity * 0.1));
+      const outerCore = gfx.createRadialGradient(cx, cy + coreR * 0.4, coreR * 0.2, cx, cy, coreR * 2.8);
+      outerCore.addColorStop(0, 'rgba(4, 6, 16, 0.28)');
+      outerCore.addColorStop(0.42, rgba(c2, 0.14 + intensity * 0.1));
       outerCore.addColorStop(1, 'rgba(0,0,0,0)');
       gfx.fillStyle = outerCore;
       gfx.beginPath();
       gfx.arc(cx, cy, coreR * 2.7, 0, Math.PI * 2);
       gfx.fill();
 
-      const core = gfx.createRadialGradient(cx - coreR * 0.28, cy - coreR * 0.34, 1, cx, cy, coreR);
-      core.addColorStop(0, 'rgba(255,255,255,0.32)');
-      core.addColorStop(0.35, rgba(highlight, 0.48));
-      core.addColorStop(0.72, rgba(c1, 0.28));
-      core.addColorStop(1, 'rgba(0,0,0,0)');
-      gfx.fillStyle = core;
-      gfx.beginPath();
-      gfx.arc(cx, cy, coreR, 0, Math.PI * 2);
-      gfx.fill();
+      drawEyes(cx, cy, r, c1, c2, s, audio, reduceMotion, t, intensity);
       gfx.restore();
 
       if (listening && !reduceMotion) {
@@ -442,9 +544,11 @@ export function NexterOrb({
     >
       <div className="nexter-orb__glass">
         {identity ? null : <canvas ref={canvasRef} className="nexter-orb__canvas" aria-hidden="true" />}
-        <span className="nexter-orb__mark" aria-hidden="true">
-          N
-        </span>
+        {identity ? (
+          <span className="nexter-orb__mark" aria-hidden="true">
+            N
+          </span>
+        ) : null}
         {identity ? null : <span className="nexter-orb__specular" aria-hidden="true" />}
       </div>
     </div>

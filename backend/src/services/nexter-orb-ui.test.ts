@@ -33,11 +33,10 @@ describe('nexter plasma orb UI — visual only', () => {
   const store = repo('frontend/src/v2/store/nexter-store.ts');
   const shared = repo('shared/src/nexter.ts');
 
-  it('1. NexterOrb renders a canvas glass orb with a center N', () => {
+  it('1. NexterOrb renders a canvas glass orb', () => {
     assert.match(orb, /export function NexterOrb/);
     assert.match(orb, /canvasRef/);
     assert.match(orb, /nexter-orb__glass/);
-    assert.match(orb, />\s*N\s*</);
   });
 
   for (const state of NEXTER_ORB_STATES) {
@@ -115,6 +114,21 @@ describe('nexter plasma orb UI — visual only', () => {
     assert.doesNotMatch(panel, /<canvas/);
   });
 
+  it('living plasma orb uses two energy eyes instead of a center N', () => {
+    assert.match(orb, /function drawEyes/);
+    assert.match(orb, /function eyeOpenAmount/);
+    assert.match(orb, /gfx\.ellipse\(/);
+    assert.match(orb, /for \(const side of \[-1, 1\]/);
+    assert.match(orb, /identity \? \(/);
+    assert.match(orb, />\s*N\s*</);
+    assert.match(orb, /variant === 'identity'/);
+    assert.doesNotMatch(orb, /fillText\(/);
+    assert.doesNotMatch(orb, /pupil|iris|eyelash|mouth|smiley/i);
+    assert.match(panel, /variant="identity"/);
+    assert.match(panel, /nexter-orb--identity-compact/);
+    assert.match(css, /\.nexter-orb--identity \.nexter-orb__mark \{[\s\S]*?font-size: 48cqmin;/);
+  });
+
   it('chat header uses a static identity mark without a second canvas animation', () => {
     assert.match(orb, /variant === 'identity'/);
     assert.match(css, /nexter-orb--identity/);
@@ -142,6 +156,7 @@ describe('nexter plasma orb UI — visual only', () => {
     assert.doesNotMatch(orb, /strokeArc/);
     assert.doesNotMatch(orb, /\(i \* Math\.PI \* 2\) \/ count/);
     assert.match(orb, /prefers-reduced-motion: reduce/);
+    assert.match(orb, /eyeOpenAmount\(t, reduceMotion\)/);
   });
 
   it('connects real Nexter states, pauses when hidden, and cleans up rAF', () => {
