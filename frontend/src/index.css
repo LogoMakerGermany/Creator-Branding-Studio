@@ -332,20 +332,24 @@ body {
   align-items: center;
   justify-content: center;
   font-family: var(--font-display), system-ui, sans-serif;
-  font-weight: 700;
-  font-size: 32cqmin;
-  letter-spacing: 0.06em;
+  font-weight: 600;
+  font-size: 26cqmin;
+  letter-spacing: 0.08em;
   line-height: 1;
-  color: rgba(236, 248, 255, 0.9);
-  -webkit-text-stroke: 0.02em rgba(8, 16, 32, 0.22);
+  color: rgba(196, 228, 255, 0.78);
+  mix-blend-mode: plus-lighter;
+  -webkit-text-stroke: 0.012em rgba(160, 210, 255, 0.28);
   text-shadow:
-    0 0 8px rgba(255, 255, 255, 0.45),
-    0 0 16px color-mix(in srgb, var(--nexter-orb-primary) 55%, transparent);
+    0 0 10px color-mix(in srgb, var(--nexter-orb-primary) 42%, transparent),
+    0 0 18px color-mix(in srgb, var(--nexter-orb-secondary) 28%, transparent);
 }
 
 .nexter-orb--identity .nexter-orb__mark {
   font-size: 48cqmin;
   font-weight: 800;
+  letter-spacing: 0.06em;
+  mix-blend-mode: normal;
+  -webkit-text-stroke: 0;
   color: rgba(248, 250, 252, 0.94);
   text-shadow: 0 0 8px color-mix(in srgb, var(--nexter-orb-primary) 55%, transparent);
 }

@@ -76,7 +76,9 @@ describe('nexter plasma orb UI — visual only', () => {
     assert.match(orb, /#a855f7/);
     assert.match(appearance, /--nexter-orb-primary/);
     assert.match(appearance, /--nexter-orb-secondary/);
-    assert.match(css, /32cqmin/);
+    assert.match(css, /font-size: 26cqmin;/);
+    assert.match(css, /\.nexter-orb--identity \.nexter-orb__mark \{[\s\S]*?font-size: 48cqmin;/);
+    assert.match(css, /mix-blend-mode: plus-lighter/);
     assert.match(css, /container-type: size/);
   });
 
@@ -123,11 +125,23 @@ describe('nexter plasma orb UI — visual only', () => {
   it('29-30. mobile stays compact and desktop orb is prominent without covering chat', () => {
     assert.match(page, /h-\[9\.5rem\] w-\[9\.5rem\]/);
     assert.match(page, /sm:h-\[12\.25rem\] sm:w-\[12\.25rem\]/);
-    assert.match(page, /lg:h-\[17rem\] lg:w-\[17rem\]/);
+    assert.match(page, /lg:h-\[20\.625rem\] lg:w-\[20\.625rem\]/);
+    assert.doesNotMatch(page, /lg:h-\[17rem\]/);
     assert.match(page, /overflow-x-hidden/);
     assert.match(page, /minmax\(0,1fr\)/);
     assert.match(page, /nexter-orb-status/);
     assert.doesNotMatch(page, /variant="identity"/);
+  });
+
+  it('plasma stays clipped inside the glass volume with organic bolts, not radial spokes', () => {
+    assert.match(orb, /gfx\.clip\(\)/);
+    assert.match(orb, /bezierCurveTo/);
+    assert.match(orb, /strokeBolt/);
+    assert.match(orb, /arcLife/);
+    assert.match(orb, /layers/);
+    assert.doesNotMatch(orb, /strokeArc/);
+    assert.doesNotMatch(orb, /\(i \* Math\.PI \* 2\) \/ count/);
+    assert.match(orb, /prefers-reduced-motion: reduce/);
   });
 
   it('connects real Nexter states, pauses when hidden, and cleans up rAF', () => {
@@ -136,9 +150,6 @@ describe('nexter plasma orb UI — visual only', () => {
     assert.match(orb, /cancelAnimationFrame/);
     assert.match(orb, /requestAnimationFrame/);
     assert.match(orb, /removeEventListener/);
-    assert.match(orb, /strokeArc/);
-    assert.match(orb, /arcLife/);
-    assert.match(orb, /layers/);
     assert.match(panel, /recording \? 'listening'/);
     assert.match(panel, /orbState === 'generating' \? 'generating' : 'thinking'/);
   });

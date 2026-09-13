@@ -71,6 +71,11 @@ function arcLife(t: number, seed: number, cycle: number): number {
   return 1;
 }
 
+function hash(n: number): number {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
 export function NexterOrb({
   state = 'idle',
   size = 72,
@@ -147,31 +152,41 @@ export function NexterOrb({
       return [primary, secondary];
     }
 
-    function strokeArc(
+    function polar(cx: number, cy: number, angle: number, radius: number): [number, number] {
+      return [cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius];
+    }
+
+    function strokeBolt(
       cx: number,
       cy: number,
-      angle: number,
-      inner: number,
-      outer: number,
-      segs: number,
-      jagged: number,
+      startA: number,
+      startR: number,
+      endA: number,
+      endR: number,
       t: number,
-      seed: number
+      seed: number,
+      maxR: number
     ) {
+      const clampR = (value: number) => Math.min(maxR, Math.max(2, value));
+      const sR = clampR(startR);
+      const eR = clampR(endR);
+      const mid = 0.28 + hash(seed + 3.1) * 0.22;
+      const mid2 = 0.58 + hash(seed + 8.4) * 0.2;
+      const bend = (hash(seed + 1.7) - 0.5) * 0.95;
+      const bend2 = (hash(seed + 4.9) - 0.5) * 0.8;
+      const c1A = startA + (endA - startA) * mid + bend + Math.sin(t * 1.1 + seed) * 0.12;
+      const c2A = startA + (endA - startA) * mid2 + bend2 + Math.cos(t * 0.8 + seed * 1.3) * 0.1;
+      const c1R = clampR(sR + (eR - sR) * (0.22 + hash(seed + 2.2) * 0.28) + Math.sin(t * 1.4 + seed) * 6);
+      const c2R = clampR(sR + (eR - sR) * (0.62 + hash(seed + 6.6) * 0.2) + Math.cos(t * 1.05 + seed) * 5);
       gfx.beginPath();
-      for (let k = 0; k <= segs; k++) {
-        const p = k / segs;
-        const reach = inner + (outer - inner) * p;
-        const sway = Math.sin(t * 1.55 + seed + p * 6.4) * jagged * (0.22 + (1 - p) * 0.78);
-        const drift = Math.cos(t * 0.9 + seed * 1.6 + p * 4.2) * jagged * 0.38 * (1 - p);
-        const a = angle + Math.sin(t * 0.35 + seed * 0.8 + p * 1.8) * 0.11;
-        const perp = a + Math.PI / 2;
-        const x = cx + Math.cos(a) * reach + Math.cos(perp) * (sway + drift);
-        const y = cy + Math.sin(a) * reach + Math.sin(perp) * (sway + drift);
-        if (k === 0) gfx.moveTo(x, y);
-        else gfx.lineTo(x, y);
-      }
+      gfx.moveTo(...polar(cx, cy, startA, sR));
+      gfx.bezierCurveTo(
+        ...polar(cx, cy, c1A, c1R),
+        ...polar(cx, cy, c2A, c2R),
+        ...polar(cx, cy, endA, eR)
+      );
       gfx.stroke();
+      return { midA: c1A, midR: c1R, endA, endR: eR };
     }
 
     function draw(s: NexterOrbState, audio: number, reduceMotion: boolean, t: number) {
@@ -219,7 +234,7 @@ export function NexterOrb({
 
       gfx.save();
       gfx.beginPath();
-      gfx.arc(cx, cy, r * breathe, 0, Math.PI * 2);
+      gfx.arc(cx, cy, r * 0.985, 0, Math.PI * 2);
       gfx.clip();
 
       const voidFill = gfx.createRadialGradient(cx - r * 0.18, cy - r * 0.28, r * 0.04, cx + r * 0.12, cy + r * 0.22, r);
@@ -230,9 +245,9 @@ export function NexterOrb({
       gfx.fillRect(cx - r, cy - r, r * 2, r * 2);
 
       const nebula = gfx.createRadialGradient(cx, cy, r * 0.02, cx, cy, r * (0.58 + intensity * 0.16));
-      nebula.addColorStop(0, rgba(highlight, 0.28 + intensity * 0.22));
-      nebula.addColorStop(0.28, rgba(c1, 0.34 + intensity * 0.28));
-      nebula.addColorStop(0.62, rgba(c2, 0.16 + intensity * 0.14));
+      nebula.addColorStop(0, rgba(highlight, 0.22 + intensity * 0.18));
+      nebula.addColorStop(0.28, rgba(c1, 0.3 + intensity * 0.24));
+      nebula.addColorStop(0.62, rgba(c2, 0.14 + intensity * 0.12));
       nebula.addColorStop(1, 'rgba(0,0,0,0)');
       gfx.fillStyle = nebula;
       gfx.beginPath();
@@ -242,37 +257,69 @@ export function NexterOrb({
       gfx.lineCap = 'round';
       gfx.lineJoin = 'round';
 
-      const layers: Array<{ count: number; alpha: number; width: number; inner: number; outer: number; jagged: number }> = [
-        { count: reduceMotion ? 3 : 7, alpha: 0.16, width: pixelSize / 52, inner: r * 0.2, outer: r * 0.72, jagged: 5.5 },
-        { count: reduceMotion ? 4 : 9, alpha: 0.34, width: pixelSize / 78, inner: r * (0.12 + inward), outer: r * 0.9, jagged: 7.2 },
-        { count: reduceMotion ? 2 : 4, alpha: 0.55, width: pixelSize / 110, inner: r * (0.1 + inward * 0.6), outer: r * 0.96, jagged: 4.4 },
+      const limit = r * 0.93;
+      const layers: Array<{ count: number; alpha: number; width: number }> = [
+        { count: reduceMotion ? 3 : 6, alpha: 0.15, width: pixelSize / 56 },
+        { count: reduceMotion ? 4 : 8, alpha: 0.32, width: pixelSize / 84 },
+        { count: reduceMotion ? 1 : 3, alpha: 0.5, width: pixelSize / 120 },
       ];
 
       layers.forEach((layer, layerIndex) => {
         const extra = generating ? 1 : listening || speaking ? 1 : 0;
-        const count = Math.min(layer.count + extra, 11);
+        const count = Math.min(layer.count + extra, 9);
         for (let i = 0; i < count; i++) {
-          const seed = i * 1.618 + layerIndex * 4.1;
-          const life = reduceMotion ? 0.72 : arcLife(t * speed, seed, 3.6 + (i % 4) * 0.55);
+          const seed = 11.3 + i * 2.399 + layerIndex * 5.17;
+          const life = reduceMotion ? 0.7 : arcLife(t * speed, seed, 3.8 + hash(seed) * 1.6);
           if (life < 0.08) continue;
-          const a =
-            t * speed * (0.18 + layerIndex * 0.07) +
-            (i * Math.PI * 2) / count +
-            Math.sin(t * 0.45 + seed) * 0.28 +
-            jitter;
-          const outer =
-            layer.outer * breathe * (1 + Math.sin(t * 1.3 + seed) * 0.045 + audio * 0.08 + (listening ? 0.05 : 0));
-          const inner = layer.inner * breathe * (thinking ? 1.25 : 1);
-          gfx.strokeStyle = rgba(i % 2 ? c2 : i % 3 === 0 ? highlight : c1, (layer.alpha + intensity * 0.22) * life);
-          gfx.lineWidth = Math.max(0.7, layer.width);
-          strokeArc(cx, cy, a, inner, outer, reduceMotion ? 3 : 7, reduceMotion ? 1.1 : layer.jagged * (0.7 + intensity * 0.5), t, seed);
+          const kind = Math.floor(hash(seed + 0.4) * 4);
+          const a0 = seed * 1.13 + t * speed * (0.09 + layerIndex * 0.04) + jitter;
+          let startR: number;
+          let endR: number;
+          let startA: number;
+          let endA: number;
+          if (kind === 0) {
+            startR = r * (0.14 + hash(seed + 1) * 0.12 + (thinking ? 0.04 : 0));
+            endR = r * (0.55 + hash(seed + 2) * 0.32);
+            startA = a0;
+            endA = a0 + (hash(seed + 3) - 0.48) * 1.15;
+          } else if (kind === 1) {
+            startR = r * (0.34 + hash(seed + 1) * 0.18);
+            endR = r * (0.36 + hash(seed + 2) * 0.22);
+            startA = a0;
+            endA = a0 + 0.55 + hash(seed + 3) * 1.05;
+          } else if (kind === 2) {
+            startR = r * (0.3 + hash(seed + 1) * 0.16);
+            endR = r * (0.72 + hash(seed + 2) * 0.16 + (listening ? 0.04 : 0));
+            startA = a0 + 0.2;
+            endA = a0 + (hash(seed + 3) - 0.42) * 0.85;
+          } else {
+            startR = r * (0.18 + hash(seed + 1) * 0.1);
+            endR = r * (0.42 + hash(seed + 2) * 0.18);
+            startA = a0;
+            endA = a0 + (hash(seed + 3) - 0.5) * 1.25;
+          }
+          gfx.strokeStyle = rgba(i % 2 ? c2 : i % 3 === 0 ? highlight : c1, (layer.alpha + intensity * 0.2) * life);
+          gfx.lineWidth = Math.max(0.65, layer.width);
+          const bolt = strokeBolt(cx, cy, startA, startR * breathe, endA, endR * breathe, t, seed, limit);
 
-          if (!reduceMotion && layerIndex > 0 && i % 2 === 0 && life > 0.45) {
-            const mid = inner + (outer - inner) * 0.42;
-            const fork = a + (i % 2 ? 0.42 : -0.38) * (0.7 + Math.sin(t + seed));
-            gfx.strokeStyle = rgba(c1, (0.14 + intensity * 0.18) * life);
-            gfx.lineWidth = Math.max(0.55, layer.width * 0.65);
-            strokeArc(cx, cy, fork, mid * 0.72, mid + (outer - mid) * 0.35, 4, layer.jagged * 0.55, t, seed + 2.2);
+          const forks = reduceMotion ? 0 : Math.floor(hash(seed + 9.1) * 3.2);
+          if (layerIndex > 0 && forks > 0 && life > 0.4) {
+            for (let f = 0; f < forks; f++) {
+              const fSeed = seed + 20 + f * 3.7;
+              gfx.strokeStyle = rgba(c1, (0.1 + intensity * 0.14) * life);
+              gfx.lineWidth = Math.max(0.5, layer.width * 0.55);
+              strokeBolt(
+                cx,
+                cy,
+                bolt.midA,
+                bolt.midR,
+                bolt.midA + (hash(fSeed) - 0.5) * 0.9,
+                Math.min(limit, bolt.midR + r * (0.12 + hash(fSeed + 1) * 0.16)),
+                t,
+                fSeed,
+                limit
+              );
+            }
           }
         }
       });
@@ -288,20 +335,21 @@ export function NexterOrb({
         gfx.fill();
       }
 
-      const coreR = r * (0.13 + intensity * 0.045 + audio * 0.05 + (thinking ? 0.02 : 0)) * breathe;
-      const outerCore = gfx.createRadialGradient(cx, cy, coreR * 0.2, cx, cy, coreR * 2.4);
-      outerCore.addColorStop(0, rgba(highlight, 0.22 + intensity * 0.18));
+      const coreR = r * (0.11 + intensity * 0.04 + audio * 0.05 + (thinking ? 0.025 : 0)) * breathe;
+      const outerCore = gfx.createRadialGradient(cx, cy, coreR * 0.15, cx, cy, coreR * 2.8);
+      outerCore.addColorStop(0, rgba(highlight, 0.2 + intensity * 0.16));
+      outerCore.addColorStop(0.45, rgba(c1, 0.12 + intensity * 0.1));
       outerCore.addColorStop(1, 'rgba(0,0,0,0)');
       gfx.fillStyle = outerCore;
       gfx.beginPath();
-      gfx.arc(cx, cy, coreR * 2.35, 0, Math.PI * 2);
+      gfx.arc(cx, cy, coreR * 2.7, 0, Math.PI * 2);
       gfx.fill();
 
-      const core = gfx.createRadialGradient(cx - coreR * 0.3, cy - coreR * 0.38, 1, cx, cy, coreR);
-      core.addColorStop(0, 'rgba(255,255,255,0.55)');
-      core.addColorStop(0.28, rgba(highlight, 0.7));
-      core.addColorStop(0.7, rgba(c1, 0.55));
-      core.addColorStop(1, rgba(c2, 0.12));
+      const core = gfx.createRadialGradient(cx - coreR * 0.28, cy - coreR * 0.34, 1, cx, cy, coreR);
+      core.addColorStop(0, 'rgba(255,255,255,0.32)');
+      core.addColorStop(0.35, rgba(highlight, 0.48));
+      core.addColorStop(0.72, rgba(c1, 0.28));
+      core.addColorStop(1, 'rgba(0,0,0,0)');
       gfx.fillStyle = core;
       gfx.beginPath();
       gfx.arc(cx, cy, coreR, 0, Math.PI * 2);
