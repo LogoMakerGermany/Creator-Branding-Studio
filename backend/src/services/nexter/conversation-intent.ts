@@ -11,6 +11,8 @@ import {
   isProjectAnalysisMessage,
   isSmalltalkMessage,
   isTopicResetMessage,
+  looksLikeAssetEditFollowUp,
+  looksLikeWorkflowResume,
 } from './conversation-intent-patterns.js';
 
 export type NexterConversationIntent =
@@ -93,6 +95,21 @@ export function resolveNexterConversationIntent(
     return { intent: 'AMBIGUOUS', confidence: 'HIGH', reason: 'bare-prompt' };
   }
 
+  if (looksLikeWorkflowResume(text)) {
+    return { intent: 'CREATE_ASSET', confidence: 'MEDIUM', reason: 'resume-create' };
+  }
+
+  if (looksLikeAssetEditFollowUp(text) && !quoteKind) {
+    const priorAsset = [...history].reverse().find((row) => row.role === 'user' && detectQuoteKind(row.content));
+    if (priorAsset) {
+      const hasTarget = Boolean(
+        ctx?.lastLogoId || ctx?.lastBannerId || ctx?.lastFacecamId || ctx?.lastOverlayId
+      );
+      return { intent: 'MODIFY_ASSET', confidence: hasTarget ? 'HIGH' : 'MEDIUM', reason: 'edit-follow-up' };
+    }
+    return { intent: 'AMBIGUOUS', confidence: 'HIGH', reason: 'edit-without-target' };
+  }
+
   const priorCreate = [...history].reverse().find((row) => row.role === 'user' && detectQuoteKind(row.content));
   if (priorCreate && quoteKind === null && !isSmalltalkMessage(text) && text.split(/\s+/).length <= 8) {
     return { intent: 'CREATE_ASSET', confidence: 'MEDIUM', reason: 'active-create-follow-up' };
@@ -134,5 +151,7 @@ export {
   isAppHelpMessage,
   isAccountSettingsMessage,
   isAmbiguousBareMessage,
+  looksLikeAssetEditFollowUp,
+  looksLikeWorkflowResume,
   messageImpliesFormatNeed,
 } from './conversation-intent-patterns.js';

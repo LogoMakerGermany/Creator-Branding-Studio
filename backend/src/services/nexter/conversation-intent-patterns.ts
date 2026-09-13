@@ -25,7 +25,7 @@ export function isSmalltalkMessage(message: string): boolean {
   if (words > 14) return false;
 
   if (
-    /^(wie geht('?s| es)( dir|s dir)?|how are you|how('?s it going)|how have you been|wie war dein tag|how was your day|alles klar|was machst du|was geht|na(n)?\b)$/i.test(
+    /^(wie geht('?s| es)( dir|s dir)?|how are you|how('?s it going)|how have you been|wie war dein tag|how was your day|alles klar|was machst du( gerade| so)?|was geht( ab)?|na(n)?\b)$/i.test(
       raw
     )
   ) {
@@ -42,11 +42,14 @@ export function isSmalltalkMessage(message: string): boolean {
   if (/^(danke,? reicht erstmal|reicht erstmal|erstmal danke|passt erstmal|spaeter|später)$/i.test(raw)) {
     return true;
   }
-  if (/^(was bist du( eigentlich)?|wer bist du|erzähl mir (von )?dir|what are you)$/i.test(raw)) {
+  if (/witz|joke/.test(raw) && words <= 8) return true;
+  if (
+    /^(cool|nice|super|lol|haha|gefällt mir|das gefällt mir|awesome|ok|okay|(das )?(sieht|schaut) (richtig |echt |voll )?(gut|super|toll) aus)$/i.test(
+      raw
+    )
+  ) {
     return true;
   }
-  if (/witz|joke/.test(raw) && words <= 8) return true;
-  if (/^(cool|nice|super|lol|haha|gefällt mir|das gefällt mir|awesome|ok|okay)$/i.test(raw)) return true;
   return false;
 }
 
@@ -60,7 +63,7 @@ export function isCreatorAdviceMessage(message: string): boolean {
   const t = normalizeUtterance(message);
   if (isProjectAnalysisMessage(message)) return false;
   return (
-    /welche farben passen|farben passen zu|was (könnte|sollte) ich( heute)? streamen|branding empfehlen|streamdesign verbessern|was würdest du( mir)? (für mein branding|empfehlen)|wie kann ich mein (streamdesign|branding)|was hältst du von meinem|wie findest du mein/.test(
+    /welche farben (passen|würdest du)|farben passen zu|farben .{0,48}empfehlen|für mein(en)? (kanal|branding|stream).{0,24}empfehlen|was (könnte|sollte) ich( heute)? streamen|branding empfehlen|streamdesign verbessern|was würdest du( mir)? (für mein branding|empfehlen)|wie kann ich mein (streamdesign|branding)|was hältst du von meinem|wie findest du mein/.test(
       t
     )
   );
@@ -78,7 +81,7 @@ export function isProjectAnalysisMessage(message: string): boolean {
 export function isAppHelpMessage(message: string): boolean {
   const t = normalizeUtterance(message);
   return (
-    /was kann nexter|wie funktioniert (der |die |das )?(coin shop|creator dna|nexter)|wo finde ich (meine )?dateien|was ist creator dna|welche studios gibt es/.test(
+    /was kann nexter|was bist du( eigentlich)?|wer bist du|erzähl mir (von )?dir|what are you|wie funktioniert (der |die |das )?(coin shop|creator dna|nexter)|wo finde ich (meine )?dateien|was ist creator dna|welche studios gibt es/.test(
       t
     )
   );
@@ -87,7 +90,7 @@ export function isAppHelpMessage(message: string): boolean {
 export function isAccountSettingsMessage(message: string): boolean {
   const t = normalizeUtterance(message);
   return (
-    /ändere meine nexter-farbe|nexter-farbe|welche einstellungen habe ich|wie ändere ich mein profil|app-farbe|theme ändern/.test(
+    /ändere meine nexter-farbe|nexter[- ]?farben?|wie kann ich meine (nexter[- ]?)?farben ändern|welche einstellungen habe ich|wie ändere ich mein profil|app-farbe|theme ändern/.test(
       t
     )
   );
@@ -96,6 +99,19 @@ export function isAccountSettingsMessage(message: string): boolean {
 export function isAmbiguousBareMessage(message: string): boolean {
   const t = normalizeUtterance(message);
   return /^(mach mal|ändere das|kannst du das|das da|was meinst du|mach es|änder das)$/i.test(t);
+}
+
+export function looksLikeAssetEditFollowUp(message: string): boolean {
+  const t = normalizeUtterance(message);
+  if (!t || isSmalltalkMessage(message) || isAmbiguousBareMessage(message)) return false;
+  return /änder|transparent|hintergrund|dünner|dicker|entferne |rahmen|mach (es|den|das|die) /.test(t);
+}
+
+export function looksLikeWorkflowResume(message: string): boolean {
+  const t = normalizeUtterance(message);
+  return /lass uns (mit dem |beim )?(logo|banner|streamset|facecam|overlay).{0,24}weiter|mit dem (logo|banner|streamset) weitermachen|(logo|banner|streamset) weitermachen|okay,? lass uns mit dem logo/.test(
+    t
+  );
 }
 
 export function messageImpliesFormatNeed(message: string): boolean {

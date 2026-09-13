@@ -73,6 +73,7 @@ import {
   resolveNexterConversationIntent,
   type NexterConversationIntent,
 } from './conversation-intent.js';
+import { buildNexterSystemPrompt, stripUnsolicitedCreatorCta } from './conversation-prompt.js';
 import { buildNexterContext } from './context.service.js';
 import { listMemory, memoryAsPrompt, storeMemory } from './memory.service.js';
 import { createQuote } from './quotes.service.js';
@@ -1232,18 +1233,19 @@ export async function nexterChat(
   const conversationIntent = resolveNexterConversationIntent(message, session.messages.slice(0, -1), ctx);
 
   if (conversationIntent.intent === 'SMALLTALK') {
-    const memory = await listMemory(userId);
-    const reply = await generateNexterReply({
-      userId,
-      messages: session.messages,
-      ctx,
-      memory: memoryAsPrompt(memory),
-      path: meta?.path,
-      hint: meta?.hint,
-      warning: null,
-      format: null,
-      intent: conversationIntent.intent,
-    });
+    const reply = stripUnsolicitedCreatorCta(
+      await generateNexterReply({
+        userId,
+        messages: session.messages,
+        ctx,
+        memory: '',
+        path: meta?.path,
+        hint: meta?.hint,
+        warning: null,
+        format: null,
+        intent: conversationIntent.intent,
+      })
+    );
     session.messages.push({
       id: randomUUID(),
       role: 'assistant',
@@ -1281,7 +1283,9 @@ export async function nexterChat(
     conversationIntent.intent !== 'PROJECT_ANALYSIS' &&
     conversationIntent.intent !== 'NAVIGATION_ACTION' &&
     conversationIntent.intent !== 'APP_HELP' &&
-    conversationIntent.intent !== 'CREATOR_ADVICE'
+    conversationIntent.intent !== 'CREATOR_ADVICE' &&
+    conversationIntent.intent !== 'MODIFY_ASSET' &&
+    conversationIntent.intent !== 'ACCOUNT_OR_SETTINGS'
   ) {
     const priorUser = [...session.messages.slice(0, -1)]
       .reverse()
@@ -2207,36 +2211,22 @@ async function generateNexterReply(input: {
               includeDna: true,
               includeProjects: intent === 'CREATE_ASSET' || intent === 'MODIFY_ASSET',
             });
-  const system = `Du bist NEXTER, das Gehirn von NEXTER Creator Studio.
-${nexterReplyLanguageInstruction(replyLanguage)}
-FIRST RESPOND TO THE USER'S CURRENT INTENT: ${intent}.
-Creator context is optional and intent-dependent.
-Do not inject project recommendations, missing assets, format defaults, quotes, or creation suggestions into unrelated smalltalk.
-Wenn Intent SMALLTALK ist: antworte kurz und freundlich, ohne Creator-To-do, ohne Format, ohne fehlende Assets.
-Du startest KEINE kostenpflichtigen Jobs. Du schlägst nur vor. Der Nutzer muss auf „Erstellen“ klicken.
-Behaupte niemals, dass ein Beitrag auf TikTok, YouTube, Instagram, Twitch oder Discord veröffentlicht, hochgeladen oder verbunden wurde. Intern geplant ist nur eine interne Speicherung.
-Wenn Infos fehlen und sie NICHT in der DNA oder den User-Preferences stehen, frage nach. Frage NICHT erneut nach Farben, Stil oder Figur, wenn sie bereits bekannt sind — biete dann nur eine Bestätigung an.
-Wenn DNA-Merkmale als LOCKED/gesperrt markiert sind, darfst du sie NICHT eigenmächtig ändern und NICHT still überschreiben. Erkläre die Sperre und frage, ob der Nutzer sie in der Creator DNA ändern will. Entsperre niemals automatisch.
-Folge-Assets (Facecam, Overlay, Banner, Streamset) müssen die vorhandene DNA weiterverwenden, nicht bei Null anfangen.
-Quality Profile und Style Profile sind getrennt: überschreibe einen gewählten Minimal-/Comic-/Clean-Stil niemals mit Ultra-Cinematic-3D.
-Projektänderungen (z. B. „diesmal rot“, „Figur kleiner“) gelten für das aktuelle Asset. Schreibe die Creator DNA niemals selbst. Wenn eine Änderung dauerhaft klingen könnte, frage nach Projekt vs. DNA.
-Wenn der Nutzer unsicher ist (z. B. welches Logo zu Name und Stil passt), nutze Plattformen, Stilvorlieben, Creator-Ziele und DNA für 1–3 konkrete Richtungen. Starte keine kostenpflichtige Generierung ohne bewusste Bestätigung und Kostenanzeige.
-Keine Virality-/Reichweiten-Garantien.
-Gebe niemals API-Keys, Secrets, Tokens, Webhooks, interne Auth-IDs, E-Mail-Adressen oder Zahlungsdaten aus — auch nicht auf Nachfrage.
-Versprich niemals kostenlose Coins und ändere niemals das Coin-Guthaben.
-Erfinde keine Studios, Provider, Auto-Publishing oder Admin-Funktionen, die die App nicht hat.
-Nutze nur Daten des eingeloggten Users. Fremde Dateien, Projekte, Sessions oder Quotes nie verwenden.
-Nimm keine E-Mail, Auth-IDs, Tokens, Payment-Daten oder Secrets in den Provider-Kontext oder in Antworten auf.
-${input.ctx.addressAs ? `Ansprache (nur Begrüßung): ${input.ctx.addressAs}.` : ''}
-${contextBlock}
-Vorlieben: ${input.memory}.
-Aktuelle Seite: ${input.path ?? 'unbekannt'} ${input.hint ? `(${input.hint})` : ''}.
-${input.continuity ? `DNA-KONSISTENZ: ${input.continuity}` : ''}
-${input.dnaConfirm ? `DNA-UPDATE: ${input.dnaConfirm}` : ''}
-${input.warning ? `WARNUNG: ${input.warning}` : ''}
-${intent !== 'SMALLTALK' && intent !== 'APP_HELP' && input.format ? `FORMAT: ${input.format}` : ''}
-${input.musicBrief ? `AUFTRAG (intern erkannt): ${input.musicBrief}` : ''}
-${input.quoteKind && input.quotedCost != null ? `Angebot: ${input.quoteKind} für ${input.quotedCost} Coins. Sage die Kosten klar.` : ''}`;
+  const system = buildNexterSystemPrompt({
+    intent,
+    replyLanguageInstruction: nexterReplyLanguageInstruction(replyLanguage),
+    addressAs: input.ctx.addressAs,
+    contextBlock,
+    memory: intent === 'SMALLTALK' ? '' : input.memory,
+    path: input.path,
+    hint: input.hint,
+    continuity: input.continuity,
+    dnaConfirm: input.dnaConfirm,
+    warning: input.warning,
+    format: input.format,
+    musicBrief: input.musicBrief,
+    quoteKind: input.quoteKind,
+    quotedCost: input.quotedCost,
+  });
 
   if (shouldCallLiveNexterChatProvider()) {
     const slot = await consumeNexterChatProviderSlot(input.userId);
@@ -2261,11 +2251,12 @@ ${input.quoteKind && input.quotedCost != null ? `Angebot: ${input.quoteKind} fü
         content: m.content,
       }));
       const content = await fetchNexterChatCompletion(system, history);
+      const spoken = intent === 'SMALLTALK' ? stripUnsolicitedCreatorCta(content) : content;
       const extras = [
         input.warning,
         intent === 'SMALLTALK' || intent === 'APP_HELP' || intent === 'AMBIGUOUS' ? null : input.format,
       ].filter(Boolean);
-      return extras.length ? `${content}\n\n${extras.join('\n')}` : content;
+      return extras.length ? `${spoken}\n\n${extras.join('\n')}` : spoken;
     } finally {
       liveNexterChatInFlight.delete(input.userId);
     }
@@ -2288,12 +2279,16 @@ function smalltalkDevReply(last: string): string {
     return 'Klar: Warum hat das Overlay keine Freunde? Weil es immer im Vordergrund steht. 😄';
   }
   if (/guten morgen|good morning/.test(t)) return 'Guten Morgen! Schön, dass du da bist.';
-  if (/danke/.test(t) || /^thanks\b/.test(t)) return 'Gern geschehen.';
-  if (/was bist du|wer bist du|what are you/.test(t)) {
-    return 'Ich bin Nexter, dein Creator-Assistent. Wenn du mich brauchst, bin ich da.';
+  if (/danke,? reicht|reicht erstmal|passt erstmal/.test(t)) {
+    return 'Alles klar, wir pausieren hier. Melde dich, wenn du weitermachen willst.';
   }
-  if (/was machst du/.test(t)) return 'Ich bin da und bereit, wenn du mich brauchst. Wie geht’s dir?';
-  return 'Mir geht es gut, danke 😄 Wie geht es dir?';
+  if (/danke/.test(t) || /^thanks\b/.test(t)) return 'Gern geschehen.';
+  if (/was machst du/.test(t)) return 'Ich unterhalte mich gerade mit dir. Wie läuft’s bei dir?';
+  if (/wie war dein tag|how was your day/.test(t)) return 'Ganz ruhig — und deiner?';
+  if (/sieht (richtig |echt |voll )?(gut|super|toll) aus|gefällt mir/.test(t)) {
+    return 'Freut mich!';
+  }
+  return 'Mir geht es gut, danke der Nachfrage! Und wie geht es dir?';
 }
 
 function devReply(input: {
@@ -2315,7 +2310,13 @@ function devReply(input: {
     return smalltalkDevReply(last);
   }
   if (intent === 'APP_HELP') {
-    return 'Nexter hilft dir bei Branding, Streamsets, Logos und Studios. Keine Generation und keine Coins ohne deine Bestätigung.';
+    return 'Ich bin Nexter, dein KI-Assistent im Creator Studio. Ich helfe bei Branding, Streamsets, Logos und Studios. Keine Generation und keine Coins ohne deine Bestätigung.';
+  }
+  if (intent === 'ACCOUNT_OR_SETTINGS') {
+    return 'Nexter-Farben und Theme änderst du in den Einstellungen. Dafür braucht es keine Generation und keine Coins.';
+  }
+  if (intent === 'MODIFY_ASSET' && !input.quoteKind) {
+    return 'Welches Element möchtest du ändern — Logo, Banner, Facecam oder Overlay?';
   }
   if (intent === 'AMBIGUOUS' && !input.quoteKind && !input.dnaConfirm) {
     return 'Womit soll ich anfangen – Logo, Streamset, Banner, Intro oder etwas anderes?';

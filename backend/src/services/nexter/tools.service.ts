@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { NexterConversationIntent } from './conversation-intent.js';
-import { isSmalltalkMessage, messageImpliesFormatNeed } from './conversation-intent-patterns.js';
+import { isSmalltalkMessage, looksLikeAssetEditFollowUp, messageImpliesFormatNeed } from './conversation-intent-patterns.js';
 import {
   COIN_COSTS,
   CoinSpendCategory,
@@ -189,6 +189,7 @@ export function looksLikeConstraintFollowUp(message: string): boolean {
   const t = message.trim();
   if (t.length < 2 || t.length > 140) return false;
   if (isSmalltalkMessage(t)) return false;
+  if (looksLikeAssetEditFollowUp(t) && !detectQuoteKind(t)) return false;
   if (detectQuoteKind(t) || detectOpenStudio(t) || detectCoinQuestion(t) || detectChatConfirmIntent(t)) {
     return false;
   }
@@ -685,18 +686,33 @@ export function buildActions(
     return { suggestions: suggestions.slice(0, 4), actions: dedupedSocial.slice(0, 6) };
   }
 
+  if (intent === 'CREATOR_ADVICE') {
+    if (!ctx.hasDna) suggestions.push('Creator DNA anlegen');
+    const dedupedAdvice = actions.filter(
+      (a, i, arr) => arr.findIndex((x) => a.tool === x.tool && a.path === x.path && a.label === a.label) === i
+    );
+    return { suggestions: suggestions.slice(0, 4), actions: dedupedAdvice.slice(0, 6) };
+  }
+
   if (!ctx.hasDna) suggestions.push('Creator DNA anlegen');
-  else if (ctx.lastModule === 'logo' || Boolean(ctx.lastLogoId)) {
+  else if (
+    (intent === 'CREATE_ASSET' || intent === 'MODIFY_ASSET' || !intent) &&
+    (ctx.lastModule === 'logo' || Boolean(ctx.lastLogoId))
+  ) {
     suggestions.push(
       'Wenn du möchtest, können wir daraus später einen Facecam-Rahmen und ein Komplettset ableiten.'
     );
-  } else if (ctx.lastModule === 'mockup') {
+  } else if (ctx.lastModule === 'mockup' && (intent === 'CREATE_ASSET' || !intent)) {
     suggestions.push('Zeig mir schwarze Tasse');
   } else if (ctx.missingAssets[0] && (intent === 'PROJECT_ANALYSIS' || intent === 'CREATE_ASSET' || !intent)) {
     suggestions.push(`Dir fehlt noch: ${ctx.missingAssets[0]}`);
   }
-  if (/logo/.test(lower) && ctx.hasDna) suggestions.push('Logo aus DNA anbieten');
-  if (!suggestions.length) suggestions.push('Was weißt du über mein Projekt?', 'Öffne das Logo Studio');
+  if (/logo/.test(lower) && ctx.hasDna && (intent === 'CREATE_ASSET' || intent === 'MODIFY_ASSET' || !intent)) {
+    suggestions.push('Logo aus DNA anbieten');
+  }
+  if (!suggestions.length && (intent === 'CREATE_ASSET' || intent === 'MODIFY_ASSET' || !intent)) {
+    suggestions.push('Was weißt du über mein Projekt?', 'Öffne das Logo Studio');
+  }
 
   const deduped = actions.filter((a, i, arr) => arr.findIndex((x) => x.tool === a.tool && x.path === a.path && x.label === a.label) === i);
   return { suggestions: suggestions.slice(0, 4), actions: deduped.slice(0, 6) };
