@@ -120,8 +120,12 @@ describe('nexter plasma orb UI — visual only', () => {
     assert.match(orb, /function drawPlatform/);
     assert.match(orb, /function drawEnergyRing/);
     assert.match(orb, /function strokeLightning/);
+    assert.match(orb, /function strokeJaggedBolt/);
     assert.match(orb, /faceSafeZone/);
-    assert.match(orb, /energyR \* 0\.73/);
+    assert.match(orb, /INNER_ORB_RATIO/);
+    assert.match(orb, /SHELL_SCALE/);
+    assert.match(orb, /EYE_SIZE_RATIO/);
+    assert.match(orb, /EYE_SPREAD_RATIO/);
     assert.match(orb, /#6D28FF/);
     assert.match(orb, /#03030B/);
     assert.match(orb, /gfx\.ellipse\(/);
@@ -158,6 +162,7 @@ describe('nexter plasma orb UI — visual only', () => {
   it('reference orb keeps organic external lightning, a 3D ring, and a face-safe inner body', () => {
     assert.match(orb, /gfx\.clip\(\)/);
     assert.match(orb, /bezierCurveTo/);
+    assert.match(orb, /strokeJaggedBolt/);
     assert.match(orb, /strokeLightning/);
     assert.match(orb, /drawPlatform/);
     assert.match(orb, /drawEnergyRing/);
