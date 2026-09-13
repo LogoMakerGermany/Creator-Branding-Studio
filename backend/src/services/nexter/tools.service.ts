@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import type { NexterConversationIntent } from './conversation-intent.js';
+import { isSmalltalkMessage, messageImpliesFormatNeed } from './conversation-intent-patterns.js';
 import {
   COIN_COSTS,
   CoinSpendCategory,
@@ -61,9 +63,7 @@ export function detectIncompletePrompt(
     return 'Für ein Logo brauche ich mindestens den Namen. Hast du schon eine Creator DNA, oder soll ich das Logo Studio öffnen?';
   }
 
-  const vague =
-    /^(mach|erstelle|generiere)(\s+mir)?(\s+(was|etwas|eins?))?[.!?]?$/i.test(t) ||
-    /^(hilfe|hallo|hi|hey)[.!?]?$/i.test(t);
+  const vague = /^(mach|erstelle|generiere)(\s+mir)?(\s+(was|etwas|eins?))?[.!?]?$/i.test(t);
   if (vague) {
     return 'Wofür genau? z. B. Gaming-Logo, Twitch-Set oder Shorts aus einem Video.';
   }
@@ -188,6 +188,7 @@ export function detectLanguagePreferenceWrite(message: string): 'de' | 'en' | nu
 export function looksLikeConstraintFollowUp(message: string): boolean {
   const t = message.trim();
   if (t.length < 2 || t.length > 140) return false;
+  if (isSmalltalkMessage(t)) return false;
   if (detectQuoteKind(t) || detectOpenStudio(t) || detectCoinQuestion(t) || detectChatConfirmIntent(t)) {
     return false;
   }
@@ -634,11 +635,18 @@ export function buildActions(
   quoteId?: string,
   quoteKind?: NexterQuoteKind,
   isChange = false,
-  quoteExtras?: { expiresAt?: string; coinBalance?: number; coinCost?: number }
+  quoteExtras?: { expiresAt?: string; coinBalance?: number; coinCost?: number },
+  intent?: NexterConversationIntent
 ): { suggestions: string[]; actions: NexterAction[] } {
   const suggestions: string[] = [];
   const actions: NexterAction[] = [];
   const lower = message.toLowerCase();
+  const social =
+    intent === 'SMALLTALK' ||
+    intent === 'APP_HELP' ||
+    intent === 'ACCOUNT_OR_SETTINGS' ||
+    intent === 'NAVIGATION_ACTION' ||
+    intent === 'AMBIGUOUS';
 
   const openPath = detectOpenStudio(message);
   if (openPath) {
@@ -651,7 +659,7 @@ export function buildActions(
     actions.push(...quoteActions(quoteKind, quoteId, isChange, quoteExtras));
   }
 
-  if (detectAnalyzeIntent(message) && ctx.missingAssets[0]) {
+  if ((intent === 'PROJECT_ANALYSIS' || (!intent && detectAnalyzeIntent(message))) && ctx.missingAssets[0]) {
     actions.push({
       id: randomUUID(),
       tool: 'analyze_asset',
@@ -670,6 +678,13 @@ export function buildActions(
     });
   }
 
+  if (social) {
+    const dedupedSocial = actions.filter(
+      (a, i, arr) => arr.findIndex((x) => a.tool === x.tool && a.path === x.path && a.label === x.label) === i
+    );
+    return { suggestions: suggestions.slice(0, 4), actions: dedupedSocial.slice(0, 6) };
+  }
+
   if (!ctx.hasDna) suggestions.push('Creator DNA anlegen');
   else if (ctx.lastModule === 'logo' || Boolean(ctx.lastLogoId)) {
     suggestions.push(
@@ -677,7 +692,9 @@ export function buildActions(
     );
   } else if (ctx.lastModule === 'mockup') {
     suggestions.push('Zeig mir schwarze Tasse');
-  } else if (ctx.missingAssets[0]) suggestions.push(`Dir fehlt noch: ${ctx.missingAssets[0]}`);
+  } else if (ctx.missingAssets[0] && (intent === 'PROJECT_ANALYSIS' || intent === 'CREATE_ASSET' || !intent)) {
+    suggestions.push(`Dir fehlt noch: ${ctx.missingAssets[0]}`);
+  }
   if (/logo/.test(lower) && ctx.hasDna) suggestions.push('Logo aus DNA anbieten');
   if (!suggestions.length) suggestions.push('Was weißt du über mein Projekt?', 'Öffne das Logo Studio');
 
@@ -705,12 +722,32 @@ export function recommendFormat(
   if (/tiktok|shorts|reel/.test(lower)) return platformFormatHint('tiktok', 'short');
   if (/discord/.test(lower)) return platformFormatHint('discord');
   if (/instagram/.test(lower)) return platformFormatHint('instagram');
+  if (!messageImpliesFormatNeed(message)) return null;
   const stored = ctx?.preferredPlatforms?.[0];
   if (stored) return platformFormatHint(stored);
   return null;
 }
 
-export function formatContextForPrompt(ctx: NexterContextSnapshot): string {
+export function formatContextForPrompt(
+  ctx: NexterContextSnapshot,
+  opts?: {
+    includeGaps?: boolean;
+    includeInventory?: boolean;
+    includeDna?: boolean;
+    includeProjects?: boolean;
+    minimal?: boolean;
+  }
+): string {
+  const includeGaps = opts?.includeGaps !== false;
+  const includeInventory = opts?.includeInventory !== false;
+  const includeDna = opts?.includeDna !== false;
+  const includeProjects = opts?.includeProjects !== false;
+  if (opts?.minimal) {
+    return [
+      `Nutzer: ${ctx.displayName ?? 'Creator'}${ctx.addressAs && ctx.addressAs !== ctx.displayName ? ` (Ansprache: ${ctx.addressAs})` : ''}.`,
+      'Kein Projektkontext, keine Lückenanalyse, keine Formatvorgabe.',
+    ].join(' ');
+  }
   const source =
     ctx.dnaSource === 'project'
       ? `Quelle: Projekt-DNA${ctx.projectName ? ` „${ctx.projectName}“` : ''}`
@@ -764,30 +801,36 @@ export function formatContextForPrompt(ctx: NexterContextSnapshot): string {
           .map((q) => `${q.kind} ${q.coinCost} Coins${q.expired ? ' (abgelaufen)' : ''}`)
           .join('; ')}.`
       : 'Keine offenen Coin-Angebote.',
-    dna,
-    locks,
-    projects,
-    `Dateien: ${ctx.fileCount}.`,
-    ctx.lastLayoutId
+    includeDna ? dna : '',
+    includeDna ? locks : '',
+    includeProjects ? projects : '',
+    includeInventory ? `Dateien: ${ctx.fileCount}.` : '',
+    includeInventory && ctx.lastLayoutId
       ? `Aktuelles Layout: ${ctx.lastLayoutName ?? ctx.lastLayoutId} (${ctx.layoutPlatform ?? '?'}, ${ctx.layoutElementCount ?? 0} Elemente).`
-      : 'Kein gespeichertes Layout.',
-    ctx.lastModule ? `Letzter Job: ${ctx.lastModule}.` : 'Noch keine Generierungen.',
-    missing,
-    highlights,
-    ctx.lastShortId
+      : includeInventory
+        ? 'Kein gespeichertes Layout.'
+        : '',
+    includeInventory ? (ctx.lastModule ? `Letzter Job: ${ctx.lastModule}.` : 'Noch keine Generierungen.') : '',
+    includeGaps ? missing : '',
+    includeInventory ? highlights : '',
+    includeInventory && ctx.lastShortId
       ? `Letztes Short: ${ctx.lastShortId}${ctx.lastShortVideoProjectId ? ` (Video ${ctx.lastShortVideoProjectId})` : ''}.`
-      : 'Kein eigenes Short gespeichert.',
-    ctx.contentPackageId
+      : includeInventory
+        ? 'Kein eigenes Short gespeichert.'
+        : '',
+    includeInventory && ctx.contentPackageId
       ? `Aktuelles Content-Paket: ${ctx.contentPackageId}${ctx.contentPackageTitle ? ` „${ctx.contentPackageTitle}“` : ''}.`
-      : 'Kein Content-Paket im aktuellen Projekt.',
-    ctx.lastLogoId ? `Letztes Logo: ${ctx.lastLogoId} (${ctx.logoCount ?? 1}).` : 'Kein Logo im Projektkontext.',
-    ctx.lastBannerId ? `Letztes Banner: ${ctx.lastBannerId}.` : '',
-    ctx.lastFacecamId ? `Letzte Facecam: ${ctx.lastFacecamId}.` : '',
-    ctx.lastMockupId ? `Letztes Mockup: ${ctx.lastMockupId}.` : '',
-    ctx.lastAnimationId ? `Letzte Animation: ${ctx.lastAnimationId}.` : '',
-    ctx.lastMusicId ? `Letzter Musik-Track: ${ctx.lastMusicId}.` : '',
-    ctx.lastVoiceId ? `Letztes Voiceover: ${ctx.lastVoiceId}.` : '',
-    ctx.assetInventory?.length ? `Projekt-Inventar: ${ctx.assetInventory.join(', ')}.` : '',
+      : includeInventory
+        ? 'Kein Content-Paket im aktuellen Projekt.'
+        : '',
+    includeInventory && ctx.lastLogoId ? `Letztes Logo: ${ctx.lastLogoId} (${ctx.logoCount ?? 1}).` : includeInventory ? 'Kein Logo im Projektkontext.' : '',
+    includeInventory && ctx.lastBannerId ? `Letztes Banner: ${ctx.lastBannerId}.` : '',
+    includeInventory && ctx.lastFacecamId ? `Letzte Facecam: ${ctx.lastFacecamId}.` : '',
+    includeInventory && ctx.lastMockupId ? `Letztes Mockup: ${ctx.lastMockupId}.` : '',
+    includeInventory && ctx.lastAnimationId ? `Letzte Animation: ${ctx.lastAnimationId}.` : '',
+    includeInventory && ctx.lastMusicId ? `Letzter Musik-Track: ${ctx.lastMusicId}.` : '',
+    includeInventory && ctx.lastVoiceId ? `Letztes Voiceover: ${ctx.lastVoiceId}.` : '',
+    includeInventory && ctx.assetInventory?.length ? `Projekt-Inventar: ${ctx.assetInventory.join(', ')}.` : '',
   ].filter(Boolean).join(' ');
 }
 

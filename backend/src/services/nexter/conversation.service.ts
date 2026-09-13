@@ -67,6 +67,12 @@ import { dsGet, dsSet, dsDelete, dsList } from '../../lib/data-store.js';
 import { ServiceError } from '../../lib/errors.js';
 import { isPaidProviderTestBlocked } from '../../lib/media-providers.js';
 import { consumeNexterChatProviderSlot } from '../../lib/provider-gate.js';
+import {
+  intentAllowsFormatFallback,
+  intentAllowsQuote,
+  resolveNexterConversationIntent,
+  type NexterConversationIntent,
+} from './conversation-intent.js';
 import { buildNexterContext } from './context.service.js';
 import { listMemory, memoryAsPrompt, storeMemory } from './memory.service.js';
 import { createQuote } from './quotes.service.js';
@@ -1223,8 +1229,60 @@ export async function nexterChat(
     return session;
   }
 
+  const conversationIntent = resolveNexterConversationIntent(message, session.messages.slice(0, -1), ctx);
+
+  if (conversationIntent.intent === 'SMALLTALK') {
+    const memory = await listMemory(userId);
+    const reply = await generateNexterReply({
+      userId,
+      messages: session.messages,
+      ctx,
+      memory: memoryAsPrompt(memory),
+      path: meta?.path,
+      hint: meta?.hint,
+      warning: null,
+      format: null,
+      intent: conversationIntent.intent,
+    });
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: reply,
+      createdAt: new Date().toISOString(),
+      suggestions: [],
+    });
+    await persistSession(session);
+    return session;
+  }
+
+  if (
+    conversationIntent.intent === 'AMBIGUOUS' &&
+    conversationIntent.confidence === 'HIGH' &&
+    !detectQuoteKind(message) &&
+    !changeIntent &&
+    !detectOpenStudio(message) &&
+    !detectDnaChangeScope(message)
+  ) {
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: 'Womit soll ich anfangen – Logo, Streamset, Banner, Intro oder etwas anderes?',
+      createdAt: new Date().toISOString(),
+      suggestions: ['Mach mir ein Logo.', 'Was fehlt meinem Streamset?', 'Öffne das Logo Studio.'],
+    });
+    await persistSession(session);
+    return session;
+  }
+
   const pendingKind = pendingKindFromHistory(session.messages.slice(0, -1));
-  if (pendingKind && looksLikeConstraintFollowUp(message)) {
+  if (
+    pendingKind &&
+    looksLikeConstraintFollowUp(message) &&
+    conversationIntent.intent !== 'PROJECT_ANALYSIS' &&
+    conversationIntent.intent !== 'NAVIGATION_ACTION' &&
+    conversationIntent.intent !== 'APP_HELP' &&
+    conversationIntent.intent !== 'CREATOR_ADVICE'
+  ) {
     const priorUser = [...session.messages.slice(0, -1)]
       .reverse()
       .find((row) => row.role === 'user' && detectQuoteKind(row.content));
@@ -1232,10 +1290,21 @@ export async function nexterChat(
   }
 
   const incomplete = detectIncompletePrompt(message, ctx);
-  const wantsGenerate = Boolean(changeIntent || detectQuoteKind(message));
+  const wantsGenerate = Boolean(
+    (changeIntent || detectQuoteKind(message)) && intentAllowsQuote(conversationIntent.intent)
+  );
   const openPath = detectOpenStudio(message);
 
-  if (incomplete && !openPath && !detectAnalyzeIntent(message) && !changeIntent && detectQuoteKind(message) !== 'mockup') {
+  if (
+    incomplete &&
+    !openPath &&
+    !detectAnalyzeIntent(message) &&
+    !changeIntent &&
+    detectQuoteKind(message) !== 'mockup' &&
+    conversationIntent.intent !== 'PROJECT_ANALYSIS' &&
+    conversationIntent.intent !== 'APP_HELP' &&
+    conversationIntent.intent !== 'CREATOR_ADVICE'
+  ) {
     session.messages.push({
       id: randomUUID(),
       role: 'assistant',
@@ -1938,13 +2007,24 @@ export async function nexterChat(
   }
 
   const memory = await listMemory(userId);
-  const { suggestions, actions } = buildActions(message, ctx, quoteId, quoteKind, isChangeQuote, {
-    expiresAt: quoteExpiresAt,
-    coinBalance: ctx.coinBalance,
-    coinCost: quoteCost ?? undefined,
-  });
+  const { suggestions, actions } = buildActions(
+    message,
+    ctx,
+    quoteId,
+    quoteKind,
+    isChangeQuote,
+    {
+      expiresAt: quoteExpiresAt,
+      coinBalance: ctx.coinBalance,
+      coinCost: quoteCost ?? undefined,
+    },
+    conversationIntent.intent
+  );
   const warning = warnBadSettings(message);
-  const format = recommendFormat(message, ctx);
+  const format =
+    intentAllowsFormatFallback(conversationIntent.intent) || /tiktok|shorts|reel|twitch|youtube|instagram|discord/i.test(message)
+      ? recommendFormat(message, ctx)
+      : null;
   const dnaScope = detectDnaChangeScope(message);
   const dnaConfirm =
     dnaScope && !ctx.locks?.colors && !ctx.locks?.style
@@ -2077,6 +2157,7 @@ export async function nexterChat(
     musicBrief,
     continuity,
     dnaConfirm,
+    intent: conversationIntent.intent,
   });
   if (quoteCost != null) {
     reply = `${insufficientCoinsPrefix(ctx.coinBalance, quoteCost)}${reply}`;
@@ -2108,12 +2189,30 @@ async function generateNexterReply(input: {
   musicBrief?: string | null;
   continuity?: string | null;
   dnaConfirm?: string | null;
+  intent?: NexterConversationIntent;
 }): Promise<string> {
   const lastUser = [...input.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
   const replyLanguage = detectEphemeralLanguage(lastUser) ?? input.ctx.language ?? 'de';
-  const contextBlock = formatContextForPrompt(input.ctx);
+  const intent = input.intent ?? 'AMBIGUOUS';
+  const contextBlock =
+    intent === 'SMALLTALK' || intent === 'APP_HELP' || intent === 'ACCOUNT_OR_SETTINGS' || intent === 'NAVIGATION_ACTION'
+      ? formatContextForPrompt(input.ctx, { minimal: true })
+      : intent === 'CREATOR_ADVICE'
+        ? formatContextForPrompt(input.ctx, { includeGaps: false, includeInventory: false, includeProjects: false, includeDna: true })
+        : intent === 'PROJECT_ANALYSIS'
+          ? formatContextForPrompt(input.ctx, { includeGaps: true, includeInventory: true, includeDna: true, includeProjects: true })
+          : formatContextForPrompt(input.ctx, {
+              includeGaps: false,
+              includeInventory: intent === 'CREATE_ASSET' || intent === 'MODIFY_ASSET',
+              includeDna: true,
+              includeProjects: intent === 'CREATE_ASSET' || intent === 'MODIFY_ASSET',
+            });
   const system = `Du bist NEXTER, das Gehirn von NEXTER Creator Studio.
 ${nexterReplyLanguageInstruction(replyLanguage)}
+FIRST RESPOND TO THE USER'S CURRENT INTENT: ${intent}.
+Creator context is optional and intent-dependent.
+Do not inject project recommendations, missing assets, format defaults, quotes, or creation suggestions into unrelated smalltalk.
+Wenn Intent SMALLTALK ist: antworte kurz und freundlich, ohne Creator-To-do, ohne Format, ohne fehlende Assets.
 Du startest KEINE kostenpflichtigen Jobs. Du schlägst nur vor. Der Nutzer muss auf „Erstellen“ klicken.
 Behaupte niemals, dass ein Beitrag auf TikTok, YouTube, Instagram, Twitch oder Discord veröffentlicht, hochgeladen oder verbunden wurde. Intern geplant ist nur eine interne Speicherung.
 Wenn Infos fehlen und sie NICHT in der DNA oder den User-Preferences stehen, frage nach. Frage NICHT erneut nach Farben, Stil oder Figur, wenn sie bereits bekannt sind — biete dann nur eine Bestätigung an.
@@ -2135,7 +2234,7 @@ Aktuelle Seite: ${input.path ?? 'unbekannt'} ${input.hint ? `(${input.hint})` : 
 ${input.continuity ? `DNA-KONSISTENZ: ${input.continuity}` : ''}
 ${input.dnaConfirm ? `DNA-UPDATE: ${input.dnaConfirm}` : ''}
 ${input.warning ? `WARNUNG: ${input.warning}` : ''}
-${input.format ? `FORMAT: ${input.format}` : ''}
+${intent !== 'SMALLTALK' && intent !== 'APP_HELP' && input.format ? `FORMAT: ${input.format}` : ''}
 ${input.musicBrief ? `AUFTRAG (intern erkannt): ${input.musicBrief}` : ''}
 ${input.quoteKind && input.quotedCost != null ? `Angebot: ${input.quoteKind} für ${input.quotedCost} Coins. Sage die Kosten klar.` : ''}`;
 
@@ -2162,7 +2261,10 @@ ${input.quoteKind && input.quotedCost != null ? `Angebot: ${input.quoteKind} fü
         content: m.content,
       }));
       const content = await fetchNexterChatCompletion(system, history);
-      const extras = [input.warning, input.format].filter(Boolean);
+      const extras = [
+        input.warning,
+        intent === 'SMALLTALK' || intent === 'APP_HELP' || intent === 'AMBIGUOUS' ? null : input.format,
+      ].filter(Boolean);
       return extras.length ? `${content}\n\n${extras.join('\n')}` : content;
     } finally {
       liveNexterChatInFlight.delete(input.userId);
@@ -2180,6 +2282,20 @@ ${input.quoteKind && input.quotedCost != null ? `Angebot: ${input.quoteKind} fü
   throw new ServiceError(503, 'AI_UNAVAILABLE', 'Nexter ist nicht verfügbar.');
 }
 
+function smalltalkDevReply(last: string): string {
+  const t = last.trim().toLowerCase();
+  if (/witz|joke/.test(t)) {
+    return 'Klar: Warum hat das Overlay keine Freunde? Weil es immer im Vordergrund steht. 😄';
+  }
+  if (/guten morgen|good morning/.test(t)) return 'Guten Morgen! Schön, dass du da bist.';
+  if (/danke/.test(t) || /^thanks\b/.test(t)) return 'Gern geschehen.';
+  if (/was bist du|wer bist du|what are you/.test(t)) {
+    return 'Ich bin Nexter, dein Creator-Assistent. Wenn du mich brauchst, bin ich da.';
+  }
+  if (/was machst du/.test(t)) return 'Ich bin da und bereit, wenn du mich brauchst. Wie geht’s dir?';
+  return 'Mir geht es gut, danke 😄 Wie geht es dir?';
+}
+
 function devReply(input: {
   ctx: Awaited<ReturnType<typeof buildNexterContext>>;
   warning: string | null;
@@ -2190,10 +2306,27 @@ function devReply(input: {
   musicBrief?: string | null;
   continuity?: string | null;
   dnaConfirm?: string | null;
+  intent?: NexterConversationIntent;
 }): string {
   const last = input.messages[input.messages.length - 1]?.content ?? '';
+  const intent = input.intent;
   const parts: string[] = [];
-  if (detectAnalyzeIntent(last) || /projekt|farben/i.test(last)) {
+  if (intent === 'SMALLTALK') {
+    return smalltalkDevReply(last);
+  }
+  if (intent === 'APP_HELP') {
+    return 'Nexter hilft dir bei Branding, Streamsets, Logos und Studios. Keine Generation und keine Coins ohne deine Bestätigung.';
+  }
+  if (intent === 'AMBIGUOUS' && !input.quoteKind && !input.dnaConfirm) {
+    return 'Womit soll ich anfangen – Logo, Streamset, Banner, Intro oder etwas anderes?';
+  }
+  if (intent === 'CREATOR_ADVICE') {
+    parts.push(
+      input.ctx.hasDna
+        ? `Zu deinem Look: DNA „${input.ctx.dnaName}“, Stil ${input.ctx.styleDirection ?? 'offen'}, Farben ${input.ctx.primaryColors.join(', ') || 'noch offen'}.`
+        : 'Ohne Creator DNA kann ich Farben nur allgemein empfehlen.'
+    );
+  } else if (intent === 'PROJECT_ANALYSIS' || detectAnalyzeIntent(last)) {
     parts.push(
       input.ctx.hasDna
         ? `Zu deinem Creator-Projekt: DNA „${input.ctx.dnaName}“ v${input.ctx.dnaVersion ?? '?'} (${input.ctx.styleDirection ?? 'Stil offen'}), Farben ${input.ctx.primaryColors.join(', ') || 'ohne Primärfarbe'}${input.ctx.mascot ? `, Figur ${input.ctx.mascot}` : ''}${input.ctx.dnaSource === 'project' ? ' — Projekt-DNA' : input.ctx.dnaSource === 'active' ? ' — aktive User-DNA' : ''}.`
@@ -2205,7 +2338,9 @@ function devReply(input: {
     } else {
       parts.push('In diesem Projekt sind noch keine aggregierten Assets hinterlegt.');
     }
-    if (input.ctx.missingAssets[0]) parts.push(`Dir fehlt noch: ${input.ctx.missingAssets[0]}.`);
+    if (input.ctx.missingAssets[0] && intent === 'PROJECT_ANALYSIS') {
+      parts.push(`Dir fehlt noch: ${input.ctx.missingAssets[0]}.`);
+    }
     if (input.ctx.locks?.colors) parts.push('Farben sind gesperrt.');
     if (input.ctx.locks?.character || input.ctx.locks?.mascot) parts.push('Figur ist gesperrt.');
     if (input.ctx.locks?.style) parts.push('Stil ist gesperrt.');
@@ -2226,6 +2361,8 @@ function devReply(input: {
   }
   if (input.dnaConfirm) parts.push(input.dnaConfirm);
   if (input.warning) parts.push(input.warning);
-  if (input.format) parts.push(input.format);
+  if (input.format && intent !== 'AMBIGUOUS') {
+    parts.push(input.format);
+  }
   return parts.join(' ');
 }
