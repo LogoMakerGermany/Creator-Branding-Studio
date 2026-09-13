@@ -117,12 +117,20 @@ describe('nexter plasma orb UI — visual only', () => {
   it('living plasma orb uses two energy eyes instead of a center N', () => {
     assert.match(orb, /function drawEyes/);
     assert.match(orb, /function eyeOpenAmount/);
+    assert.match(orb, /function drawPlatform/);
+    assert.match(orb, /function drawEnergyRing/);
+    assert.match(orb, /function strokeLightning/);
+    assert.match(orb, /faceSafeZone/);
+    assert.match(orb, /energyR \* 0\.73/);
+    assert.match(orb, /#6D28FF/);
+    assert.match(orb, /#03030B/);
     assert.match(orb, /gfx\.ellipse\(/);
     assert.match(orb, /for \(const side of \[-1, 1\]/);
     assert.match(orb, /identity \? \(/);
     assert.match(orb, />\s*N\s*</);
     assert.match(orb, /variant === 'identity'/);
     assert.doesNotMatch(orb, /fillText\(/);
+    assert.doesNotMatch(orb, /nexter-orb__specular/);
     assert.doesNotMatch(orb, /pupil|iris|eyelash|mouth|smiley/i);
     assert.match(panel, /variant="identity"/);
     assert.match(panel, /nexter-orb--identity-compact/);
@@ -147,16 +155,18 @@ describe('nexter plasma orb UI — visual only', () => {
     assert.doesNotMatch(page, /variant="identity"/);
   });
 
-  it('plasma stays clipped inside the glass volume with organic bolts, not radial spokes', () => {
+  it('reference orb keeps organic external lightning, a 3D ring, and a face-safe inner body', () => {
     assert.match(orb, /gfx\.clip\(\)/);
     assert.match(orb, /bezierCurveTo/);
-    assert.match(orb, /strokeBolt/);
-    assert.match(orb, /arcLife/);
-    assert.match(orb, /layers/);
+    assert.match(orb, /strokeLightning/);
+    assert.match(orb, /drawPlatform/);
+    assert.match(orb, /drawEnergyRing/);
+    assert.match(orb, /faceSafeZone/);
     assert.doesNotMatch(orb, /strokeArc/);
     assert.doesNotMatch(orb, /\(i \* Math\.PI \* 2\) \/ count/);
     assert.match(orb, /prefers-reduced-motion: reduce/);
     assert.match(orb, /eyeOpenAmount\(t, reduceMotion\)/);
+    assert.match(css, /nexter-orb--responsive \.nexter-orb__glass/);
   });
 
   it('connects real Nexter states, pauses when hidden, and cleans up rAF', () => {

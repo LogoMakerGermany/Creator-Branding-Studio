@@ -9,6 +9,13 @@ import {
 
 const DEFAULT_PRIMARY = '#3b82f6';
 const DEFAULT_SECONDARY = '#a855f7';
+const EYE_OUTER = '#6D28FF';
+const EYE_MID = '#9B4DFF';
+const EYE_CORE = '#D8A7FF';
+const EYE_HIGH = '#F4E9FF';
+const ELECTRIC_CYAN = '#4CC9FF';
+const INNER_CORE = '#03030B';
+const INNER_MID = '#070514';
 
 const INTENSITY: Record<NexterOrbState, number> = {
   idle: 0.38,
@@ -85,8 +92,8 @@ function eyeOpenAmount(t: number, reduceMotion: boolean): number {
   const local = t - window * span;
   if (local < offset || local > offset + dur) return 1;
   const p = (local - offset) / dur;
-  if (p < 0.42) return 1 - (p / 0.42) * 0.9;
-  return 0.1 + ((p - 0.42) / 0.58) * 0.9;
+  if (p < 0.42) return 1 - (p / 0.42) * 0.92;
+  return 0.08 + ((p - 0.42) / 0.58) * 0.92;
 }
 
 export function NexterOrb({
@@ -159,9 +166,9 @@ export function NexterOrb({
       const secondary =
         colorsRef.current.secondary ||
         readCssColor('--nexter-orb-secondary', readCssColor('--ucbs-accent-purple', DEFAULT_SECONDARY));
-      if (s === 'success') return [readCssColor('--ucbs-accent-green', '#34d399'), primary];
-      if (s === 'warning') return [secondary, '#f59e0b'];
-      if (s === 'error') return [secondary, '#fb7185'];
+      if (s === 'success') return [mixHex(primary, ELECTRIC_CYAN, 0.35), secondary];
+      if (s === 'warning') return [primary, mixHex(secondary, '#f59e0b', 0.28)];
+      if (s === 'error') return [primary, mixHex(secondary, '#c084fc', 0.2)];
       return [primary, secondary];
     }
 
@@ -169,43 +176,160 @@ export function NexterOrb({
       return [cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius];
     }
 
-    function strokeBolt(
-      cx: number,
-      cy: number,
-      startA: number,
-      startR: number,
-      endA: number,
-      endR: number,
-      t: number,
+    function strokeLightning(
+      x0: number,
+      y0: number,
+      x1: number,
+      y1: number,
       seed: number,
-      maxR: number
+      t: number,
+      jagged: number
     ) {
-      const clampR = (value: number) => Math.min(maxR, Math.max(2, value));
-      const sR = clampR(startR);
-      const eR = clampR(endR);
-      const mid = 0.28 + hash(seed + 3.1) * 0.22;
-      const mid2 = 0.58 + hash(seed + 8.4) * 0.2;
-      const bend = (hash(seed + 1.7) - 0.5) * 0.95;
-      const bend2 = (hash(seed + 4.9) - 0.5) * 0.8;
-      const c1A = startA + (endA - startA) * mid + bend + Math.sin(t * 1.1 + seed) * 0.12;
-      const c2A = startA + (endA - startA) * mid2 + bend2 + Math.cos(t * 0.8 + seed * 1.3) * 0.1;
-      const c1R = clampR(sR + (eR - sR) * (0.22 + hash(seed + 2.2) * 0.28) + Math.sin(t * 1.4 + seed) * 6);
-      const c2R = clampR(sR + (eR - sR) * (0.62 + hash(seed + 6.6) * 0.2) + Math.cos(t * 1.05 + seed) * 5);
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = -dy / len;
+      const uy = dx / len;
+      const p1 = 0.26 + hash(seed) * 0.2;
+      const p2 = 0.55 + hash(seed + 1.4) * 0.22;
+      const j1 = (hash(seed + 2.2) - 0.5) * jagged;
+      const j2 = (hash(seed + 3.7) - 0.5) * jagged;
+      const wiggle = Math.sin(t * 1.7 + seed) * jagged * 0.18;
       gfx.beginPath();
-      gfx.moveTo(...polar(cx, cy, startA, sR));
+      gfx.moveTo(x0, y0);
       gfx.bezierCurveTo(
-        ...polar(cx, cy, c1A, c1R),
-        ...polar(cx, cy, c2A, c2R),
-        ...polar(cx, cy, endA, eR)
+        x0 + dx * p1 + ux * (j1 + wiggle),
+        y0 + dy * p1 + uy * (j1 + wiggle),
+        x0 + dx * p2 + ux * (j2 - wiggle),
+        y0 + dy * p2 + uy * (j2 - wiggle),
+        x1,
+        y1
       );
       gfx.stroke();
-      return { midA: c1A, midR: c1R, endA, endR: eR };
+      return {
+        mx: x0 + dx * p1 + ux * j1,
+        my: y0 + dy * p1 + uy * j1,
+      };
+    }
+
+    function drawEnergyRing(
+      cx: number,
+      cy: number,
+      innerR: number,
+      outerR: number,
+      cyan: string,
+      violet: string,
+      behind: boolean,
+      t: number,
+      reduceMotion: boolean,
+      gain: number
+    ) {
+      const midR = (innerR + outerR) * 0.52;
+      gfx.save();
+      if (behind) {
+        const shell = gfx.createRadialGradient(cx, cy, innerR * 0.98, cx, cy, outerR);
+        shell.addColorStop(0, 'rgba(0,0,0,0)');
+        shell.addColorStop(0.12, rgba(cyan, 0.08 * gain));
+        shell.addColorStop(0.48, rgba(mixHex(cyan, violet, 0.45), 0.55 * gain));
+        shell.addColorStop(0.78, rgba('#F4E9FF', 0.22 * gain));
+        shell.addColorStop(1, 'rgba(0,0,0,0)');
+        gfx.fillStyle = shell;
+        gfx.beginPath();
+        gfx.arc(cx, cy, outerR, 0, Math.PI * 2);
+        gfx.arc(cx, cy, innerR * 0.985, 0, Math.PI * 2, true);
+        gfx.fill();
+
+        const left = gfx.createRadialGradient(cx - midR, cy + innerR * 0.12, 4, cx - midR * 0.2, cy, outerR * 1.1);
+        left.addColorStop(0, rgba(cyan, 0.55 * gain));
+        left.addColorStop(1, 'rgba(0,0,0,0)');
+        gfx.fillStyle = left;
+        gfx.beginPath();
+        gfx.arc(cx, cy, outerR, 0, Math.PI * 2);
+        gfx.arc(cx, cy, innerR * 0.985, 0, Math.PI * 2, true);
+        gfx.fill();
+
+        const right = gfx.createRadialGradient(cx + midR, cy - innerR * 0.18, 4, cx + midR * 0.15, cy, outerR * 1.1);
+        right.addColorStop(0, rgba(violet, 0.58 * gain));
+        right.addColorStop(1, 'rgba(0,0,0,0)');
+        gfx.fillStyle = right;
+        gfx.beginPath();
+        gfx.arc(cx, cy, outerR, 0, Math.PI * 2);
+        gfx.arc(cx, cy, innerR * 0.985, 0, Math.PI * 2, true);
+        gfx.fill();
+      } else {
+        gfx.lineCap = 'round';
+        const wobble = reduceMotion ? 0 : Math.sin(t * 0.9) * (outerR - innerR) * 0.04;
+        gfx.strokeStyle = rgba(cyan, 0.62 * gain);
+        gfx.lineWidth = Math.max(2.4, (outerR - innerR) * 0.4);
+        gfx.beginPath();
+        gfx.arc(cx, cy, midR + wobble, 0.62 * Math.PI, 1.02 * Math.PI);
+        gfx.stroke();
+        gfx.strokeStyle = rgba(violet, 0.5 * gain);
+        gfx.beginPath();
+        gfx.arc(cx, cy, midR + wobble * 0.6, 1.58 * Math.PI, 1.95 * Math.PI);
+        gfx.stroke();
+        gfx.strokeStyle = rgba('#F8F5FF', 0.48 * gain);
+        gfx.lineWidth = Math.max(1.1, (outerR - innerR) * 0.16);
+        gfx.beginPath();
+        gfx.arc(cx, cy, midR + (outerR - innerR) * 0.08, 0.72 * Math.PI, 0.86 * Math.PI);
+        gfx.stroke();
+      }
+      gfx.restore();
+    }
+
+    function drawPlatform(
+      cx: number,
+      cy: number,
+      energyR: number,
+      pixelSize: number,
+      cyan: string,
+      violet: string,
+      t: number,
+      reduceMotion: boolean,
+      gain: number
+    ) {
+      const py = cy + energyR + pixelSize * 0.05;
+      const rx = energyR * 0.96;
+      const ry = Math.max(7, pixelSize * 0.048);
+      const pulse = reduceMotion ? 0.85 : 0.8 + Math.sin(t * 0.55) * 0.12;
+      const core = gfx.createRadialGradient(cx, py, 1, cx, py, rx * 0.55);
+      core.addColorStop(0, rgba('#F4E9FF', 0.42 * gain * pulse));
+      core.addColorStop(0.35, rgba(cyan, 0.22 * gain * pulse));
+      core.addColorStop(1, 'rgba(0,0,0,0)');
+      gfx.fillStyle = core;
+      gfx.beginPath();
+      gfx.ellipse(cx, py, rx * 0.5, ry * 0.85, 0, 0, Math.PI * 2);
+      gfx.fill();
+
+      const rings: Array<{ sx: number; sy: number; color: string; alpha: number; width: number }> = [
+        { sx: 1, sy: 1, color: violet, alpha: 0.55, width: 2.6 },
+        { sx: 0.74, sy: 0.72, color: cyan, alpha: 0.7, width: 2.1 },
+        { sx: 0.4, sy: 0.38, color: '#F4E9FF', alpha: 0.72, width: 1.6 },
+      ];
+      rings.forEach((ring) => {
+        gfx.save();
+        gfx.shadowColor = rgba(ring.color, 0.65 * gain * pulse);
+        gfx.shadowBlur = 10;
+        gfx.strokeStyle = rgba(ring.color, ring.alpha * gain * pulse);
+        gfx.lineWidth = Math.max(1.2, ring.width * (pixelSize / 220));
+        gfx.beginPath();
+        gfx.ellipse(cx, py, rx * ring.sx, ry * ring.sy, 0, 0, Math.PI * 2);
+        gfx.stroke();
+        gfx.restore();
+      });
+
+      const column = gfx.createLinearGradient(cx, cy + energyR * 0.72, cx, py);
+      column.addColorStop(0, 'rgba(0,0,0,0)');
+      column.addColorStop(0.45, rgba(cyan, 0.08 * gain));
+      column.addColorStop(1, rgba(violet, 0.16 * gain * pulse));
+      gfx.fillStyle = column;
+      gfx.fillRect(cx - energyR * 0.08, cy + energyR * 0.78, energyR * 0.16, py - (cy + energyR * 0.78));
     }
 
     function drawEyes(
       cx: number,
       cy: number,
-      r: number,
+      innerR: number,
       c1: string,
       c2: string,
       s: NexterOrbState,
@@ -215,85 +339,140 @@ export function NexterOrb({
       intensity: number
     ) {
       const open = eyeOpenAmount(t, reduceMotion);
-      const thinking = s === 'thinking';
       const listening = s === 'listening';
       const speaking = s === 'speaking';
-      const generating = s === 'generating';
-      const pulse = reduceMotion ? 1 : 1 + Math.sin(t * 0.52) * 0.07;
-      const focus = thinking ? 0.9 : generating ? 0.94 : 1;
+      const pulse = reduceMotion ? 1 : 1 + Math.sin(t * 0.48) * 0.045;
+      const listenBoost = listening ? 1.16 : 1;
       const bright =
-        (0.52 + intensity * 0.38 + (listening || speaking ? audio * 0.22 : 0) + (s === 'success' ? 0.1 : 0)) *
+        (0.82 + intensity * 0.22 + (listening || speaking ? audio * 0.18 : 0) + (s === 'success' ? 0.08 : 0)) *
         pulse *
-        (s === 'error' ? 0.72 + Math.abs(Math.sin(t * 9.2)) * 0.22 : 1);
-      const driftX = reduceMotion ? 0 : Math.sin(t * 0.18) * r * 0.008;
-      const driftY = reduceMotion ? 0 : Math.cos(t * 0.14) * r * 0.006;
-      const shake = s === 'error' && !reduceMotion ? Math.sin(t * 11.4) * r * 0.004 : 0;
-      const spread = r * (thinking ? 0.148 : 0.16);
-      const baseY = cy - r * 0.11 + driftY;
-      const eyeRx = r * 0.056 * focus;
-      const eyeRy = r * 0.068 * focus * Math.max(0.12, open);
-      const mid = mixHex(c2, c1, 0.32);
-      const core = mixHex(mid, s === 'warning' ? '#f8e7c8' : '#f8fafc', s === 'warning' ? 0.28 : 0.58);
+        listenBoost *
+        (s === 'error' ? 0.86 + Math.abs(Math.sin(t * 7.4)) * 0.1 : 1);
+      const innerD = innerR * 2;
+      const eyeD = innerD * (pixelSize < 170 ? 0.16 : 0.145);
+      const eyeR = eyeD / 2;
+      const spread = innerD * 0.155;
+      const baseY = cy - innerR * 0.08;
+      const outer = mixHex(c2, EYE_OUTER, 0.62);
+      const mid = mixHex(c2, EYE_MID, 0.55);
+      const core = mixHex(c1, EYE_CORE, 0.72);
+      const warn = s === 'warning' ? mixHex(mid, '#E9D5FF', 0.2) : mid;
 
-      const mist = gfx.createRadialGradient(cx + driftX, baseY, r * 0.02, cx + driftX, baseY, r * 0.3);
-      mist.addColorStop(0, 'rgba(4, 6, 16, 0.42)');
-      mist.addColorStop(0.38, rgba(c2, 0.14 * bright));
-      mist.addColorStop(1, 'rgba(0,0,0,0)');
-      gfx.fillStyle = mist;
-      gfx.beginPath();
-      gfx.ellipse(cx + driftX, baseY, r * 0.3, r * 0.2, 0, 0, Math.PI * 2);
-      gfx.fill();
+      if (s === 'thinking') {
+        const veil = gfx.createRadialGradient(cx, baseY, eyeR * 0.2, cx, baseY, innerR * 0.42);
+        veil.addColorStop(0, rgba(c2, 0.1 * bright));
+        veil.addColorStop(1, 'rgba(0,0,0,0)');
+        gfx.fillStyle = veil;
+        gfx.beginPath();
+        gfx.arc(cx, baseY, innerR * 0.42, 0, Math.PI * 2);
+        gfx.fill();
+      }
 
       for (const side of [-1, 1] as const) {
-        const ex = cx + side * spread + driftX + shake * side;
+        const ex = cx + side * spread;
         const ey = baseY;
-        const glow = gfx.createRadialGradient(ex, ey, eyeRx * 0.18, ex, ey, eyeRx * 3.4);
-        glow.addColorStop(0, rgba(core, (0.62 + intensity * 0.2) * bright * open));
-        glow.addColorStop(0.28, rgba(mid, (0.42 + intensity * 0.18) * bright * open));
-        glow.addColorStop(0.62, rgba(c2, 0.18 * bright * open));
+        const ry = eyeR * 1.04 * Math.max(0.1, open);
+
+        const glow = gfx.createRadialGradient(ex, ey, eyeR * 0.2, ex, ey, eyeR * 2.6);
+        glow.addColorStop(0, rgba(core, 0.55 * bright * open));
+        glow.addColorStop(0.35, rgba(warn, 0.4 * bright * open));
+        glow.addColorStop(0.7, rgba(outer, 0.16 * bright * open));
         glow.addColorStop(1, 'rgba(0,0,0,0)');
         gfx.fillStyle = glow;
         gfx.beginPath();
-        gfx.ellipse(ex, ey, eyeRx * 3.35, eyeRy * 3.5, 0, 0, Math.PI * 2);
+        gfx.ellipse(ex, ey, eyeR * 2.55, ry * 2.7, 0, 0, Math.PI * 2);
         gfx.fill();
 
-        const body = gfx.createRadialGradient(ex - eyeRx * 0.18, ey - eyeRy * 0.22, 1, ex, ey, eyeRx);
-        body.addColorStop(0, rgba(core, 0.92 * bright * open));
-        body.addColorStop(0.42, rgba(mid, 0.78 * bright * open));
-        body.addColorStop(0.78, rgba(c2, 0.4 * bright * open));
-        body.addColorStop(1, rgba(c2, 0.04));
+        const halo = gfx.createRadialGradient(ex, ey, eyeR * 0.15, ex, ey, eyeR * 1.35);
+        halo.addColorStop(0, rgba(warn, 0.7 * bright * open));
+        halo.addColorStop(1, 'rgba(0,0,0,0)');
+        gfx.fillStyle = halo;
+        gfx.beginPath();
+        gfx.ellipse(ex, ey, eyeR * 1.32, ry * 1.38, 0, 0, Math.PI * 2);
+        gfx.fill();
+
+        const body = gfx.createRadialGradient(ex - eyeR * 0.18, ey - ry * 0.22, 1, ex, ey, eyeR);
+        body.addColorStop(0, rgba(EYE_HIGH, 0.95 * bright * open));
+        body.addColorStop(0.28, rgba(core, 0.98 * bright * open));
+        body.addColorStop(0.62, rgba(warn, 0.92 * bright * open));
+        body.addColorStop(1, rgba(outer, 0.85 * bright * open));
         gfx.fillStyle = body;
         gfx.beginPath();
-        gfx.ellipse(ex, ey, eyeRx, eyeRy, 0, 0, Math.PI * 2);
+        gfx.ellipse(ex, ey, eyeR, ry, 0, 0, Math.PI * 2);
         gfx.fill();
 
-        const spark = gfx.createRadialGradient(ex - eyeRx * 0.2, ey - eyeRy * 0.28, 0, ex, ey, eyeRx * 0.42);
-        spark.addColorStop(0, `rgba(255,255,255,${0.42 * bright * open})`);
+        const spark = gfx.createRadialGradient(ex - eyeR * 0.22, ey - ry * 0.28, 0, ex, ey, eyeR * 0.42);
+        spark.addColorStop(0, rgba(EYE_HIGH, 0.95 * bright * open));
         spark.addColorStop(1, 'rgba(255,255,255,0)');
         gfx.fillStyle = spark;
         gfx.beginPath();
-        gfx.ellipse(ex, ey, eyeRx * 0.38, eyeRy * 0.4, 0, 0, Math.PI * 2);
+        gfx.ellipse(ex, ey, eyeR * 0.38, ry * 0.4, 0, 0, Math.PI * 2);
         gfx.fill();
+      }
+    }
 
-        if (!reduceMotion && open > 0.7) {
-          const seed = 41.2 + side * 16.8;
-          const life = arcLife(t * (s === 'idle' ? 0.38 : 0.9), seed, 5.4);
-          if (life > 0.22) {
-            const startA = Math.atan2(ey - cy, ex - cx);
-            const startR = Math.hypot(ex - cx, ey - cy);
-            gfx.strokeStyle = rgba(c2, 0.14 * life * bright);
-            gfx.lineWidth = Math.max(0.45, r / 90);
-            strokeBolt(
-              cx,
-              cy,
-              startA,
-              startR * 0.82,
-              startA + side * (0.35 + hash(seed) * 0.55),
-              Math.min(r * 0.93, startR + r * (0.16 + hash(seed + 1) * 0.12)),
-              t,
-              seed,
-              r * 0.93
-            );
+    function drawExternalBolts(
+      cx: number,
+      cy: number,
+      innerR: number,
+      energyR: number,
+      cyan: string,
+      violet: string,
+      t: number,
+      speed: number,
+      reduceMotion: boolean,
+      generating: boolean,
+      listening: boolean,
+      error: boolean,
+      face: { left: number; right: number; top: number; bottom: number }
+    ) {
+      gfx.lineCap = 'round';
+      gfx.lineJoin = 'round';
+      const count = reduceMotion ? 2 : pixelSize < 170 ? 4 : generating ? 9 : listening ? 8 : 7;
+      const reach = energyR * (pixelSize < 170 ? 1.18 : 1.32);
+      for (let i = 0; i < count; i++) {
+        const seed = 4.7 + i * 2.83;
+        const life = reduceMotion ? 0.45 : arcLife(t * speed, seed, 3.4 + hash(seed) * 2.1);
+        if (life < 0.12) continue;
+        const sideBias = hash(seed + 0.3);
+        const a =
+          sideBias < 0.5
+            ? Math.PI * (0.55 + hash(seed + 1) * 0.85)
+            : -0.45 + hash(seed + 2) * 0.9;
+        const startR = energyR * (0.92 + hash(seed + 4) * 0.08);
+        const endR = Math.min(reach, startR + energyR * (0.22 + hash(seed + 5) * 0.38));
+        const endA = a + (hash(seed + 6) - 0.5) * 0.7;
+        const [x0, y0] = polar(cx, cy, a, startR);
+        const [x1, y1] = polar(cx, cy, endA, endR);
+        if (Math.hypot(x1 - cx, y1 - cy) < innerR * 1.02) continue;
+        if (
+          x0 > face.left &&
+          x0 < face.right &&
+          y0 > face.top &&
+          y0 < face.bottom
+        ) {
+          continue;
+        }
+        const tint = Math.cos(a) < 0 ? cyan : mixHex(violet, EYE_MID, 0.35);
+        gfx.save();
+        gfx.shadowColor = rgba(tint, 0.8);
+        gfx.shadowBlur = 12;
+        gfx.strokeStyle = rgba(tint, (0.22 + intensity * 0.22) * life);
+        gfx.lineWidth = Math.max(2.4, pixelSize / (error ? 48 : 58));
+        const mid = strokeLightning(x0, y0, x1, y1, seed, t, energyR * 0.28);
+        gfx.strokeStyle = rgba('#F4E9FF', 0.35 * life);
+        gfx.lineWidth = Math.max(0.8, pixelSize / 140);
+        strokeLightning(x0, y0, x1, y1, seed, t, energyR * 0.22);
+        gfx.restore();
+        const forks = reduceMotion ? 0 : Math.floor(hash(seed + 9) * 3.1);
+        if (forks > 0 && life > 0.4) {
+          for (let f = 0; f < forks; f++) {
+            const fSeed = seed + 11 + f * 2.4;
+            const fa = endA + (hash(fSeed) - 0.5) * 0.8;
+            const [fx, fy] = polar(cx, cy, fa, Math.min(reach, startR + energyR * (0.12 + hash(fSeed + 1) * 0.18)));
+            gfx.strokeStyle = rgba(tint, 0.16 * life);
+            gfx.lineWidth = Math.max(0.7, pixelSize / 140);
+            strokeLightning(mid.mx, mid.my, fx, fy, fSeed, t, energyR * 0.12);
           }
         }
       }
@@ -313,169 +492,134 @@ export function NexterOrb({
       }
 
       const [c1, c2] = palette(s);
-      const highlight = mixHex(c1, '#f8fafc', 0.72);
+      const cyan = mixHex(c1, ELECTRIC_CYAN, 0.55);
+      const violet = mixHex(c2, EYE_OUTER, 0.4);
       const target = INTENSITY[s] + audio * (s === 'speaking' || s === 'listening' ? 0.24 : 0.08);
       intensity = reduceMotion ? target : intensity + (target - intensity) * 0.08;
       const speed = SPEED[s];
-      const breathe =
-        reduceMotion
-          ? 1 + intensity * 0.03
-          : 1 + Math.sin(t * (s === 'idle' ? 0.72 : 1.35 + speed * 0.28)) * (0.016 + intensity * 0.03);
-      const jitter = s === 'error' ? Math.sin(t * 8.4) * 0.03 : s === 'warning' ? Math.sin(t * 2.6) * 0.01 : 0;
-      const cx = pixelSize / 2;
-      const cy = pixelSize / 2;
-      const r = pixelSize * 0.485;
+      const gain = 0.72 + intensity * 0.45 + (s === 'speaking' ? audio * 0.18 : 0);
       const thinking = s === 'thinking';
       const generating = s === 'generating';
       const listening = s === 'listening';
-      const speaking = s === 'speaking';
-      const inward = thinking || generating ? 0.22 : listening ? 0.04 : 0.1;
+      const cx = pixelSize / 2;
+      const energyR = pixelSize * 0.38;
+      const innerR = energyR * 0.73;
+      const cy = pixelSize * 0.4;
+      const eyeD = innerR * 2 * (pixelSize < 170 ? 0.16 : 0.145);
+      const spread = innerR * 2 * 0.155;
+      const baseY = cy - innerR * 0.08;
+      const faceSafeZone = {
+        left: cx - spread - eyeD * 0.9,
+        right: cx + spread + eyeD * 0.9,
+        top: baseY - eyeD * 1.05,
+        bottom: baseY + eyeD * 0.95,
+      };
 
       gfx.clearRect(0, 0, pixelSize, pixelSize);
 
-      const aura = gfx.createRadialGradient(cx, cy, r * 0.18, cx, cy, r * 1.12);
-      aura.addColorStop(0, rgba(c1, 0.16 + intensity * 0.2));
-      aura.addColorStop(0.58, rgba(c2, 0.08 + intensity * 0.07));
+      const aura = gfx.createRadialGradient(cx - energyR * 0.35, cy, energyR * 0.2, cx, cy, energyR * 1.55);
+      aura.addColorStop(0, rgba(cyan, 0.14 * gain));
+      aura.addColorStop(0.45, rgba(violet, 0.1 * gain));
       aura.addColorStop(1, 'rgba(0,0,0,0)');
       gfx.fillStyle = aura;
       gfx.beginPath();
-      gfx.arc(cx, cy, r * 1.08 * breathe, 0, Math.PI * 2);
+      gfx.arc(cx, cy, energyR * 1.5, 0, Math.PI * 2);
       gfx.fill();
+
+      const leftGlow = gfx.createRadialGradient(cx - energyR * 0.7, cy + energyR * 0.1, 4, cx - energyR * 0.7, cy, energyR * 0.95);
+      leftGlow.addColorStop(0, rgba(cyan, 0.16 * gain));
+      leftGlow.addColorStop(1, 'rgba(0,0,0,0)');
+      gfx.fillStyle = leftGlow;
+      gfx.beginPath();
+      gfx.arc(cx - energyR * 0.55, cy, energyR * 0.9, 0, Math.PI * 2);
+      gfx.fill();
+
+      const rightGlow = gfx.createRadialGradient(cx + energyR * 0.7, cy - energyR * 0.15, 4, cx + energyR * 0.7, cy, energyR * 0.95);
+      rightGlow.addColorStop(0, rgba(violet, 0.18 * gain));
+      rightGlow.addColorStop(1, 'rgba(0,0,0,0)');
+      gfx.fillStyle = rightGlow;
+      gfx.beginPath();
+      gfx.arc(cx + energyR * 0.55, cy, energyR * 0.9, 0, Math.PI * 2);
+      gfx.fill();
+
+      drawExternalBolts(
+        cx,
+        cy,
+        innerR,
+        energyR,
+        cyan,
+        violet,
+        t,
+        speed,
+        reduceMotion,
+        generating,
+        listening,
+        s === 'error',
+        faceSafeZone
+      );
+      drawPlatform(cx, cy, energyR, pixelSize, cyan, violet, t, reduceMotion, gain * (generating ? 1.15 : 1));
+      drawEnergyRing(cx, cy, innerR * 1.02, energyR, cyan, violet, true, t, reduceMotion, gain);
 
       gfx.save();
       gfx.beginPath();
-      gfx.arc(cx, cy, r * 0.985, 0, Math.PI * 2);
+      gfx.arc(cx, cy, innerR, 0, Math.PI * 2);
       gfx.clip();
 
-      const voidFill = gfx.createRadialGradient(cx - r * 0.18, cy - r * 0.28, r * 0.04, cx + r * 0.12, cy + r * 0.22, r);
-      voidFill.addColorStop(0, 'rgba(14, 22, 42, 0.22)');
-      voidFill.addColorStop(0.42, 'rgba(5, 8, 18, 0.78)');
-      voidFill.addColorStop(1, 'rgba(2, 3, 8, 0.96)');
-      gfx.fillStyle = voidFill;
-      gfx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      const body = gfx.createRadialGradient(cx - innerR * 0.22, cy - innerR * 0.3, innerR * 0.06, cx, cy, innerR);
+      body.addColorStop(0, INNER_CORE);
+      body.addColorStop(0.5, INNER_MID);
+      body.addColorStop(0.84, '#0B0716');
+      body.addColorStop(1, mixHex('#141028', violet, 0.18));
+      gfx.fillStyle = body;
+      gfx.fillRect(cx - innerR, cy - innerR, innerR * 2, innerR * 2);
 
-      const nebula = gfx.createRadialGradient(cx, cy + r * 0.08, r * 0.04, cx, cy, r * (0.58 + intensity * 0.16));
-      nebula.addColorStop(0, 'rgba(6, 8, 18, 0.35)');
-      nebula.addColorStop(0.28, rgba(c1, 0.22 + intensity * 0.18));
-      nebula.addColorStop(0.62, rgba(c2, 0.14 + intensity * 0.12));
-      nebula.addColorStop(1, 'rgba(0,0,0,0)');
-      gfx.fillStyle = nebula;
+      const rim = gfx.createRadialGradient(cx, cy, innerR * 0.72, cx, cy, innerR);
+      rim.addColorStop(0, 'rgba(0,0,0,0)');
+      rim.addColorStop(0.65, rgba(violet, 0.05));
+      rim.addColorStop(1, rgba(cyan, 0.16));
+      gfx.fillStyle = rim;
       gfx.beginPath();
-      gfx.arc(cx, cy, r * (thinking ? 0.52 : 0.7) * breathe, 0, Math.PI * 2);
+      gfx.arc(cx, cy, innerR, 0, Math.PI * 2);
       gfx.fill();
 
-      gfx.lineCap = 'round';
-      gfx.lineJoin = 'round';
-
-      const limit = r * 0.93;
-      const layers: Array<{ count: number; alpha: number; width: number }> = [
-        { count: reduceMotion ? 3 : 6, alpha: 0.15, width: pixelSize / 56 },
-        { count: reduceMotion ? 4 : 8, alpha: 0.32, width: pixelSize / 84 },
-        { count: reduceMotion ? 1 : 3, alpha: 0.5, width: pixelSize / 120 },
-      ];
-
-      layers.forEach((layer, layerIndex) => {
-        const extra = generating ? 1 : listening || speaking ? 1 : 0;
-        const count = Math.min(layer.count + extra, 9);
-        for (let i = 0; i < count; i++) {
-          const seed = 11.3 + i * 2.399 + layerIndex * 5.17;
-          const life = reduceMotion ? 0.7 : arcLife(t * speed, seed, 3.8 + hash(seed) * 1.6);
-          if (life < 0.08) continue;
-          const kind = Math.floor(hash(seed + 0.4) * 4);
-          const a0 = seed * 1.13 + t * speed * (0.09 + layerIndex * 0.04) + jitter;
-          let startR: number;
-          let endR: number;
-          let startA: number;
-          let endA: number;
-          if (kind === 0) {
-            startR = r * (0.14 + hash(seed + 1) * 0.12 + (thinking ? 0.04 : 0));
-            endR = r * (0.55 + hash(seed + 2) * 0.32);
-            startA = a0;
-            endA = a0 + (hash(seed + 3) - 0.48) * 1.15;
-          } else if (kind === 1) {
-            startR = r * (0.34 + hash(seed + 1) * 0.18);
-            endR = r * (0.36 + hash(seed + 2) * 0.22);
-            startA = a0;
-            endA = a0 + 0.55 + hash(seed + 3) * 1.05;
-          } else if (kind === 2) {
-            startR = r * (0.3 + hash(seed + 1) * 0.16);
-            endR = r * (0.72 + hash(seed + 2) * 0.16 + (listening ? 0.04 : 0));
-            startA = a0 + 0.2;
-            endA = a0 + (hash(seed + 3) - 0.42) * 0.85;
-          } else {
-            startR = r * (0.18 + hash(seed + 1) * 0.1);
-            endR = r * (0.42 + hash(seed + 2) * 0.18);
-            startA = a0;
-            endA = a0 + (hash(seed + 3) - 0.5) * 1.25;
-          }
-          gfx.strokeStyle = rgba(i % 2 ? c2 : i % 3 === 0 ? highlight : c1, (layer.alpha + intensity * 0.2) * life);
-          gfx.lineWidth = Math.max(0.65, layer.width);
-          const bolt = strokeBolt(cx, cy, startA, startR * breathe, endA, endR * breathe, t, seed, limit);
-
-          const forks = reduceMotion ? 0 : Math.floor(hash(seed + 9.1) * 3.2);
-          if (layerIndex > 0 && forks > 0 && life > 0.4) {
-            for (let f = 0; f < forks; f++) {
-              const fSeed = seed + 20 + f * 3.7;
-              gfx.strokeStyle = rgba(c1, (0.1 + intensity * 0.14) * life);
-              gfx.lineWidth = Math.max(0.5, layer.width * 0.55);
-              strokeBolt(
-                cx,
-                cy,
-                bolt.midA,
-                bolt.midR,
-                bolt.midA + (hash(fSeed) - 0.5) * 0.9,
-                Math.min(limit, bolt.midR + r * (0.12 + hash(fSeed + 1) * 0.16)),
-                t,
-                fSeed,
-                limit
-              );
-            }
-          }
-        }
-      });
-
-      const sparks = reduceMotion ? 3 : 8;
-      for (let i = 0; i < sparks; i++) {
-        const life = (t * (0.07 + intensity * 0.05) + i * 0.14) % 1;
-        const dist = r * (0.88 - life * (0.58 + inward));
-        const a = i * 0.92 + t * 0.1 * speed;
-        gfx.fillStyle = rgba(i % 2 ? highlight : c2, (1 - life) * (0.18 + intensity * 0.32));
-        gfx.beginPath();
-        gfx.arc(cx + Math.cos(a) * dist, cy + Math.sin(a * 1.04) * dist, Math.max(0.6, pixelSize * 0.006 * (1 - life)), 0, Math.PI * 2);
-        gfx.fill();
-      }
-
-      const coreR = r * (0.11 + intensity * 0.04 + audio * 0.05 + (thinking ? 0.025 : 0)) * breathe;
-      const outerCore = gfx.createRadialGradient(cx, cy + coreR * 0.4, coreR * 0.2, cx, cy, coreR * 2.8);
-      outerCore.addColorStop(0, 'rgba(4, 6, 16, 0.28)');
-      outerCore.addColorStop(0.42, rgba(c2, 0.14 + intensity * 0.1));
-      outerCore.addColorStop(1, 'rgba(0,0,0,0)');
-      gfx.fillStyle = outerCore;
+      const innerSheen = gfx.createRadialGradient(cx - innerR * 0.28, cy - innerR * 0.34, 2, cx - innerR * 0.1, cy - innerR * 0.18, innerR * 0.55);
+      innerSheen.addColorStop(0, rgba(cyan, 0.1));
+      innerSheen.addColorStop(0.45, rgba(violet, 0.05));
+      innerSheen.addColorStop(1, 'rgba(0,0,0,0)');
+      gfx.fillStyle = innerSheen;
       gfx.beginPath();
-      gfx.arc(cx, cy, coreR * 2.7, 0, Math.PI * 2);
+      gfx.arc(cx - innerR * 0.18, cy - innerR * 0.22, innerR * 0.5, 0, Math.PI * 2);
       gfx.fill();
 
-      drawEyes(cx, cy, r, c1, c2, s, audio, reduceMotion, t, intensity);
+      drawEyes(cx, cy, innerR, c1, c2, s, audio, reduceMotion, t, intensity);
+
+      const glass = gfx.createRadialGradient(cx - innerR * 0.32, cy - innerR * 0.42, 1, cx - innerR * 0.22, cy - innerR * 0.32, innerR * 0.38);
+      glass.addColorStop(0, rgba('#c4b5fd', 0.16));
+      glass.addColorStop(0.4, rgba(cyan, 0.06));
+      glass.addColorStop(1, 'rgba(0,0,0,0)');
+      gfx.fillStyle = glass;
+      gfx.beginPath();
+      gfx.ellipse(cx - innerR * 0.28, cy - innerR * 0.38, innerR * 0.22, innerR * 0.12, -0.5, 0, Math.PI * 2);
+      gfx.fill();
       gfx.restore();
 
-      if (listening && !reduceMotion) {
-        gfx.strokeStyle = rgba(c1, 0.18 + Math.sin(t * 3.2) * 0.08);
-        gfx.lineWidth = Math.max(1, pixelSize * 0.008);
-        gfx.beginPath();
-        gfx.arc(cx, cy, r * breathe * (0.98 + Math.sin(t * 2.4) * 0.012), 0, Math.PI * 2);
-        gfx.stroke();
+      drawEnergyRing(cx, cy, innerR * 1.02, energyR, cyan, violet, false, t, reduceMotion, gain * (thinking ? 1.08 : 1));
+
+      if (!reduceMotion && (generating || listening || s === 'error')) {
+        const accent = 2;
+        for (let i = 0; i < accent; i++) {
+          const seed = 80 + i * 5.1;
+          const life = arcLife(t * speed, seed, 2.8);
+          if (life < 0.2) continue;
+          const a = Math.PI * (0.15 + hash(seed) * 0.7) * (i === 0 ? 1 : -1);
+          if (a > -0.9 && a < 0.35) continue;
+          const [x0, y0] = polar(cx, cy, a, energyR * 0.96);
+          const [x1, y1] = polar(cx, cy, a + (hash(seed + 1) - 0.5) * 0.4, energyR * 1.12);
+          gfx.strokeStyle = rgba(i ? violet : cyan, 0.22 * life);
+          gfx.lineWidth = Math.max(0.8, pixelSize / 130);
+          strokeLightning(x0, y0, x1, y1, seed, t, energyR * 0.08);
+        }
       }
-
-      gfx.strokeStyle = 'rgba(255,255,255,0.22)';
-      gfx.lineWidth = Math.max(0.8, pixelSize * 0.007);
-      gfx.beginPath();
-      gfx.arc(cx, cy, r * breathe - gfx.lineWidth / 2, 0, Math.PI * 2);
-      gfx.stroke();
-
-      gfx.strokeStyle = 'rgba(8,12,24,0.28)';
-      gfx.beginPath();
-      gfx.arc(cx + r * 0.08, cy + r * 0.12, r * breathe * 0.97, 0.15 * Math.PI, 0.95 * Math.PI);
-      gfx.stroke();
     }
 
     function tick() {
@@ -509,9 +653,12 @@ export function NexterOrb({
     }
 
     tick();
-    const ro = responsive && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
-      lastKey = '';
-    }) : null;
+    const ro =
+      responsive && typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            lastKey = '';
+          })
+        : null;
     if (ro && wrap) ro.observe(wrap);
     document.addEventListener('visibilitychange', onVis);
     mq?.addEventListener('change', onMotion);
@@ -549,7 +696,6 @@ export function NexterOrb({
             N
           </span>
         ) : null}
-        {identity ? null : <span className="nexter-orb__specular" aria-hidden="true" />}
       </div>
     </div>
   );

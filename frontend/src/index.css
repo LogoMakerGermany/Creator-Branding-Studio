@@ -238,6 +238,16 @@ body {
   height: 100%;
 }
 
+.nexter-orb--responsive .nexter-orb__glass,
+.nexter-orb.nexter-orb--responsive[data-state] .nexter-orb__glass {
+  border-radius: 0;
+  overflow: visible;
+  background: none;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
 .nexter-orb--identity {
   width: 2.25rem;
   height: 2.25rem;
@@ -358,13 +368,14 @@ body {
   pointer-events: none;
   position: absolute;
   z-index: 3;
-  left: 16%;
-  top: 10%;
-  width: 38%;
-  height: 24%;
+  left: 18%;
+  top: 12%;
+  width: 22%;
+  height: 14%;
   border-radius: 9999px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0));
-  filter: blur(1.2px);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--nexter-orb-primary) 22%, transparent), transparent);
+  filter: blur(1.6px);
+  opacity: 0.45;
 }
 
 @media (prefers-reduced-motion: reduce) {
