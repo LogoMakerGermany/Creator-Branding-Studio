@@ -11,6 +11,7 @@ import {
   evaluateGenerationGate,
   extractPreference,
   formatContextForPrompt,
+  formatStreamsetGapForPrompt,
   quoteActions,
   recordOwnedByUser,
   recommendFormat,
@@ -86,6 +87,25 @@ describe('nexter tools — open_studio', () => {
     const { actions } = buildActions('Öffne das Logo Studio.', dnaCtx);
     const open = actions.find((a) => a.tool === 'open_studio');
     assert.equal(open?.path, '/logo-studio');
+    assert.equal(open?.autoNavigate, true);
+  });
+
+  it('project analysis offers streamset as a click-only action', () => {
+    const { actions } = buildActions(
+      'Was fehlt meinem Streamset?',
+      { ...dnaCtx, missingAssets: ['Starting Soon', 'BRB'] },
+      undefined,
+      undefined,
+      false,
+      undefined,
+      'PROJECT_ANALYSIS'
+    );
+    const analyze = actions.find((a) => a.tool === 'analyze_asset');
+    const open = actions.find((a) => a.tool === 'open_studio');
+    assert.deepEqual(analyze?.payload?.missing, ['Starting Soon', 'BRB']);
+    assert.equal(open?.path, NEXTER_STUDIO_PATHS.streamset);
+    assert.equal(open?.autoNavigate, false);
+    assert.equal(actions.some((a) => a.tool === 'start_generation'), false);
   });
 
   it('maps Streamset intent to quote kind streamset', () => {
@@ -272,6 +292,26 @@ describe('nexter context prompt', () => {
     assert.match(text, /NightWolf/);
     assert.match(text, /Twitch Launch/);
     assert.match(text, /Letzter Job: logo/);
+  });
+
+  it('streamset gaps distinguish catalog remainder from a bound project', () => {
+    const unbound = formatStreamsetGapForPrompt({
+      ...emptyCtx,
+      missingAssets: ['Starting Soon', 'BRB'],
+    });
+    assert.match(unbound, /Kein vollständiges Streamset-Projekt/);
+    assert.match(unbound, /Starting Soon, BRB/);
+    assert.match(unbound, /kein analysiertes Komplettset-Projekt/);
+    const bound = formatStreamsetGapForPrompt({
+      ...dnaCtx,
+      projectId: 'p1',
+      projectName: 'Twitch Launch',
+      presentAssets: ['Starting Soon'],
+      missingAssets: ['BRB'],
+    });
+    assert.match(bound, /Aktives Projekt: Twitch Launch/);
+    assert.match(bound, /Starting Soon/);
+    assert.match(bound, /BRB/);
   });
 
   it('includes character and lock flags in the prompt context', () => {

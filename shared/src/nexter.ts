@@ -83,6 +83,20 @@ export interface NexterAction {
   payload?: Record<string, unknown>;
   coinCost?: number;
   requiresConfirmation?: boolean;
+  /** True only for explicit NAVIGATION_ACTION. Suggested studio buttons stay click-only. */
+  autoNavigate?: boolean;
+}
+
+export function shouldAutoNavigateNexterStudio(
+  action: { tool?: string; path?: string; autoNavigate?: boolean } | undefined | null,
+  options: { currentPath?: string; awaitingConfirm?: boolean } = {}
+): boolean {
+  if (!action || action.tool !== 'open_studio' || !action.path) return false;
+  if (options.awaitingConfirm) return false;
+  const target = action.path.split('?')[0];
+  const current = (options.currentPath ?? '').split('?')[0];
+  if (current && target === current) return false;
+  return action.autoNavigate === true;
 }
 
 export interface NexterSession {
@@ -148,6 +162,7 @@ export interface NexterContextSnapshot {
   projectNames: string[];
   fileCount: number;
   recentJobs: NexterRecentJob[];
+  presentAssets?: string[];
   missingAssets: string[];
   lastModule?: string;
   videoProjectId?: string;

@@ -1924,6 +1924,7 @@ export interface StreamsetDraft {
   layoutPreset: { id: string; label: string; width: number; height: number; aspect: string };
   estimatedCoins: number;
   packDiscountApplied: boolean;
+  pricingSku?: 'a_la_carte' | 'three_part' | 'komplettset';
   coinBalance: number;
   canAfford: boolean;
   insufficientCoins: boolean;
@@ -2039,6 +2040,7 @@ export interface NexterAction {
   payload?: Record<string, unknown>;
   coinCost?: number;
   requiresConfirmation?: boolean;
+  autoNavigate?: boolean;
 }
 
 export interface NexterChatMessage {

@@ -56,6 +56,15 @@ export function stripUnsolicitedCreatorCta(text: string): string {
   return next || raw;
 }
 
+export const NEXTER_PROJECT_ANALYSIS_PROMPT_RULES = `CURRENT INTENT: PROJECT_ANALYSIS.
+Analyze only real owned jobs, files and the bound project.
+DNA and preferences are style wishes, not completed assets.
+If no active project is bound, say so. Do not pretend a complete streamset project was analyzed.
+Do not present the full Komplettset catalog as a personal gap inside an existing streamset.
+You may list catalog items that are not yet created, framed as "noch nicht erstellt" / "gegenüber einem Komplettset".
+Do not navigate, open a studio, start a quote, generate, or debit coins.
+Studio links are optional user-clickable suggestions only.`;
+
 export function buildNexterSystemPrompt(input: NexterPromptInput): string {
   const intent = input.intent;
   const address = input.addressAs ? `Ansprache (nur Begrüßung): ${input.addressAs}.` : '';
@@ -68,6 +77,18 @@ Keine API-Keys, Secrets, Tokens oder Zahlungsdaten ausgeben.
 Versprich niemals kostenlose Coins und starte keine Jobs.
 ${address}
 ${input.contextBlock}`;
+  }
+
+  if (intent === 'PROJECT_ANALYSIS') {
+    return `Du bist NEXTER, das Gehirn von NEXTER Creator Studio.
+${input.replyLanguageInstruction}
+${NEXTER_PROJECT_ANALYSIS_PROMPT_RULES}
+${NEXTER_COLOR_DISPLAY_RULE}
+Keine API-Keys, Secrets, Tokens oder Zahlungsdaten ausgeben.
+Versprich niemals kostenlose Coins und starte keine Jobs.
+${address}
+${input.contextBlock}
+Aktuelle Seite: ${input.path ?? 'unbekannt'} ${input.hint ? `(${input.hint})` : ''}.`;
   }
 
   if (intent === 'APP_HELP' || intent === 'ACCOUNT_OR_SETTINGS') {

@@ -546,12 +546,17 @@ export function resolveChangeTarget(
   return { none: `Ich finde kein ${labels[kind]} in diesem Projekt (und keinen eindeutigen Fallback). Kein Job, keine Coins.` };
 }
 
-export function openStudioAction(path: string, label: string): NexterAction {
+export function openStudioAction(
+  path: string,
+  label: string,
+  opts?: { autoNavigate?: boolean }
+): NexterAction {
   return {
     id: randomUUID(),
     tool: 'open_studio',
     label,
     path,
+    ...(opts?.autoNavigate === true ? { autoNavigate: true } : { autoNavigate: false }),
   };
 }
 
@@ -655,7 +660,9 @@ export function buildActions(
   if (openPath) {
     const label =
       Object.entries(NEXTER_STUDIO_PATHS).find(([, p]) => p === openPath)?.[0] ?? 'Studio';
-    actions.push(openStudioAction(openPath, `${label[0].toUpperCase()}${label.slice(1)} öffnen`));
+    actions.push(
+      openStudioAction(openPath, `${label[0].toUpperCase()}${label.slice(1)} öffnen`, { autoNavigate: true })
+    );
   }
 
   if (quoteId && quoteKind) {
@@ -669,7 +676,9 @@ export function buildActions(
       label: 'Lücken anzeigen',
       payload: { missing: ctx.missingAssets },
     });
-    if (!openPath) actions.push(openStudioAction(NEXTER_STUDIO_PATHS.streamset, 'Streamset öffnen'));
+    if (!openPath) {
+      actions.push(openStudioAction(NEXTER_STUDIO_PATHS.streamset, 'Streamset öffnen', { autoNavigate: false }));
+    }
   }
 
   if (detectSuggestVariant(message)) {
@@ -746,6 +755,33 @@ export function recommendFormat(
   return null;
 }
 
+export function formatStreamsetGapForPrompt(ctx: NexterContextSnapshot): string {
+  const present = (ctx.presentAssets ?? []).filter(Boolean);
+  const missing = (ctx.missingAssets ?? []).filter(Boolean);
+  const hasActiveProject = Boolean(ctx.projectId);
+  const presentBit = present.length
+    ? `Vorhandene Streamset-Assets (abgeschlossene Jobs, keine DNA-Wünsche): ${present.join(', ')}.`
+    : 'Es gibt noch keine abgeschlossenen Streamset-Assets.';
+  const missingBit = missing.length
+    ? `Gegenüber dem Komplettset-Katalog noch nicht erstellt: ${missing.join(', ')}.`
+    : 'Gegenüber dem Komplettset-Katalog fehlt aktuell nichts.';
+  if (!hasActiveProject) {
+    return [
+      'Kein vollständiges Streamset-Projekt ist an diese Analyse gebunden.',
+      presentBit,
+      missingBit,
+      'Das ist ein Abgleich vorhandener Jobs gegen den Katalog, kein analysiertes Komplettset-Projekt.',
+      'DNA beschreibt Stilwünsche, keine fertigen Assets.',
+    ].join(' ');
+  }
+  return [
+    `Aktives Projekt: ${ctx.projectName ?? ctx.projectId}.`,
+    presentBit,
+    missingBit,
+    'Nenne nur diese realen Jobs als vorhanden oder fehlend. Erfinde keine persönliche Lückenliste.',
+  ].join(' ');
+}
+
 export function formatContextForPrompt(
   ctx: NexterContextSnapshot,
   opts?: {
@@ -792,9 +828,7 @@ export function formatContextForPrompt(
   const projects = ctx.projectNames.length
     ? `Projekte: ${ctx.projectNames.join(', ')}.`
     : 'Keine Projekte.';
-  const missing = ctx.missingAssets.length
-    ? `Fehlende Streamset-Assets: ${ctx.missingAssets.join(', ')}.`
-    : 'Kein offensichtliches Asset-Loch im Streamset.';
+  const missing = formatStreamsetGapForPrompt(ctx);
   const highlights = ctx.videoHighlights?.length
     ? `Video-Highlights: ${ctx.videoHighlights
         .slice(0, 5)

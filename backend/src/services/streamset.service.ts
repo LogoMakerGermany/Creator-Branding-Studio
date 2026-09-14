@@ -6,6 +6,7 @@ import {
   STREAMSET_PLATFORMS,
   assetRequiresTransparency,
   coinCostForStreamsetSelection,
+  streamsetPriceCaption,
   deriveStreamsetBatchStatus,
   getStreamLayoutPreset,
   getStreamsetAsset,
@@ -26,6 +27,7 @@ import {
   type StreamsetBatchStatus,
   type StreamsetGeneratorKind,
   type StreamsetPlatform,
+  type StreamsetPricingSku,
 } from '@ucbs/shared';
 import { randomUUID } from 'node:crypto';
 import { resolveDnaForRequest, getActiveDna } from './dna.service.js';
@@ -952,6 +954,7 @@ export interface StreamsetDraft {
   designConsistency: ReturnType<typeof streamsetSharedDesignParams>;
   estimatedCoins: number;
   packDiscountApplied: boolean;
+  pricingSku: StreamsetPricingSku;
   coinBalance: number;
   canAfford: boolean;
   insufficientCoins: boolean;
@@ -1055,7 +1058,10 @@ export async function previewStreamsetDraft(
   });
 
   const id = randomUUID();
-  const confirmationSummary = `Dein Streamset enthält ${includedAssets.length} Assets und kostet insgesamt ${pricing.total} Coins.`;
+  const confirmationSummary =
+    pricing.pricingSku === 'a_la_carte'
+      ? `Ausgewählte Einzelteile: ${includedAssets.length} Assets für ${pricing.total} Coins.`
+      : `${streamsetPriceCaption(pricing.pricingSku, pricing.total)}.`;
   const draft: StreamsetDraft = {
     id,
     userId,
@@ -1087,6 +1093,7 @@ export async function previewStreamsetDraft(
     designConsistency: streamsetSharedDesignParams(resolved.dna ?? {}),
     estimatedCoins: pricing.total,
     packDiscountApplied: pricing.packDiscountApplied,
+    pricingSku: pricing.pricingSku,
     coinBalance: balance,
     canAfford: balance >= pricing.total,
     insufficientCoins: balance < pricing.total,

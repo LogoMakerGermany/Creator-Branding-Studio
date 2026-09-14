@@ -411,7 +411,11 @@ export function isStreamsetThreePartSelection(keys: string[]): boolean {
 export function streamsetOfferLabel(sku: StreamsetPricingSku): string {
   if (sku === 'komplettset') return 'Komplettset';
   if (sku === 'three_part') return 'Streamset – 3 Teile';
-  return 'Streamset';
+  return 'Ausgewählte Einzelteile';
+}
+
+export function streamsetPriceCaption(sku: StreamsetPricingSku, coins: number): string {
+  return `${streamsetOfferLabel(sku)}: ${coins} Coins`;
 }
 
 export function coinCostForStreamsetSelection(keys: string[]): {
@@ -603,6 +607,10 @@ export function streamsetDownloadBasename(creatorName: string | undefined, asset
     .replace(/^-+|-+$/g, '')
     .slice(0, 40) || 'asset';
   return `${creator}-${key}.${ext}`;
+}
+
+export function presentStreamsetLabels(jobs: StreamsetJobLike[]): string[] {
+  return STREAMSET_PACK_ITEMS.filter((item) => streamsetAssetPresent(item, jobs)).map((item) => item.label);
 }
 
 export function missingStreamsetLabels(jobs: StreamsetJobLike[]): string[] {

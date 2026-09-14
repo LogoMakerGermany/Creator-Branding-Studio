@@ -334,6 +334,7 @@ describe('nexter chat local closure — quotes, coins, ownership, safety', () =>
     assert.equal(extras[0]?.payload?.expiresAt, '2099-01-01T00:00:00.000Z');
     assert.equal(extras[0]?.payload?.coinBalance, 40);
     const panel = repo('frontend/src/components/nexter/NexterPanel.tsx');
+    assert.match(panel, /shouldAutoNavigateNexterStudio/);
     assert.match(panel, /aria-label="Nachricht an Nexter"/);
     assert.match(panel, /role="status"/);
     assert.match(panel, /role="alert"/);

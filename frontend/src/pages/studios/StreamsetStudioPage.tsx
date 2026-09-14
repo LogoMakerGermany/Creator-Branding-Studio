@@ -8,7 +8,9 @@ import {
   STREAMSET_TABS,
   STREAMSET_THREE_PART_COIN_COST,
   STREAMSET_THREE_PART_SLOT_IDS,
+  streamsetPriceCaption,
   type StreamsetPlatform,
+  type StreamsetPricingSku,
   type StreamsetTab,
 } from '@ucbs/shared';
 import { StudioShell } from '@/v2/components/StudioShell';
@@ -334,12 +336,15 @@ export function StreamsetStudioPage() {
   }
 
   const wizardStep = !dnaName ? 1 : hasImages || completedCount > 0 || showProgress ? 3 : 2;
+  const pricingSku: StreamsetPricingSku = draft?.pricingSku ?? 'a_la_carte';
+  const selectionPriceLabel = draft ? streamsetPriceCaption(pricingSku, draft.estimatedCoins) : null;
 
   return (
     <StudioShell
       title="Streamset Studio"
       description="Aus Creator DNA das komplette Stream-Set — Overlay, Banner, Facecam und Sticker über die echten Generatoren"
-      coinCost={draft?.estimatedCoins ?? PACK_COST}
+      coinCost={draft?.estimatedCoins}
+      coinCostLabel={selectionPriceLabel ?? undefined}
       nexterHint="Soll ich dir daraus ein Komplettset erstellen?"
     >
       <div className="space-y-4" data-testid="streamset-wizard">
@@ -533,7 +538,9 @@ export function StreamsetStudioPage() {
               </label>
               <p className="mt-3 text-sm text-white" data-testid="streamset-cost-preview">
                 {draft
-                  ? `${draft.includedAssets.length} Assets · ${formatCoins(draft.estimatedCoins)} Coins`
+                  ? pricingSku === 'a_la_carte'
+                    ? `Ausgewählte Einzelteile: ${draft.includedAssets.length} Assets · ${formatCoins(draft.estimatedCoins)} Coins`
+                    : streamsetPriceCaption(pricingSku, draft.estimatedCoins)
                   : 'Kosten werden berechnet …'}
               </p>
               {draft && (
@@ -566,7 +573,9 @@ export function StreamsetStudioPage() {
               >
                 {loadingKey === 'quote' || confirming
                   ? 'Wird erstellt …'
-                  : `Für ${formatCoins(draft?.estimatedCoins ?? 0)} Coins erstellen`}
+                  : draft
+                    ? `${streamsetPriceCaption(pricingSku, draft.estimatedCoins)} — erstellen`
+                    : 'Für 0 Coins erstellen'}
               </Button>
               {draft?.insufficientCoins && (
                 <p className="mt-1 text-xs text-amber-300" data-testid="streamset-insufficient-confirm">

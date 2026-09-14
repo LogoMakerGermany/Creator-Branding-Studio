@@ -1,5 +1,5 @@
 import type { NexterContextSnapshot } from '@ucbs/shared';
-import { missingStreamsetLabels, nexterAddressName } from '@ucbs/shared';
+import { missingStreamsetLabels, nexterAddressName, presentStreamsetLabels } from '@ucbs/shared';
 import { resolveDnaForRequest } from '../dna.service.js';
 import { listProjects } from '../project.service.js';
 import { getJobsByUser, type GenerationJob } from '../ai.service.js';
@@ -156,6 +156,7 @@ export async function buildNexterContext(
       createdAt: j.createdAt,
     })),
     missingAssets,
+    presentAssets: presentStreamsetLabels(scopedJobs),
     lastModule: scopedJobs[0]?.module,
     videoProjectId: scopedVideo?.id,
     videoHighlights: (scopedVideo?.highlights ?? []).map((h) => ({

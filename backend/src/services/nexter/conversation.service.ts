@@ -2354,14 +2354,27 @@ function devReply(input: {
         ? `Zu deinem Creator-Projekt: DNA „${input.ctx.dnaName}“ v${input.ctx.dnaVersion ?? '?'} (${input.ctx.styleDirection ?? 'Stil offen'}), Farben ${colors}${input.ctx.mascot ? `, Figur ${input.ctx.mascot}` : ''}${input.ctx.dnaSource === 'project' ? ' — Projekt-DNA' : input.ctx.dnaSource === 'active' ? ' — aktive User-DNA' : ''}.`
         : 'Ich sehe noch keine Creator DNA. Ohne DNA kann ich kein konsistentes Branding vorbereiten.'
     );
-    if (input.ctx.projectName) parts.push(`Aktives Projekt: ${input.ctx.projectName}.`);
+    if (input.ctx.projectName && input.ctx.projectId) parts.push(`Aktives Projekt: ${input.ctx.projectName}.`);
+    if (!input.ctx.projectId) {
+      parts.push('Du hast aktuell noch kein vollständiges Streamset-Projekt.');
+    }
     if (input.ctx.assetInventory?.length) {
       parts.push(`Vorhanden: ${input.ctx.assetInventory.join(', ')}.`);
-    } else {
+    } else if (input.ctx.projectId) {
       parts.push('In diesem Projekt sind noch keine aggregierten Assets hinterlegt.');
     }
-    if (input.ctx.missingAssets[0] && intent === 'PROJECT_ANALYSIS') {
-      parts.push(`Dir fehlt noch: ${input.ctx.missingAssets[0]}.`);
+    if (intent === 'PROJECT_ANALYSIS') {
+      const present = (input.ctx.presentAssets ?? []).filter(Boolean);
+      if (present.length) {
+        parts.push(`Bereits erstellt: ${present.join(', ')}.`);
+      }
+      if (input.ctx.missingAssets.length) {
+        parts.push(
+          input.ctx.projectId
+            ? `Im aktuellen Projekt fehlen gegenüber einem Komplettset noch: ${input.ctx.missingAssets.join(', ')}.`
+            : `Auf Basis deiner vorhandenen Assets fehlen gegenüber einem Komplettset noch: ${input.ctx.missingAssets.join(', ')}.`
+        );
+      }
     }
     if (input.ctx.locks?.colors) parts.push('Farben sind gesperrt.');
     if (input.ctx.locks?.character || input.ctx.locks?.mascot) parts.push('Figur ist gesperrt.');

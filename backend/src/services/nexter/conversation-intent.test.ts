@@ -4,23 +4,20 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { COIN_COSTS, CoinSpendCategory } from '@ucbs/shared';
+import { COIN_COSTS, CoinSpendCategory, NEXTER_STUDIO_PATHS, shouldAutoNavigateNexterStudio } from '@ucbs/shared';
 import { arePaymentsEnabled, getDefaultFreeCoins } from '../../config/env.js';
 import { getOrCreateUser } from '../user.service.js';
 import { upsertDna } from '../dna.service.js';
 import { createProject } from '../project.service.js';
 import { getCoinBalance } from '../coins.service.js';
+import { dsSet } from '../../lib/data-store.js';
 import { isPaidProviderTestBlocked } from '../../lib/media-providers.js';
 import { updateNexterPreferencesForUser } from './preferences.service.js';
 import { nexterChat } from './conversation.service.js';
 import { listOwnedQuotes } from './quotes.service.js';
 import { buildActions, looksLikeConstraintFollowUp, recommendFormat } from './tools.service.js';
 import { resolveNexterConversationIntent, isSmalltalkMessage } from './conversation-intent.js';
-import {
-  NEXTER_SMALLTALK_PROMPT_RULES,
-  buildNexterSystemPrompt,
-  stripUnsolicitedCreatorCta,
-} from './conversation-prompt.js';
+import { NEXTER_SMALLTALK_PROMPT_RULES, NEXTER_PROJECT_ANALYSIS_PROMPT_RULES, buildNexterSystemPrompt, stripUnsolicitedCreatorCta } from './conversation-prompt.js';
 
 process.env.DEV_AUTH_BYPASS = 'true';
 process.env.NODE_TEST = '1';
@@ -39,7 +36,15 @@ function lastAssistant(session: {
     role: string;
     content: string;
     suggestions?: string[];
-    actions?: Array<{ tool: string; requiresConfirmation?: boolean; coinCost?: number; payload?: { coinCost?: number } }>;
+    actions?: Array<{
+      tool: string;
+      label?: string;
+      path?: string;
+      autoNavigate?: boolean;
+      requiresConfirmation?: boolean;
+      coinCost?: number;
+      payload?: { coinCost?: number; missing?: string[] };
+    }>;
   }>;
 }) {
   const last = session.messages.at(-1);
@@ -59,6 +64,28 @@ async function seed(label: string) {
   const project = await createProject(user.id, { name: `${label} Brand`, type: 'branding', dnaId: dna.id });
   await updateNexterPreferencesForUser(user.id, { platforms: ['tiktok'] });
   return { user, project };
+}
+
+async function seedJob(
+  userId: string,
+  extra: { module: string; assetKey: string; projectId?: string }
+) {
+  const jobId = randomUUID();
+  const now = new Date().toISOString();
+  await dsSet('generationJobs', jobId, {
+    id: jobId,
+    userId,
+    module: extra.module,
+    status: 'completed',
+    imageUrl:
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    prompt: extra.assetKey,
+    projectId: extra.projectId,
+    assetKey: extra.assetKey,
+    createdAt: now,
+    completedAt: now,
+  });
+  return jobId;
 }
 
 describe('nexter conversation intelligence — intent classes', () => {
@@ -123,6 +150,15 @@ describe('nexter conversation intelligence — smalltalk CTA gate', () => {
     assert.match(prompt, /Do not append a creator call-to-action/);
     assert.doesNotMatch(prompt, /Du schlägst nur vor/);
     assert.match(NEXTER_SMALLTALK_PROMPT_RULES, /ANSWER THE CURRENT USER INTENT FIRST/);
+    const analysis = buildNexterSystemPrompt({
+      intent: 'PROJECT_ANALYSIS',
+      replyLanguageInstruction: 'Antworte auf Deutsch.',
+      contextBlock: 'Kein vollständiges Streamset-Projekt.',
+      memory: '',
+    });
+    assert.match(analysis, /PROJECT_ANALYSIS/);
+    assert.match(NEXTER_PROJECT_ANALYSIS_PROMPT_RULES, /Do not pretend a complete streamset project was analyzed/);
+    assert.match(analysis, /optional user-clickable suggestions/);
   });
 });
 
@@ -179,11 +215,18 @@ describe('nexter conversation intelligence — smalltalk side effects', () => {
 });
 
 describe('nexter conversation intelligence — analysis, advice, create, nav, help', () => {
-  it('project analysis may mention missing assets from real context', async () => {
+  it('project analysis may mention missing assets from real context without auto-navigation', async () => {
     const { user } = await seed('gap');
     const last = lastAssistant(await nexterChat(user.id, 'Was fehlt meinem Streamset?'));
     assert.match(last.content, /fehlt|Starting Soon|Asset|Projekt|DNA|Streamset/i);
+    assert.doesNotMatch(last.content, /Dein Streamset benötigt folgende Assets:/i);
     assert.equal((last.actions ?? []).some((a) => a.tool === 'start_generation'), false);
+    const analyze = (last.actions ?? []).find((a) => a.tool === 'analyze_asset');
+    const open = (last.actions ?? []).find((a) => a.tool === 'open_studio');
+    assert.equal(Boolean(analyze), true);
+    assert.equal(open?.path, NEXTER_STUDIO_PATHS.streamset);
+    assert.equal(open?.autoNavigate, false);
+    assert.equal(shouldAutoNavigateNexterStudio(open, { awaitingConfirm: false }), false);
   });
 
   it('creator advice may use DNA but not quote, generate, or gap chips', async () => {
@@ -208,6 +251,36 @@ describe('nexter conversation intelligence — analysis, advice, create, nav, he
     assert.equal(COIN_COSTS[CoinSpendCategory.STREAMSET_PACK], 200);
     assert.equal(COIN_COSTS[CoinSpendCategory.STREAMSET_THREE_PART], 75);
     assert.equal(getDefaultFreeCoins(), 50);
+    assert.equal(getDefaultFreeCoins() < COIN_COSTS[CoinSpendCategory.STREAMSET_THREE_PART], true);
+    assert.equal(getDefaultFreeCoins() < COIN_COSTS[CoinSpendCategory.STREAMSET_PACK], true);
+  });
+
+  it('explicit streamset studio command may auto-navigate; analysis button stays click-only', async () => {
+    const { user } = await seed('nav-ss');
+    const last = lastAssistant(await nexterChat(user.id, 'Öffne das Streamset Studio.'));
+    const open = (last.actions ?? []).find((a) => a.tool === 'open_studio');
+    assert.equal(open?.path, NEXTER_STUDIO_PATHS.streamset);
+    assert.equal(open?.autoNavigate, true);
+    assert.equal(shouldAutoNavigateNexterStudio(open, { awaitingConfirm: false }), true);
+    assert.equal((last.actions ?? []).some((a) => a.tool === 'start_generation'), false);
+  });
+
+  it('missing assets come from completed jobs, not a static fake gap', async () => {
+    const { user } = await seed('owned-gap');
+    await seedJob(user.id, { module: 'overlay', assetKey: 'starting-soon' });
+    const last = lastAssistant(await nexterChat(user.id, 'Was fehlt meinem Streamset?'));
+    assert.doesNotMatch(last.content, /Dein Streamset benötigt folgende Assets:/i);
+    const missing = (last.actions ?? []).find((a) => a.tool === 'analyze_asset')?.payload?.missing ?? [];
+    assert.equal(missing.includes('Starting Soon'), false);
+    assert.equal(missing.includes('BRB'), true);
+  });
+
+  it('no bound project does not claim a complete streamset was analyzed', async () => {
+    const user = await getOrCreateUser(randomUUID(), `${randomUUID()}@intent-bare.test`, 'bare');
+    const last = lastAssistant(await nexterChat(user.id, 'Was fehlt meinem Streamset?'));
+    assert.match(last.content, /kein vollständiges Streamset-Projekt/i);
+    assert.doesNotMatch(last.content, /Dein Streamset benötigt folgende Assets:/i);
+    assert.equal((last.actions ?? []).some((a) => a.tool === 'start_generation'), false);
   });
 
   it('navigation opens studio without quote', async () => {
@@ -284,6 +357,7 @@ describe('nexter conversation intelligence — safety freeze', () => {
     assert.match(conv, /stripUnsolicitedCreatorCta/);
     assert.match(prompt, /FIRST RESPOND TO THE USER'S CURRENT INTENT/);
     assert.match(prompt, /Do not append a creator call-to-action/);
+    assert.match(prompt, /CURRENT INTENT: PROJECT_ANALYSIS/);
     assert.doesNotMatch(conv, /confirmQuote/);
     assert.equal(isPaidProviderTestBlocked(), true);
     assert.equal(arePaymentsEnabled(), false);

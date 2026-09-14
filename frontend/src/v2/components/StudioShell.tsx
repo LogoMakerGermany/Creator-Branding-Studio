@@ -11,6 +11,7 @@ interface StudioShellProps {
   backTo?: string;
   backLabel?: string;
   coinCost?: number;
+  coinCostLabel?: string;
   badge?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
@@ -24,6 +25,7 @@ export function StudioShell({
   backTo = '/dashboard',
   backLabel = 'Dashboard',
   coinCost,
+  coinCostLabel,
   badge,
   actions,
   children,
@@ -51,7 +53,9 @@ export function StudioShell({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {coinCost != null && (
-            <Badge variant="default">{formatCoins(coinCost)} Coins vor Generierung</Badge>
+            <Badge variant="default">
+              {coinCostLabel ?? `${formatCoins(coinCost)} Coins vor Generierung`}
+            </Badge>
           )}
           {actions}
         </div>

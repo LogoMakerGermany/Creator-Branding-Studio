@@ -20,6 +20,7 @@ import {
   resolveStreamsetAssetKey,
   resolveStreamsetSelection,
   streamsetAssetPresent,
+  streamsetPriceCaption,
   transparencyConstraintForItem,
 } from '@ucbs/shared';
 import { streamsetCatalogKeys } from './streamset.service.js';
@@ -227,5 +228,11 @@ describe('streamset catalog — creator asset types and transparency', () => {
     assert.notEqual(otherThree.total, 75);
     assert.notEqual(otherThree.total, 135);
     assert.notEqual(pack.total, 135);
+    const defaultTwitch = coinCostForStreamsetSelection(resolveStreamsetSelection('twitch'));
+    assert.equal(defaultTwitch.pricingSku, 'a_la_carte');
+    assert.equal(defaultTwitch.total, 68);
+    assert.equal(streamsetPriceCaption('a_la_carte', 68), 'Ausgewählte Einzelteile: 68 Coins');
+    assert.equal(streamsetPriceCaption('three_part', 75), 'Streamset – 3 Teile: 75 Coins');
+    assert.equal(streamsetPriceCaption('komplettset', 200), 'Komplettset: 200 Coins');
   });
 });

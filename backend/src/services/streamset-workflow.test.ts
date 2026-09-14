@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { COIN_COSTS, CoinSpendCategory, resolveStreamsetAssetKey } from '@ucbs/shared';
+import { COIN_COSTS, CoinSpendCategory, resolveStreamsetAssetKey, STREAMSET_THREE_PART_COIN_COST, STREAMSET_PACK_COIN_COST } from '@ucbs/shared';
 import { getOrCreateUser } from './user.service.js';
 import { upsertDna, getActiveDna } from './dna.service.js';
 import { createProject } from './project.service.js';
@@ -100,6 +100,10 @@ describe('streamset workflow — DNA defaults, logo, cost, isolation', () => {
     assert.equal(previewFn?.includes('runGenerationJob'), false);
     assert.equal(previewFn?.includes('generateStreamsetPack'), false);
     assert.equal(previewFn?.includes('withCoinCharge'), false);
+    assert.equal(draft.pricingSku, 'a_la_carte');
+    assert.equal(draft.estimatedCoins, 68);
+    assert.match(draft.confirmationSummary, /Ausgewählte Einzelteile/);
+    assert.equal(draft.charged, false);
   });
 
   it('owned logo can be used as streamset basis; foreign logo cannot', async () => {
@@ -151,6 +155,42 @@ describe('streamset workflow — DNA defaults, logo, cost, isolation', () => {
     assert.equal(draft.estimatedCoins, expected);
     assert.match(draft.confirmationSummary, /3 Assets/);
     assert.match(draft.confirmationSummary, new RegExp(`${expected} Coins`));
+    assert.equal(draft.pricingSku, 'a_la_carte');
+    const three = await previewStreamsetDraft(user.id, {
+      platform: 'twitch',
+      selectedKeys: ['facecam', 'starting-soon', 'twitch-banner'],
+    });
+    assert.equal(three.pricingSku, 'three_part');
+    assert.equal(three.estimatedCoins, STREAMSET_THREE_PART_COIN_COST);
+    assert.match(three.confirmationSummary, /Streamset – 3 Teile: 75 Coins/);
+    const pack = await previewStreamsetDraft(user.id, {
+      selectedKeys: [
+        'starting-soon',
+        'brb',
+        'offline',
+        'ending',
+        'just-chatting',
+        'hud',
+        'panel',
+        'alert',
+        'twitch-banner',
+        'youtube-banner',
+        'facecam',
+        'sticker',
+      ],
+    });
+    assert.equal(pack.pricingSku, 'komplettset');
+    assert.equal(pack.estimatedCoins, STREAMSET_PACK_COIN_COST);
+    assert.match(pack.confirmationSummary, /Komplettset: 200 Coins/);
+    assert.equal(beforeCoins < STREAMSET_THREE_PART_COIN_COST, true);
+    assert.equal(beforeCoins < STREAMSET_PACK_COIN_COST, true);
+    assert.equal(three.insufficientCoins, beforeCoins < three.estimatedCoins);
+    assert.equal(pack.insufficientCoins, beforeCoins < pack.estimatedCoins);
+    const page = readFileSync(join(dir, '../../../frontend/src/pages/studios/StreamsetStudioPage.tsx'), 'utf8');
+    assert.match(page, /Ausgewählte Einzelteile/);
+    assert.match(page, /streamsetPriceCaption/);
+    assert.match(page, /Streamset – 3 Teile/);
+    assert.match(page, /Komplettset/);
     const quote = await quoteStreamsetDraft(user.id, draft.id);
     assert.equal(quote.status, 'pending');
     assert.equal(quote.coinCost, expected);

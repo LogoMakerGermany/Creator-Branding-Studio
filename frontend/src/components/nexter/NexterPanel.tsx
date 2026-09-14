@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Mic, Plus, Send, Volume2 } from 'lucide-react';
 import { api, ApiError, type NexterChatMessage, type NexterAction } from '@/services/api';
-import { COIN_COSTS, CoinSpendCategory, nexterOrbStatusLabel } from '@ucbs/shared';
+import { COIN_COSTS, CoinSpendCategory, nexterOrbStatusLabel, shouldAutoNavigateNexterStudio } from '@ucbs/shared';
 import { useNexterStore } from '@/v2/store/nexter-store';
 import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 import { useAuth } from '@/context/AuthContext';
@@ -96,7 +96,7 @@ export function NexterPanel({
       const last = res.session.messages[res.session.messages.length - 1];
       const awaitingConfirm = last?.actions?.some((a) => a.tool === 'start_generation' && a.requiresConfirmation);
       const open = last?.actions?.find((a) => a.tool === 'open_studio' && a.path);
-      if (open?.path && !awaitingConfirm && open.path !== location.pathname) {
+      if (shouldAutoNavigateNexterStudio(open, { currentPath: location.pathname, awaitingConfirm }) && open?.path) {
         navigate(open.path);
       }
       pulse(awaitingConfirm ? 'warning' : 'success');
