@@ -192,6 +192,7 @@ describe('nexter conversation intelligence — analysis, advice, create, nav, he
     const last = lastAssistant(await nexterChat(user.id, 'Welche Farben würdest du für meinen Kanal empfehlen?'));
     assert.match(last.content, /Farbe|DNA|NightWolf|Look/i);
     assert.doesNotMatch(last.content, /Dir fehlt noch: Starting Soon/i);
+    assert.doesNotMatch(last.content, /#[0-9a-fA-F]{6}/);
     assert.equal((last.suggestions ?? []).some((s) => /Dir fehlt|Starting Soon/i.test(s)), false);
     assert.equal((last.actions ?? []).some((a) => a.tool === 'start_generation'), false);
     assert.equal(await getCoinBalance(user.id), before);

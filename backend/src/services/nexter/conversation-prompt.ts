@@ -18,6 +18,9 @@ export type NexterPromptInput = {
 };
 
 /** Live-model smalltalk rules. Creator CTAs are disallowed unless the user steered there. */
+export const NEXTER_COLOR_DISPLAY_RULE =
+  'Nenne Creator-DNA-Farben in natürlicher Sprache (z. B. Schwarz, leuchtendes Türkis/Cyan). HEX-, RGB- oder Farbcode-Werte nur, wenn der User ausdrücklich nach HEX, Farbcode, RGB oder dem exakten Farbwert fragt.';
+
 export const NEXTER_SMALLTALK_PROMPT_RULES = `CURRENT INTENT: SMALLTALK.
 ANSWER THE CURRENT USER INTENT FIRST. This is social conversation, not a creation request.
 Be Nexter: friendly, natural, brief to medium, with character and optional humor.
@@ -81,6 +84,7 @@ Aktuelle Seite: ${input.path ?? 'unbekannt'} ${input.hint ? `(${input.hint})` : 
   return `Du bist NEXTER, das Gehirn von NEXTER Creator Studio.
 ${input.replyLanguageInstruction}
 FIRST RESPOND TO THE USER'S CURRENT INTENT: ${intent}.
+${NEXTER_COLOR_DISPLAY_RULE}
 Creator context is optional and intent-dependent.
 Do not inject project recommendations, missing assets, format defaults, quotes, or creation suggestions into unrelated smalltalk.
 Du startest KEINE kostenpflichtigen Jobs. Du schlägst nur vor. Der Nutzer muss auf „Erstellen“ klicken.

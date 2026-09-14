@@ -15,6 +15,8 @@ import {
   platformFormatHint,
   parseVideoStudioPrep,
   parseVideoClosureCommand,
+  formatColorsForNexter,
+  humanColorName,
   type NexterAction,
   type NexterContextSnapshot,
   type NexterQuoteKind,
@@ -416,7 +418,7 @@ export function detectLockedTraitOverride(
     ) ||
     ((/farben?|primärfarbe|farbpalette/.test(t) && /(änder|wechsel|mach|setz|nimm|statt|rot)/.test(t)));
   if (colorChange && ctx.locks?.colors) {
-    const colors = ctx.primaryColors.join(', ') || 'gesetzt';
+    const colors = formatColorsForNexter(ctx.primaryColors) || 'gesetzt';
     return `Deine Projektfarben sind gesperrt (${colors}). Soll ich die Farbsperre zuerst ändern? Ich wende die neue Farbe nicht an.`;
   }
   const charChange =
@@ -751,6 +753,7 @@ export function formatContextForPrompt(
     includeInventory?: boolean;
     includeDna?: boolean;
     includeProjects?: boolean;
+    includeExactColorCodes?: boolean;
     minimal?: boolean;
   }
 ): string {
@@ -758,6 +761,7 @@ export function formatContextForPrompt(
   const includeInventory = opts?.includeInventory !== false;
   const includeDna = opts?.includeDna !== false;
   const includeProjects = opts?.includeProjects !== false;
+  const includeExactColorCodes = opts?.includeExactColorCodes === true;
   if (opts?.minimal) {
     return [
       `Nutzer: ${ctx.displayName ?? 'Creator'}${ctx.addressAs && ctx.addressAs !== ctx.displayName ? ` (Ansprache: ${ctx.addressAs})` : ''}.`,
@@ -770,8 +774,10 @@ export function formatContextForPrompt(
       : ctx.dnaSource === 'active'
         ? 'Quelle: aktive User-DNA'
         : 'Keine Creator DNA vorhanden';
+  const dnaColors = formatColorsForNexter(ctx.primaryColors, { includeHex: includeExactColorCodes });
+  const secondaryColors = formatColorsForNexter(ctx.secondaryColors, { includeHex: includeExactColorCodes });
   const dna = ctx.hasDna
-    ? `DNA „${ctx.dnaName ?? 'ohne Namen'}“ v${ctx.dnaVersion ?? '?'}, Stil ${ctx.styleDirection ?? 'offen'}, Farben ${ctx.primaryColors.join(', ') || 'offen'}${ctx.secondaryColors?.length ? `, Sekundär ${ctx.secondaryColors.join(', ')}` : ''}${ctx.mascot ? `, Figur ${ctx.mascot}` : ''}${ctx.characterDescription && ctx.characterDescription !== ctx.mascot ? ` (${ctx.characterDescription})` : ''}. ${source}.`
+    ? `DNA „${ctx.dnaName ?? 'ohne Namen'}“ v${ctx.dnaVersion ?? '?'}, Stil ${ctx.styleDirection ?? 'offen'}, Farben ${dnaColors || 'offen'}${secondaryColors ? `, Sekundär ${secondaryColors}` : ''}${ctx.mascot ? `, Figur ${ctx.mascot}` : ''}${ctx.characterDescription && ctx.characterDescription !== ctx.mascot ? ` (${ctx.characterDescription})` : ''}. ${source}.`
     : 'Keine Creator DNA vorhanden. Fallback: keine zufällige Auswahl.';
   const lockBits = [
     ctx.locks?.name ? 'Name' : null,
@@ -802,7 +808,17 @@ export function formatContextForPrompt(
     ctx.stylePreferences?.length ? `Bevorzugte Stile: ${ctx.stylePreferences.join(', ')}.` : '',
     ctx.creatorGoals?.length ? `Creator-Ziele: ${ctx.creatorGoals.join(', ')}.` : '',
     ctx.uiTheme || ctx.customPrimary
-      ? `App-Theme: ${ctx.uiTheme ?? 'dark'}${ctx.customPrimary ? `, Farben ${ctx.customPrimary}${ctx.customAccent ? '/' + ctx.customAccent : ''}` : ctx.accentPreset ? `, ${ctx.accentPreset}` : ''}.`
+      ? `App-Theme: ${ctx.uiTheme ?? 'dark'}${
+          ctx.customPrimary
+            ? `, Farben ${
+                includeExactColorCodes
+                  ? formatColorsForNexter([ctx.customPrimary, ctx.customAccent].filter(Boolean), { includeHex: true })
+                  : `${humanColorName(ctx.customPrimary)}${ctx.customAccent ? '/' + humanColorName(ctx.customAccent) : ''}`
+              }`
+            : ctx.accentPreset
+              ? `, ${ctx.accentPreset}`
+              : ''
+        }.`
       : '',
     ctx.visualLanguage ? `Bildsprache: ${ctx.visualLanguage}.` : '',
     ctx.brandingStyle ? `Markenwirkung: ${ctx.brandingStyle}.` : '',

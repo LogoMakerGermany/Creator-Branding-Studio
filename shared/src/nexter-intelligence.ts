@@ -4,42 +4,131 @@ import { VIDEO_FORMAT_PRESETS, getVideoFormatPreset } from './video-formats';
 import type { NexterContextSnapshot, NexterQuoteKind } from './nexter';
 import { NEXTER_PLATFORM_LABELS, NEXTER_STYLE_PREFERENCE_LABELS } from './nexter-preferences';
 
-function parseHex(hex: string): { r: number; g: number; b: number } | null {
-  const raw = hex.trim().replace(/^#/, '');
-  if (!/^[0-9a-fA-F]{6}$/.test(raw)) return null;
+export function parseCssColor(input: unknown): { r: number; g: number; b: number } | null {
+  if (input == null) return null;
+  const raw = String(input).trim();
+  if (!raw) return null;
+  const rgbFn = raw.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*[\d.]+)?\s*\)$/i);
+  if (rgbFn) {
+    const r = Number(rgbFn[1]);
+    const g = Number(rgbFn[2]);
+    const b = Number(rgbFn[3]);
+    if ([r, g, b].every((n) => Number.isFinite(n) && n >= 0 && n <= 255)) return { r, g, b };
+    return null;
+  }
+  let hex = raw.replace(/^#/, '');
+  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    hex = hex
+      .split('')
+      .map((c) => c + c)
+      .join('');
+  }
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
   return {
-    r: parseInt(raw.slice(0, 2), 16),
-    g: parseInt(raw.slice(2, 4), 16),
-    b: parseInt(raw.slice(4, 6), 16),
+    r: parseInt(hex.slice(0, 2), 16),
+    g: parseInt(hex.slice(2, 4), 16),
+    b: parseInt(hex.slice(4, 6), 16),
   };
+}
+
+function parseHex(hex: string): { r: number; g: number; b: number } | null {
+  return parseCssColor(hex);
+}
+
+function rgbToHsl(r: number, g: number, b: number): { h: number; s: number; l: number } {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  const d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (d !== 0) {
+    if (max === rn) h = ((gn - bn) / d) % 6;
+    else if (max === gn) h = (bn - rn) / d + 2;
+    else h = (rn - gn) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return { h, s, l };
+}
+
+function hueFamily(h: number): string {
+  if (h < 15 || h >= 345) return 'Rot';
+  if (h < 40) return 'Orange';
+  if (h < 65) return 'Gelb';
+  if (h < 90) return 'Lindgrün';
+  if (h < 150) return 'Grün';
+  if (h < 172) return 'Mint';
+  if (h < 196) return 'Türkis/Cyan';
+  if (h < 215) return 'Hellblau';
+  if (h < 255) return 'Blau';
+  if (h < 280) return 'Violett';
+  if (h < 325) return 'Magenta';
+  return 'Pink';
+}
+
+export function normalizeCssHex(input: unknown): string | null {
+  const rgb = parseCssColor(input);
+  if (!rgb) return null;
+  const toHex = (n: number) => n.toString(16).padStart(2, '0');
+  return `#${toHex(rgb.r)}${toHex(rgb.g)}${toHex(rgb.b)}`;
+}
+
+/** Conversational German color name. HEX stays source of truth; this is display-only. */
+export function humanColorName(input: unknown): string {
+  const rgb = parseCssColor(input);
+  if (!rgb) {
+    const t = String(input ?? '').trim();
+    return t || 'unbenannte Farbe';
+  }
+  const { h, s, l } = rgbToHsl(rgb.r, rgb.g, rgb.b);
+  if (s < 0.1) {
+    if (l < 0.08) return 'Schwarz';
+    if (l < 0.22) return 'sehr dunkles Grau';
+    if (l < 0.4) return 'Dunkelgrau';
+    if (l < 0.62) return 'Grau';
+    if (l < 0.85) return 'Hellgrau';
+    return 'Weiß';
+  }
+  const family = hueFamily(h);
+  if ((family === 'Rot' || family === 'Blau' || family === 'Gelb') && s > 0.75 && l >= 0.42 && l <= 0.58) {
+    return family;
+  }
+  if (family === 'Grün' && s > 0.75 && l >= 0.42 && l <= 0.58) return 'Grün';
+  let modifier = '';
+  if (l < 0.22) modifier = 'sehr dunkles';
+  else if (l < 0.38) modifier = 'dunkles';
+  else if (l > 0.82) modifier = 'sehr helles';
+  else if (l > 0.72) modifier = 'helles';
+  else if (s > 0.7 && l >= 0.45 && l <= 0.68 && /Türkis|Cyan|Mint|Magenta|Pink/.test(family)) {
+    modifier = 'leuchtendes';
+  }
+  return modifier ? `${modifier} ${family}` : family;
+}
+
+export function formatColorsForNexter(colors: unknown, opts?: { includeHex?: boolean }): string {
+  if (!Array.isArray(colors) || colors.length === 0) return '';
+  return colors
+    .map((value) => {
+      const name = humanColorName(value);
+      if (!opts?.includeHex) return name;
+      const hex = normalizeCssHex(value);
+      return hex ? `${name} (${hex})` : name;
+    })
+    .join(', ');
+}
+
+export function messageAsksExactColorCode(message: string): boolean {
+  return /\bhex\b|hexadezimal|farbcodes?|farbwert|exakt(e[rn])? farb|\brgb\b/i.test(String(message ?? ''));
 }
 
 export function colorFamilyLabel(hex: string): string {
   const rgb = parseHex(hex);
   if (!rgb) return '';
-  const { r, g, b } = rgb;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const l = (max + min) / 2 / 255;
-  const s = max === min ? 0 : (max - min) / 255;
-  if (s < 0.12 && l < 0.18) return 'Schwarz';
-  if (s < 0.12 && l > 0.82) return 'Weiß';
-  if (s < 0.12) return 'Grau';
-  let h = 0;
-  const d = max - min;
-  if (max === r) h = ((g - b) / d) % 6;
-  else if (max === g) h = (b - r) / d + 2;
-  else h = (r - g) / d + 4;
-  h = Math.round(h * 60);
-  if (h < 0) h += 360;
-  if (h < 20 || h >= 340) return 'Rot';
-  if (h < 45) return 'Orange';
-  if (h < 70) return 'Gelb';
-  if (h < 160) return 'Grün';
-  if (h < 200) return 'Cyan';
-  if (h < 255) return 'Blau';
-  if (h < 290) return 'Violett';
-  return 'Magenta';
+  return humanColorName(hex).replace(/^(sehr dunkles|dunkles|sehr helles|helles|leuchtendes|gedecktes)\s+/i, '');
 }
 
 export function describeKnownColors(ctx: Pick<NexterContextSnapshot, 'primaryColors' | 'secondaryColors' | 'accentColors'>): string {

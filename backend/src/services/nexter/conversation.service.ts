@@ -47,6 +47,8 @@ import {
   describeDnaContinuity,
   formatLogoDirectionReply,
   suggestLogoDirections,
+  formatColorsForNexter,
+  messageAsksExactColorCode,
   followOnAssetLabel,
   parseVideoStudioPrep,
   parseVideoClosureCommand,
@@ -2198,18 +2200,32 @@ async function generateNexterReply(input: {
   const lastUser = [...input.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
   const replyLanguage = detectEphemeralLanguage(lastUser) ?? input.ctx.language ?? 'de';
   const intent = input.intent ?? 'AMBIGUOUS';
+  const includeExactColorCodes = messageAsksExactColorCode(lastUser);
   const contextBlock =
     intent === 'SMALLTALK' || intent === 'APP_HELP' || intent === 'ACCOUNT_OR_SETTINGS' || intent === 'NAVIGATION_ACTION'
       ? formatContextForPrompt(input.ctx, { minimal: true })
       : intent === 'CREATOR_ADVICE'
-        ? formatContextForPrompt(input.ctx, { includeGaps: false, includeInventory: false, includeProjects: false, includeDna: true })
+        ? formatContextForPrompt(input.ctx, {
+            includeGaps: false,
+            includeInventory: false,
+            includeProjects: false,
+            includeDna: true,
+            includeExactColorCodes,
+          })
         : intent === 'PROJECT_ANALYSIS'
-          ? formatContextForPrompt(input.ctx, { includeGaps: true, includeInventory: true, includeDna: true, includeProjects: true })
+          ? formatContextForPrompt(input.ctx, {
+              includeGaps: true,
+              includeInventory: true,
+              includeDna: true,
+              includeProjects: true,
+              includeExactColorCodes,
+            })
           : formatContextForPrompt(input.ctx, {
               includeGaps: false,
               includeInventory: intent === 'CREATE_ASSET' || intent === 'MODIFY_ASSET',
               includeDna: true,
               includeProjects: intent === 'CREATE_ASSET' || intent === 'MODIFY_ASSET',
+              includeExactColorCodes,
             });
   const system = buildNexterSystemPrompt({
     intent,
@@ -2322,15 +2338,20 @@ function devReply(input: {
     return 'Womit soll ich anfangen – Logo, Streamset, Banner, Intro oder etwas anderes?';
   }
   if (intent === 'CREATOR_ADVICE') {
+    const colors =
+      formatColorsForNexter(input.ctx.primaryColors, { includeHex: messageAsksExactColorCode(last) }) || 'noch offen';
     parts.push(
       input.ctx.hasDna
-        ? `Zu deinem Look: DNA „${input.ctx.dnaName}“, Stil ${input.ctx.styleDirection ?? 'offen'}, Farben ${input.ctx.primaryColors.join(', ') || 'noch offen'}.`
+        ? `Zu deinem Look: DNA „${input.ctx.dnaName}“, Stil ${input.ctx.styleDirection ?? 'offen'}, Farben ${colors}.`
         : 'Ohne Creator DNA kann ich Farben nur allgemein empfehlen.'
     );
   } else if (intent === 'PROJECT_ANALYSIS' || detectAnalyzeIntent(last)) {
+    const colors =
+      formatColorsForNexter(input.ctx.primaryColors, { includeHex: messageAsksExactColorCode(last) }) ||
+      'ohne Primärfarbe';
     parts.push(
       input.ctx.hasDna
-        ? `Zu deinem Creator-Projekt: DNA „${input.ctx.dnaName}“ v${input.ctx.dnaVersion ?? '?'} (${input.ctx.styleDirection ?? 'Stil offen'}), Farben ${input.ctx.primaryColors.join(', ') || 'ohne Primärfarbe'}${input.ctx.mascot ? `, Figur ${input.ctx.mascot}` : ''}${input.ctx.dnaSource === 'project' ? ' — Projekt-DNA' : input.ctx.dnaSource === 'active' ? ' — aktive User-DNA' : ''}.`
+        ? `Zu deinem Creator-Projekt: DNA „${input.ctx.dnaName}“ v${input.ctx.dnaVersion ?? '?'} (${input.ctx.styleDirection ?? 'Stil offen'}), Farben ${colors}${input.ctx.mascot ? `, Figur ${input.ctx.mascot}` : ''}${input.ctx.dnaSource === 'project' ? ' — Projekt-DNA' : input.ctx.dnaSource === 'active' ? ' — aktive User-DNA' : ''}.`
         : 'Ich sehe noch keine Creator DNA. Ohne DNA kann ich kein konsistentes Branding vorbereiten.'
     );
     if (input.ctx.projectName) parts.push(`Aktives Projekt: ${input.ctx.projectName}.`);

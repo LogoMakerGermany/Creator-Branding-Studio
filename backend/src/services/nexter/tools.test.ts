@@ -298,7 +298,7 @@ describe('nexter tools — DNA locks', () => {
       locks: { colors: true },
     });
     assert.match(msg ?? '', /gesperrt/i);
-    assert.match(msg ?? '', /#7C3AED|Farbsperre/i);
+    assert.match(msg ?? '', /Violett|Lila|Magenta|Farbsperre/i);
   });
 
   it('refuses character swaps when character is locked', () => {

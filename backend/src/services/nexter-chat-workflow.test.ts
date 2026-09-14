@@ -162,7 +162,9 @@ describe('nexter chat local closure — DNA, prefs, multi-turn, tools', () => {
     assert.equal(ctx.hasDna, true);
     assert.equal(ctx.dnaName, 'NightWolf');
     assert.match(formatContextForPrompt(ctx), /NightWolf/);
-    assert.match(formatContextForPrompt(ctx), /#1E40AF/);
+    assert.match(formatContextForPrompt(ctx), /Blau/i);
+    assert.doesNotMatch(formatContextForPrompt(ctx), /#1E40AF/);
+    assert.match(formatContextForPrompt(ctx, { includeExactColorCodes: true }), /#1E40AF/i);
     const about = await nexterChat(user.id, 'Was weißt du über mein aktuelles Creator-Projekt?');
     assert.match(lastContent(about), /NightWolf|DNA|neon/i);
     const bare = await getOrCreateUser(randomUUID(), `${randomUUID()}@nexter-nodna.test`, 'NoDna');
