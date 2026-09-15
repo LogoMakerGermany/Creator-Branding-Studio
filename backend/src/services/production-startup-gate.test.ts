@@ -147,15 +147,15 @@ describe('production startup gate — payments off, providers optional, Firebase
     const before = await getCoinBalance(user.id);
     assert.throws(
       () => requireImageProvider(),
-      (err: unknown) => err instanceof ServiceError && err.code === 'AI_NOT_CONFIGURED'
+      (err: unknown) => err instanceof ServiceError && err.code === 'IMAGE_GENERATION_UNAVAILABLE'
     );
     await assert.rejects(
       () => generateStudioAsset(user.id, 'logo', CoinSpendCategory.LOGO_GENERATION, 'Logo'),
-      (err: unknown) => err instanceof ServiceError && err.code === 'AI_NOT_CONFIGURED'
+      (err: unknown) => err instanceof ServiceError && err.code === 'IMAGE_GENERATION_UNAVAILABLE'
     );
     await assert.rejects(
       () => generateLogoAsset(user.id, undefined, { name: 'GateWolf' }),
-      (err: unknown) => err instanceof ServiceError && err.code === 'AI_NOT_CONFIGURED'
+      (err: unknown) => err instanceof ServiceError && err.code === 'IMAGE_GENERATION_UNAVAILABLE'
     );
     assert.equal(await getCoinBalance(user.id), before);
     assert.match(repo('backend/src/services/ai.service.ts'), /assertImageProviderReadyForStudio\(module\)/);

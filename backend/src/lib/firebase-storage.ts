@@ -2,6 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { getStorage } from '../config/firebase.js';
 import { isDevMode } from '../config/env.js';
 import { ServiceError } from './errors.js';
+import {
+  assertProviderImageBytes,
+  assertSafeProviderImageUrl,
+  PROVIDER_IMAGE_FETCH_TIMEOUT_MS,
+} from './upload-validation.js';
+import { IMAGE_PROVIDER_FAILED_MESSAGE } from './media-providers.js';
 
 /** Short-lived signed read URLs. Not an authorization token beyond expiry. */
 export const SIGNED_URL_TTL_MS = 60 * 60 * 1000;
@@ -11,6 +17,7 @@ export async function uploadAssetFromUrl(
   sourceUrl: string,
   options: { folder?: string; fileName?: string; contentType?: string }
 ): Promise<string> {
+  assertSafeProviderImageUrl(sourceUrl);
   if (sourceUrl.startsWith('data:')) {
     return uploadAssetFromDataUrl(userId, sourceUrl, options);
   }
@@ -19,14 +26,27 @@ export async function uploadAssetFromUrl(
     return sourceUrl;
   }
 
-  const res = await fetch(sourceUrl);
+  let res: Response;
+  try {
+    res = await fetch(sourceUrl, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(PROVIDER_IMAGE_FETCH_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const name = err instanceof Error ? err.name : '';
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      throw new ServiceError(504, 'PROVIDER_TIMEOUT', IMAGE_PROVIDER_FAILED_MESSAGE);
+    }
+    throw new ServiceError(503, 'STORAGE_ERROR', IMAGE_PROVIDER_FAILED_MESSAGE);
+  }
   if (!res.ok) {
-    throw new Error(`Asset download failed: ${res.status}`);
+    throw new ServiceError(502, 'PROVIDER_ERROR', IMAGE_PROVIDER_FAILED_MESSAGE);
   }
 
   const buffer = Buffer.from(await res.arrayBuffer());
   const contentType =
     options.contentType || res.headers.get('content-type') || 'application/octet-stream';
+  assertProviderImageBytes(buffer, contentType);
 
   return uploadBuffer(userId, buffer, {
     ...options,

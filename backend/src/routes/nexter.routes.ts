@@ -159,7 +159,14 @@ nexterRoutes.post(
           err.code === 'PRICE_CHANGED' ||
           err.code === 'INSUFFICIENT_COINS' ||
           err.code === 'QUOTE_USED' ||
-          err.code === 'QUOTE_NOT_FOUND')
+          err.code === 'QUOTE_NOT_FOUND' ||
+          err.code === 'IMAGE_GENERATION_UNAVAILABLE' ||
+          err.code === 'GENERATIONS_DISABLED' ||
+          err.code === 'PROVIDER_UNAVAILABLE' ||
+          err.code === 'PROVIDER_TIMEOUT' ||
+          err.code === 'PROVIDER_ERROR' ||
+          err.code === 'PROVIDER_INVALID_PAYLOAD' ||
+          err.code === 'STORAGE_ERROR')
       ) {
         await appendAssistantMessage(req.user!.uid, err.message).catch(() => undefined);
       }

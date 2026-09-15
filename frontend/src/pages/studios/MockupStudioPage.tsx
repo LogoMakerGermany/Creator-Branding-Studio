@@ -23,7 +23,7 @@ import { StudioWorkbench } from '@/v2/components/StudioWorkbench';
 import { StudioOptionPill } from '@/v2/components/StudioOptionPill';
 import { useAuth } from '@/context/AuthContext';
 import { api, ApiError } from '@/services/api';
-import { StudioErrorBanner } from '@/components/studio';
+import { StudioErrorBanner, ImageGenerationUnavailableHint } from '@/components/studio';
 import { useNexterStore } from '@/v2/store/nexter-store';
 import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
@@ -353,6 +353,7 @@ export function MockupStudioPage() {
                 {loading ? 'Speichere …' : 'Mockup speichern (kostenlos)'}
               </Button>
             ) : (
+              <>
               <button
                 type="button"
                 data-testid="mockup-nexter-chip"
@@ -361,6 +362,8 @@ export function MockupStudioPage() {
               >
                 Für {formatCoins(LIFESTYLE_COST)} Coins erstellen — Nexter
               </button>
+              <ImageGenerationUnavailableHint />
+              </>
             )}
             <Button variant="ghost" size="sm" className="min-h-11 w-full" onClick={() => void tryLifestyleDirect()}>
               Lifestyle direkt erzeugen (wird abgelehnt)

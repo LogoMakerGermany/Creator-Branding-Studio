@@ -1,6 +1,7 @@
 export {
   DnaRequiredBanner,
   StudioErrorBanner,
+  ImageGenerationUnavailableHint,
   TypeOptionButton,
   NeonPreviewBox,
   MediaGalleryGrid,

@@ -318,7 +318,7 @@ export async function confirmStreamsetQuote(userId: string, quoteId: string): Pr
         batch: executed.batch,
       };
     } catch (err) {
-      if (err instanceof ServiceError && (err.code === 'INSUFFICIENT_COINS' || err.code === 'PRICE_CHANGED')) {
+      if (err instanceof ServiceError && (err.code === 'INSUFFICIENT_COINS' || err.code === 'PRICE_CHANGED' || err.code === 'IMAGE_GENERATION_UNAVAILABLE' || err.code === 'GENERATIONS_DISABLED')) {
         quote.status = 'pending';
         await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
         throw err;

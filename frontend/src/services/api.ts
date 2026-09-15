@@ -121,11 +121,18 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const requestId = data.error?.requestId || res.headers.get('x-request-id') || undefined;
     const friendly: Record<string, string> = {
       AI_NOT_CONFIGURED: 'KI-Funktion nicht konfiguriert. Ein Provider-Key fehlt.',
+      IMAGE_GENERATION_UNAVAILABLE:
+        'Die Bildgenerierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.',
+      PROVIDER_UNAVAILABLE: 'Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.',
+      PROVIDER_TIMEOUT: 'Die Bildgenerierung hat zu lange gedauert. Coins wurden erstattet.',
+      PROVIDER_ERROR: 'Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.',
+      PROVIDER_INVALID_PAYLOAD: 'Die Bildgenerierung lieferte kein gültiges Bild. Coins wurden erstattet.',
+      STORAGE_ERROR: 'Das Bild konnte nicht gespeichert werden. Coins wurden erstattet.',
       ULTIMATE_REQUIRES_QUOTE: 'Ultimate-Creator-Paket startet nur über Nexter nach Bestätigung.',
       VIDEO_REQUIRES_QUOTE: 'KI-Video startet nur über Nexter nach Bestätigung.',
       INTRO_REQUIRES_QUOTE: 'Intro/Outro startet nur über Nexter nach Bestätigung.',
       VTUBER_REQUIRES_QUOTE: 'VTuber-Generierung startet nur über Nexter nach Bestätigung.',
-      GENERATIONS_DISABLED: 'KI-Generierung ist derzeit deaktiviert.',
+      GENERATIONS_DISABLED: 'Generierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.',
       NEXTER_CHAT_LIMIT: 'Nexter-Chat-Limit erreicht. Bitte später erneut versuchen.',
       SPEAK_RATE_LIMIT: 'Bitte kurz warten, bevor die Sprachausgabe erneut gestartet wird.',
       AI_UNAVAILABLE: 'AI PROVIDER NOT CONFIGURED. Nexter-Chat ist nicht verfügbar, Studios funktionieren weiter.',

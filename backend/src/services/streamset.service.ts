@@ -41,6 +41,7 @@ import {
   type GenerationJob,
 } from './ai.service.js';
 import { ServiceError } from '../lib/errors.js';
+import { requireImageProvider } from '../lib/media-providers.js';
 import { buildZipArchive, sanitizeZipEntryName, zipEntryPath } from '../lib/zip-store.js';
 import { uploadAssetFromDataUrl } from '../lib/firebase-storage.js';
 import { getCcdPromptContext, appendCcdToPrompt } from './creator-dna-engine/index.js';
@@ -248,6 +249,17 @@ export async function executeQuotedStreamset(
 
   const { dna } = await resolveDnaForRequest(userId, input.projectId);
   if (!dna) throw new ServiceError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
+
+  /**
+   * Streamset package policy:
+   * One debit for the selected package, then per-asset jobs.
+   * Failed assets refund their share exactly once (refundOnce idempotency keys).
+   * Create-level failure refunds the remainder. No silent partial charges.
+   * Live image provider (or test hooks) must be available BEFORE debit.
+   */
+  if (!streamsetTestHooks) {
+    requireImageProvider();
+  }
 
   const attempt = Math.max(1, Math.floor(input.chargeAttempt ?? 1));
   const batchId = input.attachToBatchId || input.quoteId || randomUUID();

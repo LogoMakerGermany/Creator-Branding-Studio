@@ -4,12 +4,18 @@ import { randomUUID } from 'node:crypto';
 import {
   getOpenAiApiKey,
   getReplicateApiToken,
-  areImageGenerationsEnabled,
+  hasImageAiProvider,
   isOpenAiImageGenerationLiveEnabled,
 } from '../config/env.js';
 import { getActiveDna, resolveDnaForRequest } from './dna.service.js';
 import { withCoinCharge, withCoinChargePack } from '../lib/billable-job.js';
-import { requireImageProvider, isPaidProviderTestBlocked } from '../lib/media-providers.js';
+import {
+  requireImageProvider,
+  isPaidProviderTestBlocked,
+  throwImageProviderUnavailableAfterDebit,
+  IMAGE_PROVIDER_FAILED_MESSAGE,
+} from '../lib/media-providers.js';
+import { assertSafeProviderImageUrl } from '../lib/upload-validation.js';
 import { buildSvgExportFromImage } from '../lib/studio-export.js';
 import {
   buildBannerPrompt,
@@ -52,12 +58,14 @@ export const OVERLAY_MOCK_PNG = LOGO_MOCK_PNG;
 export const STICKER_MOCK_PNG = LOGO_MOCK_PNG;
 export const MOCKUP_MOCK_PNG = LOGO_MOCK_PNG;
 
-let logoTestHooks: { result?: 'success' | 'fail' } | undefined;
-let bannerTestHooks: { result?: 'success' | 'fail' } | undefined;
-let facecamTestHooks: { result?: 'success' | 'fail' } | undefined;
-let overlayTestHooks: { result?: 'success' | 'fail' } | undefined;
-let stickerTestHooks: { result?: 'success' | 'fail' } | undefined;
-let mockupTestHooks: { result?: 'success' | 'fail' } | undefined;
+export type ImageProviderTestResult = 'success' | 'fail' | 'timeout' | 'http' | 'invalid' | 'storage';
+
+let logoTestHooks: { result?: ImageProviderTestResult } | undefined;
+let bannerTestHooks: { result?: ImageProviderTestResult } | undefined;
+let facecamTestHooks: { result?: ImageProviderTestResult } | undefined;
+let overlayTestHooks: { result?: ImageProviderTestResult } | undefined;
+let stickerTestHooks: { result?: ImageProviderTestResult } | undefined;
+let mockupTestHooks: { result?: ImageProviderTestResult } | undefined;
 
 export function setLogoTestHooks(hooks: typeof logoTestHooks | null): void {
   logoTestHooks = hooks ?? undefined;
@@ -83,23 +91,39 @@ export function setMockupTestHooks(hooks: typeof mockupTestHooks | null): void {
   mockupTestHooks = hooks ?? undefined;
 }
 
+function studioImageTestHook(module: string): { result?: ImageProviderTestResult } | undefined {
+  if (module === 'logo') return logoTestHooks;
+  if (module === 'banner') return bannerTestHooks;
+  if (module === 'facecam') return facecamTestHooks;
+  if (module === 'overlay') return overlayTestHooks;
+  if (module === 'sticker') return stickerTestHooks;
+  if (module === 'mockup') return mockupTestHooks;
+  return undefined;
+}
+
+export function hasStudioImageTestHook(module?: StudioModuleKey): boolean {
+  if (module) return Boolean(studioImageTestHook(module));
+  return Boolean(
+    logoTestHooks || bannerTestHooks || facecamTestHooks || overlayTestHooks || stickerTestHooks || mockupTestHooks
+  );
+}
+
 export function assertImageProviderReadyForStudio(module: StudioModuleKey): void {
-  const hook =
-    module === 'logo'
-      ? logoTestHooks
-      : module === 'banner'
-        ? bannerTestHooks
-        : module === 'facecam'
-          ? facecamTestHooks
-          : module === 'overlay'
-            ? overlayTestHooks
-            : module === 'sticker'
-              ? stickerTestHooks
-              : module === 'mockup'
-                ? mockupTestHooks
-                : undefined;
-  if (hook) return;
+  if (studioImageTestHook(module)) return;
   requireImageProvider();
+}
+
+function throwFromImageTestHook(result: ImageProviderTestResult): never {
+  if (result === 'timeout') {
+    throw new ServiceError(504, 'PROVIDER_TIMEOUT', IMAGE_PROVIDER_FAILED_MESSAGE);
+  }
+  if (result === 'http') {
+    throw new ServiceError(502, 'PROVIDER_ERROR', IMAGE_PROVIDER_FAILED_MESSAGE);
+  }
+  if (result === 'invalid') {
+    throw new ServiceError(502, 'PROVIDER_INVALID_PAYLOAD', IMAGE_PROVIDER_FAILED_MESSAGE);
+  }
+  throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
 }
 
 export interface GenerationJob {
@@ -182,64 +206,8 @@ function moduleImageSize(module: string): GenerateImageOptions['size'] {
 export async function generateImage(
   options: GenerateImageOptions
 ): Promise<{ imageUrl: string; provider: string; exports: StudioExportUrls }> {
-  const testBlocked = isPaidProviderTestBlocked();
-  if (options.module === 'logo' && logoTestHooks?.result === 'fail') {
-    throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
-  }
-  if (options.module === 'logo' && logoTestHooks?.result === 'success') {
-    return { imageUrl: LOGO_MOCK_PNG, provider: 'mock', exports: buildExports(LOGO_MOCK_PNG, 'logo') };
-  }
-  if (options.module === 'banner' && bannerTestHooks?.result === 'fail') {
-    throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
-  }
-  if (options.module === 'banner' && bannerTestHooks?.result === 'success') {
-    return { imageUrl: BANNER_MOCK_PNG, provider: 'mock', exports: buildExports(BANNER_MOCK_PNG, 'banner') };
-  }
-  if (options.module === 'facecam' && facecamTestHooks?.result === 'fail') {
-    throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
-  }
-  if (options.module === 'facecam' && facecamTestHooks?.result === 'success') {
-    return { imageUrl: FACECAM_MOCK_PNG, provider: 'mock', exports: buildExports(FACECAM_MOCK_PNG, 'facecam') };
-  }
-  if (options.module === 'overlay' && overlayTestHooks?.result === 'fail') {
-    throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
-  }
-  if (options.module === 'overlay' && overlayTestHooks?.result === 'success') {
-    return { imageUrl: OVERLAY_MOCK_PNG, provider: 'mock', exports: buildExports(OVERLAY_MOCK_PNG, 'overlay') };
-  }
-  if (options.module === 'sticker' && stickerTestHooks?.result === 'fail') {
-    throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
-  }
-  if (options.module === 'sticker' && stickerTestHooks?.result === 'success') {
-    return { imageUrl: STICKER_MOCK_PNG, provider: 'mock', exports: buildExports(STICKER_MOCK_PNG, 'sticker') };
-  }
-  if (options.module === 'mockup' && mockupTestHooks?.result === 'fail') {
-    throw new ServiceError(503, 'AI_GENERATION_FAILED', 'mock-fail');
-  }
-  if (options.module === 'mockup' && mockupTestHooks?.result === 'success') {
-    return { imageUrl: MOCKUP_MOCK_PNG, provider: 'mock', exports: buildExports(MOCKUP_MOCK_PNG, 'mockup') };
-  }
-  if (testBlocked) {
-    throw new ServiceError(
-      503,
-      'AI_NOT_CONFIGURED',
-      'Bild-Generierung benötigt OPENAI_API_KEY oder REPLICATE_API_TOKEN'
-    );
-  }
-  if (!areImageGenerationsEnabled()) {
-    throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
-  }
-  const liveOpenAiImages = Boolean(getOpenAiApiKey()) && isOpenAiImageGenerationLiveEnabled();
-  if (
-    (options.module === 'logo' ||
-      options.module === 'banner' ||
-      options.module === 'facecam' ||
-      options.module === 'overlay' ||
-      options.module === 'sticker' ||
-      options.module === 'mockup') &&
-    !liveOpenAiImages &&
-    !getReplicateApiToken()
-  ) {
+  const hook = studioImageTestHook(options.module);
+  if (hook?.result === 'success' || hook?.result === 'storage') {
     const mock =
       options.module === 'banner'
         ? BANNER_MOCK_PNG
@@ -251,25 +219,44 @@ export async function generateImage(
               ? STICKER_MOCK_PNG
               : options.module === 'mockup'
                 ? MOCKUP_MOCK_PNG
-              : LOGO_MOCK_PNG;
+                : LOGO_MOCK_PNG;
     return { imageUrl: mock, provider: 'mock', exports: buildExports(mock, options.module) };
   }
+  if (hook?.result) {
+    throwFromImageTestHook(hook.result);
+  }
+  if (isPaidProviderTestBlocked()) {
+    throwImageProviderUnavailableAfterDebit();
+  }
+  const liveOpenAiImages = Boolean(getOpenAiApiKey()) && isOpenAiImageGenerationLiveEnabled();
+  if (!hasImageAiProvider()) {
+    throwImageProviderUnavailableAfterDebit();
+  }
+
   const prompt = options.customPrompt ?? buildPromptFromDNA(options.dna, options.module);
   const size = options.size ?? (options.module === 'banner' ? '1792x1024' : '1024x1024');
   const quality = options.hd ? 'hd' : 'standard';
 
-  if (liveOpenAiImages) {
-    const url = await generateWithOpenAI(prompt, size, quality);
-    return { imageUrl: url, provider: 'openai', exports: buildExports(url, options.module) };
+  try {
+    if (liveOpenAiImages) {
+      const url = assertSafeProviderImageUrl(await generateWithOpenAI(prompt, size, quality));
+      return { imageUrl: url, provider: 'openai', exports: buildExports(url, options.module) };
+    }
+
+    if (getReplicateApiToken()) {
+      const url = assertSafeProviderImageUrl(await generateWithReplicate(prompt));
+      return { imageUrl: url, provider: 'replicate', exports: buildExports(url, options.module) };
+    }
+  } catch (err) {
+    if (err instanceof ServiceError) throw err;
+    const name = err instanceof Error ? err.name : '';
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      throw new ServiceError(504, 'PROVIDER_TIMEOUT', IMAGE_PROVIDER_FAILED_MESSAGE);
+    }
+    throw new ServiceError(502, 'PROVIDER_ERROR', IMAGE_PROVIDER_FAILED_MESSAGE);
   }
 
-  if (getReplicateApiToken()) {
-    const url = await generateWithReplicate(prompt);
-    return { imageUrl: url, provider: 'replicate', exports: buildExports(url, options.module) };
-  }
-
-  requireImageProvider();
-  throw new ServiceError(503, 'AI_GENERATION_FAILED', 'Bild-Generierung fehlgeschlagen — kein Provider verfügbar');
+  throwImageProviderUnavailableAfterDebit();
 }
 
 function buildExports(imageUrl: string, module: string): StudioExportUrls {
@@ -298,14 +285,19 @@ async function generateWithOpenAI(
       size,
       quality,
     }),
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!res.ok) {
-    throw new Error(`OpenAI API error (${res.status})`);
+    throw new ServiceError(502, 'PROVIDER_ERROR', IMAGE_PROVIDER_FAILED_MESSAGE);
   }
 
-  const data = (await res.json()) as { data: { url: string }[] };
-  return data.data[0].url;
+  const data = (await res.json()) as { data?: { url?: string }[] };
+  const url = data.data?.[0]?.url;
+  if (!url) {
+    throw new ServiceError(502, 'PROVIDER_INVALID_PAYLOAD', IMAGE_PROVIDER_FAILED_MESSAGE);
+  }
+  return url;
 }
 
 async function generateWithReplicate(prompt: string): Promise<string> {
@@ -320,10 +312,11 @@ async function generateWithReplicate(prompt: string): Promise<string> {
     body: JSON.stringify({
       input: { prompt, num_outputs: 1, aspect_ratio: '1:1' },
     }),
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!createRes.ok) {
-    throw new Error(`Replicate create error: ${await createRes.text()}`);
+    throw new ServiceError(502, 'PROVIDER_ERROR', IMAGE_PROVIDER_FAILED_MESSAGE);
   }
 
   let prediction = (await createRes.json()) as {
@@ -338,19 +331,26 @@ async function generateWithReplicate(prompt: string): Promise<string> {
     await new Promise((r) => setTimeout(r, 2000));
     const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20_000),
     });
     prediction = await pollRes.json();
     attempts++;
   }
 
-  if (prediction.status === 'failed') {
-    throw new Error(prediction.error || 'Replicate generation failed');
+  if (prediction.status === 'failed' || attempts >= 60) {
+    throw new ServiceError(
+      prediction.status === 'failed' ? 502 : 504,
+      prediction.status === 'failed' ? 'PROVIDER_ERROR' : 'PROVIDER_TIMEOUT',
+      IMAGE_PROVIDER_FAILED_MESSAGE
+    );
   }
 
   const output = prediction.output;
-  if (Array.isArray(output)) return output[0];
-  if (typeof output === 'string') return output;
-  throw new Error('No output from Replicate');
+  const url = Array.isArray(output) ? output[0] : output;
+  if (typeof url !== 'string' || !url) {
+    throw new ServiceError(502, 'PROVIDER_INVALID_PAYLOAD', IMAGE_PROVIDER_FAILED_MESSAGE);
+  }
+  return url;
 }
 
 export function buildPromptForStudioModule(
@@ -491,7 +491,10 @@ export async function runGenerationJob(
       sourceJobId: job.id,
       name: genOptions?.downloadName,
     });
-    const durableUrl = persisted?.downloadUrl || imageUrl;
+    if (!persisted?.id) {
+      throw new ServiceError(503, 'STORAGE_ERROR', IMAGE_PROVIDER_FAILED_MESSAGE);
+    }
+    const durableUrl = persisted.downloadUrl || imageUrl;
 
     job.status = 'completed';
     job.imageUrl = durableUrl;
@@ -549,7 +552,10 @@ export async function runGenerationJob(
     }
   } catch (err) {
     job.status = 'failed';
-    job.error = err instanceof Error ? err.message : 'Generation failed';
+    job.error =
+      err instanceof ServiceError
+        ? err.message
+        : IMAGE_PROVIDER_FAILED_MESSAGE;
     job.completedAt = new Date().toISOString();
   }
 
@@ -619,6 +625,8 @@ export async function generateMagikLogoPair(
   }
 
   const lockedOptions = applyLockedDnaToGeneration(activeDna, studioOptions);
+
+  assertImageProviderReadyForStudio('logo');
 
   try {
     const billed = await withCoinChargePack(

@@ -304,20 +304,24 @@ export function isPaidProviderTestBlocked(): boolean {
   );
 }
 
+/** Pre-debit: no live OpenAI images and no other allowed image provider (Replicate). */
+export const IMAGE_GENERATION_UNAVAILABLE_CODE = 'IMAGE_GENERATION_UNAVAILABLE';
+export const IMAGE_GENERATION_UNAVAILABLE_MESSAGE =
+  'Die Bildgenerierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.';
+export const IMAGE_PROVIDER_FAILED_MESSAGE =
+  'Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.';
+
+export function throwImageGenerationUnavailable(): never {
+  throw new ServiceError(503, IMAGE_GENERATION_UNAVAILABLE_CODE, IMAGE_GENERATION_UNAVAILABLE_MESSAGE);
+}
+
+export function throwImageProviderUnavailableAfterDebit(): never {
+  throw new ServiceError(503, 'PROVIDER_UNAVAILABLE', IMAGE_PROVIDER_FAILED_MESSAGE);
+}
+
 export function requireImageProvider(): void {
-  if (isPaidProviderTestBlocked()) {
-    throw new ServiceError(
-      503,
-      'AI_NOT_CONFIGURED',
-      'Bild-Generierung benötigt OPENAI_API_KEY oder REPLICATE_API_TOKEN'
-    );
-  }
-  if (!hasImageAiProvider()) {
-    throw new ServiceError(
-      503,
-      'AI_NOT_CONFIGURED',
-      'Bild-Generierung benötigt OPENAI_API_KEY oder REPLICATE_API_TOKEN'
-    );
+  if (isPaidProviderTestBlocked() || !hasImageAiProvider()) {
+    throwImageGenerationUnavailable();
   }
 }
 

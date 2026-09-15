@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
-import { parseAndValidateDataUrl, parseAndValidateVideoDataUrl } from '../lib/upload-validation.js';
+import {
+  parseAndValidateDataUrl,
+  parseAndValidateVideoDataUrl,
+  assertSafeProviderImageUrl,
+} from '../lib/upload-validation.js';
+import { IMAGE_PROVIDER_FAILED_MESSAGE } from '../lib/media-providers.js';
 import { sanitizeZipEntryName } from '../lib/zip-store.js';
 import { ServiceError } from '../lib/errors.js';
 import {
@@ -15,6 +20,12 @@ import {
 const FILES_COLLECTION = 'files';
 export const FILE_LIST_DEFAULT_LIMIT = 50;
 export const FILE_LIST_MAX_LIMIT = 100;
+
+let saveGeneratedAssetTestHooks: { fail?: boolean } | null = null;
+
+export function setSaveGeneratedAssetTestHooks(hooks: { fail?: boolean } | null): void {
+  saveGeneratedAssetTestHooks = hooks;
+}
 
 export type FileCategory = 'logo' | 'banner' | 'video' | 'project' | 'overlay' | 'sticker' | 'other';
 export type FileKindFilter = 'all' | 'image' | 'video' | 'audio' | 'other';
@@ -479,6 +490,10 @@ export async function saveGeneratedAsset(
   extra?: { projectId?: string; sourceJobId?: string; sourceAssetId?: string; name?: string; version?: number }
 ): Promise<UserFile | null> {
   if (!imageUrl) return null;
+  if (saveGeneratedAssetTestHooks?.fail) {
+    throw new ServiceError(503, 'STORAGE_ERROR', IMAGE_PROVIDER_FAILED_MESSAGE);
+  }
+  assertSafeProviderImageUrl(imageUrl);
 
   const category: FileCategory =
     module === 'logo' || module === 'profile-pic'

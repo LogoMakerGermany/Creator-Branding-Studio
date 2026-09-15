@@ -19,7 +19,7 @@ import { Button } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { api, ApiError, type GenerationJob, type StreamsetDraft, type StreamsetStatus } from '@/services/api';
 import { DnaRequiredBanner, StudioSuccessBanner } from '@/v2/components/StudioAlerts';
-import { StudioErrorBanner } from '@/components/studio';
+import { StudioErrorBanner, ImageGenerationUnavailableHint } from '@/components/studio';
 import { StudioOptionPill } from '@/v2/components/StudioOptionPill';
 import { useNexterStore } from '@/v2/store/nexter-store';
 import { useBrandProjectStore } from '@/v2/store/brand-project-store';
@@ -577,6 +577,7 @@ export function StreamsetStudioPage() {
                     ? `${streamsetPriceCaption(pricingSku, draft.estimatedCoins)} — erstellen`
                     : 'Für 0 Coins erstellen'}
               </Button>
+              <ImageGenerationUnavailableHint />
               {draft?.insufficientCoins && (
                 <p className="mt-1 text-xs text-amber-300" data-testid="streamset-insufficient-confirm">
                   Nicht genügend Coins. Es startet kein Job und kein Checkout.

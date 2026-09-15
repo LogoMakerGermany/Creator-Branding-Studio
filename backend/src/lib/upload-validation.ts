@@ -180,12 +180,61 @@ export function parseAndValidateProjectZipDataUrl(dataUrl: string): {
   };
 }
 
+export const MAX_PROVIDER_IMAGE_BYTES = 15 * 1024 * 1024;
+export const PROVIDER_IMAGE_FETCH_TIMEOUT_MS = 20_000;
+
+const PROVIDER_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml']);
+
 export function isSafeAssetUrl(url: string): boolean {
   if (!url) return false;
-  if (url.startsWith('https://') || url.startsWith('http://')) return true;
-  if (url.startsWith('data:image/png') || url.startsWith('data:image/jpeg') || url.startsWith('data:image/webp')) {
+  if (
+    url.startsWith('data:image/png') ||
+    url.startsWith('data:image/jpeg') ||
+    url.startsWith('data:image/webp') ||
+    url.startsWith('data:image/svg+xml')
+  ) {
     return true;
   }
-  if (url.startsWith('data:image/svg+xml')) return true;
-  return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+export function assertSafeProviderImageUrl(url: string): string {
+  if (!isSafeAssetUrl(url)) {
+    throw new ServiceError(
+      502,
+      'PROVIDER_INVALID_PAYLOAD',
+      'Die Bildgenerierung lieferte kein gültiges Bild. Coins wurden erstattet.'
+    );
+  }
+  return url;
+}
+
+export function assertProviderImageBytes(buffer: Buffer, contentType?: string | null): void {
+  if (!buffer.length) {
+    throw new ServiceError(
+      502,
+      'PROVIDER_INVALID_PAYLOAD',
+      'Die Bildgenerierung lieferte eine leere Datei. Coins wurden erstattet.'
+    );
+  }
+  if (buffer.length > MAX_PROVIDER_IMAGE_BYTES) {
+    throw new ServiceError(
+      502,
+      'PROVIDER_INVALID_PAYLOAD',
+      'Die Bilddatei ist zu groß. Coins wurden erstattet.'
+    );
+  }
+  const mime = (contentType ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+  if (mime && mime !== 'application/octet-stream' && !PROVIDER_IMAGE_MIME.has(mime) && !mime.startsWith('image/')) {
+    throw new ServiceError(
+      502,
+      'PROVIDER_INVALID_PAYLOAD',
+      'Die Bildgenerierung lieferte keinen Bildinhalt. Coins wurden erstattet.'
+    );
+  }
 }

@@ -17,6 +17,14 @@ export function StudioErrorBanner({ message }: { message: string }) {
   );
 }
 
+export function ImageGenerationUnavailableHint() {
+  return (
+    <p className="text-xs text-zinc-500" data-testid="image-generation-unavailable-hint">
+      Bildgenerierung ist derzeit serverseitig geschützt. Wenn sie nicht verfügbar ist, werden keine Coins abgebucht.
+    </p>
+  );
+}
+
 type Accent = 'purple' | 'cyan' | 'magenta';
 
 interface TypeOptionProps {

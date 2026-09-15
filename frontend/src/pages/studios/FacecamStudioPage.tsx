@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Download } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
-import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
+import { NeonPreviewBox, StudioErrorBanner, ImageGenerationUnavailableHint } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
 import { useAuth } from '@/context/AuthContext';
 import { useBrandProjectStore } from '@/v2/store/brand-project-store';
@@ -438,6 +438,7 @@ export function FacecamStudioPage() {
             >
               Für {formatCoins(COIN_COST)} Coins erstellen — Nexter
             </button>
+            <ImageGenerationUnavailableHint />
             <Button variant="ghost" size="sm" className="min-h-11 w-full" onClick={() => void tryDirectGenerate()}>
               Direkt erzeugen (wird abgelehnt)
             </Button>

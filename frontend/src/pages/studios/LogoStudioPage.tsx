@@ -7,7 +7,7 @@ import { StudioHistory } from '@/components/studio/StudioHistory';
 import { LogoLivePreview } from '@/components/studio/LogoLivePreview';
 import { LogoPreviewNamePanel, LogoStyleSection, LogoColorSection, LogoLightingSection, LogoMaterialSection, LogoEffectsSection, LogoBackgroundSection, LogoCameraSection, LogoDetailsSection, LogoTypographySection, LogoAiSettingsSection, LogoLivePromptSidebar, LogoTemplatesSection, LogoProModeSection, LogoFavoritesSection } from '@/components/logo';
 import { ImprovementChips } from '@/components/ultimate';
-import { NeonPreviewBox, StudioErrorBanner } from '@/components/studio';
+import { NeonPreviewBox, StudioErrorBanner, ImageGenerationUnavailableHint } from '@/components/studio';
 import { useStudioProjects } from '@/hooks/useStudioProjects';
 import { useAuth } from '@/context/AuthContext';
 import { useBrandProjectStore } from '@/v2/store/brand-project-store';
@@ -859,6 +859,7 @@ export function LogoStudioPage() {
             >
               Für {formatCoins(COIN_COST)} Coins erstellen — Nexter
             </button>
+            <ImageGenerationUnavailableHint />
             <Button variant="ghost" size="sm" className="min-h-11 w-full" onClick={() => void tryDirectGenerate()}>
               Direkt erzeugen (wird abgelehnt)
             </Button>
