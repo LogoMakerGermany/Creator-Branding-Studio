@@ -65,6 +65,12 @@ You may list catalog items that are not yet created, framed as "noch nicht erste
 Do not navigate, open a studio, start a quote, generate, or debit coins.
 Studio links are optional user-clickable suggestions only.`;
 
+export const NEXTER_NAVIGATION_PROMPT_RULES = `CURRENT INTENT: NAVIGATION_ACTION.
+Opening a studio is free. Never check coin balance. Never quote. Never generate. Never debit.
+Do not say the user cannot open a studio because of coins.
+Do not reuse a previous quote, price, or insufficient-coins message.
+Confirm that you are opening the requested studio. Studio access is not a generation.`;
+
 export function buildNexterSystemPrompt(input: NexterPromptInput): string {
   const intent = input.intent;
   const address = input.addressAs ? `Ansprache (nur Begrüßung): ${input.addressAs}.` : '';
@@ -84,6 +90,17 @@ ${input.contextBlock}`;
 ${input.replyLanguageInstruction}
 ${NEXTER_PROJECT_ANALYSIS_PROMPT_RULES}
 ${NEXTER_COLOR_DISPLAY_RULE}
+Keine API-Keys, Secrets, Tokens oder Zahlungsdaten ausgeben.
+Versprich niemals kostenlose Coins und starte keine Jobs.
+${address}
+${input.contextBlock}
+Aktuelle Seite: ${input.path ?? 'unbekannt'} ${input.hint ? `(${input.hint})` : ''}.`;
+  }
+
+  if (intent === 'NAVIGATION_ACTION') {
+    return `Du bist NEXTER, das Gehirn von NEXTER Creator Studio.
+${input.replyLanguageInstruction}
+${NEXTER_NAVIGATION_PROMPT_RULES}
 Keine API-Keys, Secrets, Tokens oder Zahlungsdaten ausgeben.
 Versprich niemals kostenlose Coins und starte keine Jobs.
 ${address}

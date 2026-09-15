@@ -88,6 +88,7 @@ describe('nexter tools — open_studio', () => {
     const open = actions.find((a) => a.tool === 'open_studio');
     assert.equal(open?.path, '/logo-studio');
     assert.equal(open?.autoNavigate, true);
+    assert.equal(detectQuoteKind('Öffne das Logo Studio.'), null);
   });
 
   it('project analysis offers streamset as a click-only action', () => {
@@ -162,6 +163,9 @@ describe('nexter tools — open_studio', () => {
     assert.equal(COIN_COSTS[CoinSpendCategory.TEXT_GENERATION], 2);
     assert.equal(detectQuoteKind('Öffne das Text Studio.'), null);
     assert.equal(detectOpenStudio('Öffne das Text Studio.'), NEXTER_STUDIO_PATHS.text);
+    assert.equal(detectQuoteKind('Öffne das Logo Studio.'), null);
+    assert.equal(detectQuoteKind('Gehe zum Video Studio.'), null);
+    assert.equal(detectQuoteKind('Zeig mir das Musik Studio.'), null);
   });
 
   it('maps video analyze to studio, not a paid quote', () => {

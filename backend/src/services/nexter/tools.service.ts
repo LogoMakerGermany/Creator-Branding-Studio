@@ -262,6 +262,9 @@ export function detectQuoteKind(message: string): NexterQuoteKind | null {
   if (detectFileCloudIntent(message)) return null;
   if (detectLayoutStudioIntent(message)) return null;
   const lower = message.toLowerCase();
+  if (detectOpenStudio(message) && !/(mach|erstell|generier|ich brauche)/.test(lower)) {
+    return null;
+  }
   if (parseVideoClosureCommand(message)?.wantTranscribe) return 'captions';
   if (
     /streamset|komplettset|komplettes?\s+(twitch|stream)|vollst(ä|a)ndiges?\s+(stream)?set|daraus ein.*streamset|3\s*teile/.test(
@@ -558,6 +561,18 @@ export function openStudioAction(
     path,
     ...(opts?.autoNavigate === true ? { autoNavigate: true } : { autoNavigate: false }),
   };
+}
+
+export function studioOpenLabel(path: string): string {
+  const entry = Object.entries(NEXTER_STUDIO_PATHS).find(([, p]) => p === path);
+  const key = entry?.[0] ?? 'Studio';
+  return `${key[0].toUpperCase()}${key.slice(1)} öffnen`;
+}
+
+export function navigationStudioReply(path: string): string {
+  const entry = Object.entries(NEXTER_STUDIO_PATHS).find(([, p]) => p === path);
+  const name = entry ? `${entry[0][0].toUpperCase()}${entry[0].slice(1)} Studio` : 'Studio';
+  return `Ich öffne das ${name}. Das Öffnen kostet keine Coins.`;
 }
 
 export function detectStreamsetThreePartIntent(message: string): boolean {

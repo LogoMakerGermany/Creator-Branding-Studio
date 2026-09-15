@@ -92,6 +92,9 @@ import {
   detectLockedTraitOverride,
   extractPreference,
   formatContextForPrompt,
+  navigationStudioReply,
+  openStudioAction,
+  studioOpenLabel,
   recommendFormat,
   recordOwnedByUser,
   warnBadSettings,
@@ -1259,6 +1262,24 @@ export async function nexterChat(
     return session;
   }
 
+  if (conversationIntent.intent === 'NAVIGATION_ACTION') {
+    const path = detectOpenStudio(message);
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: path
+        ? navigationStudioReply(path)
+        : 'Welches Studio soll ich öffnen? Das Öffnen kostet keine Coins.',
+      createdAt: new Date().toISOString(),
+      suggestions: [],
+      actions: path
+        ? [openStudioAction(path, studioOpenLabel(path), { autoNavigate: true })]
+        : [],
+    });
+    await persistSession(session);
+    return session;
+  }
+
   if (
     conversationIntent.intent === 'AMBIGUOUS' &&
     conversationIntent.confidence === 'HIGH' &&
@@ -1283,7 +1304,6 @@ export async function nexterChat(
     pendingKind &&
     looksLikeConstraintFollowUp(message) &&
     conversationIntent.intent !== 'PROJECT_ANALYSIS' &&
-    conversationIntent.intent !== 'NAVIGATION_ACTION' &&
     conversationIntent.intent !== 'APP_HELP' &&
     conversationIntent.intent !== 'CREATOR_ADVICE' &&
     conversationIntent.intent !== 'MODIFY_ASSET' &&
@@ -2165,7 +2185,7 @@ export async function nexterChat(
     dnaConfirm,
     intent: conversationIntent.intent,
   });
-  if (quoteCost != null) {
+  if (quoteCost != null && intentAllowsQuote(conversationIntent.intent)) {
     reply = `${insufficientCoinsPrefix(ctx.coinBalance, quoteCost)}${reply}`;
   }
 
@@ -2239,9 +2259,15 @@ async function generateNexterReply(input: {
     dnaConfirm: input.dnaConfirm,
     warning: input.warning,
     format: input.format,
-    musicBrief: input.musicBrief,
-    quoteKind: input.quoteKind,
-    quotedCost: input.quotedCost,
+    musicBrief: intent === 'NAVIGATION_ACTION' || intent === 'SMALLTALK' ? null : input.musicBrief,
+    quoteKind:
+      intent === 'NAVIGATION_ACTION' || intent === 'SMALLTALK' || intent === 'PROJECT_ANALYSIS'
+        ? null
+        : input.quoteKind,
+    quotedCost:
+      intent === 'NAVIGATION_ACTION' || intent === 'SMALLTALK' || intent === 'PROJECT_ANALYSIS'
+        ? null
+        : input.quotedCost,
   });
 
   if (shouldCallLiveNexterChatProvider()) {

@@ -9,15 +9,15 @@ import { arePaymentsEnabled, getDefaultFreeCoins } from '../../config/env.js';
 import { getOrCreateUser } from '../user.service.js';
 import { upsertDna } from '../dna.service.js';
 import { createProject } from '../project.service.js';
-import { getCoinBalance } from '../coins.service.js';
+import { deductAmount, getCoinBalance } from '../coins.service.js';
 import { dsSet } from '../../lib/data-store.js';
 import { isPaidProviderTestBlocked } from '../../lib/media-providers.js';
 import { updateNexterPreferencesForUser } from './preferences.service.js';
 import { nexterChat } from './conversation.service.js';
-import { listOwnedQuotes } from './quotes.service.js';
+import { listOwnedQuotes, createQuote } from './quotes.service.js';
 import { buildActions, looksLikeConstraintFollowUp, recommendFormat } from './tools.service.js';
 import { resolveNexterConversationIntent, isSmalltalkMessage } from './conversation-intent.js';
-import { NEXTER_SMALLTALK_PROMPT_RULES, NEXTER_PROJECT_ANALYSIS_PROMPT_RULES, buildNexterSystemPrompt, stripUnsolicitedCreatorCta } from './conversation-prompt.js';
+import { NEXTER_SMALLTALK_PROMPT_RULES, NEXTER_PROJECT_ANALYSIS_PROMPT_RULES, NEXTER_NAVIGATION_PROMPT_RULES, buildNexterSystemPrompt, stripUnsolicitedCreatorCta } from './conversation-prompt.js';
 
 process.env.DEV_AUTH_BYPASS = 'true';
 process.env.NODE_TEST = '1';
@@ -159,6 +159,17 @@ describe('nexter conversation intelligence — smalltalk CTA gate', () => {
     assert.match(analysis, /PROJECT_ANALYSIS/);
     assert.match(NEXTER_PROJECT_ANALYSIS_PROMPT_RULES, /Do not pretend a complete streamset project was analyzed/);
     assert.match(analysis, /optional user-clickable suggestions/);
+    const navPrompt = buildNexterSystemPrompt({
+      intent: 'NAVIGATION_ACTION',
+      replyLanguageInstruction: 'Antworte auf Deutsch.',
+      contextBlock: 'Kein Projektkontext.',
+      memory: '',
+      quoteKind: 'logo',
+      quotedCost: 15,
+    });
+    assert.match(navPrompt, /NAVIGATION_ACTION/);
+    assert.match(NEXTER_NAVIGATION_PROMPT_RULES, /Opening a studio is free/);
+    assert.doesNotMatch(navPrompt, /Angebot: logo für 15 Coins/);
   });
 });
 
@@ -286,8 +297,13 @@ describe('nexter conversation intelligence — analysis, advice, create, nav, he
   it('navigation opens studio without quote', async () => {
     const { user } = await seed('nav');
     const last = lastAssistant(await nexterChat(user.id, 'Öffne das Logo Studio.'));
-    assert.equal((last.actions ?? []).some((a) => a.tool === 'open_studio'), true);
+    const open = (last.actions ?? []).find((a) => a.tool === 'open_studio');
+    assert.equal(open?.path, NEXTER_STUDIO_PATHS.logo);
+    assert.equal(open?.autoNavigate, true);
+    assert.equal(shouldAutoNavigateNexterStudio(open, { awaitingConfirm: false }), true);
     assert.equal((last.actions ?? []).some((a) => a.tool === 'start_generation'), false);
+    assert.doesNotMatch(last.content, /nicht genügend|erforderlichen Coins|nicht öffnen/i);
+    assert.match(last.content, /keine Coins/i);
   });
 
   it('app help explains Nexter without quotes or gaps', async () => {
@@ -340,6 +356,91 @@ describe('nexter conversation intelligence — analysis, advice, create, nav, he
   });
 });
 
+describe('nexter conversation intelligence — navigation is free', () => {
+  const blockedNav = /nicht genügend|erforderlichen Coins|kannst du das .+ nicht öffnen/i;
+
+  it('opens logo studio with 50 coins without quoting 15', async () => {
+    const { user } = await seed('nav-50');
+    const before = await getCoinBalance(user.id);
+    assert.equal(before, getDefaultFreeCoins());
+    assert.equal(COIN_COSTS[CoinSpendCategory.LOGO_GENERATION], 15);
+    assert.equal(before >= COIN_COSTS[CoinSpendCategory.LOGO_GENERATION], true);
+    const quotesBefore = (await listOwnedQuotes(user.id)).length;
+    const last = lastAssistant(await nexterChat(user.id, 'Öffne das Logo Studio.'));
+    const open = (last.actions ?? []).find((a) => a.tool === 'open_studio');
+    assert.equal(resolveNexterConversationIntent('Öffne das Logo Studio.').intent, 'NAVIGATION_ACTION');
+    assert.equal(open?.path, NEXTER_STUDIO_PATHS.logo);
+    assert.equal(open?.autoNavigate, true);
+    assert.equal((last.actions ?? []).some((a) => a.tool === 'start_generation'), false);
+    assert.doesNotMatch(last.content, blockedNav);
+    assert.equal(await getCoinBalance(user.id), before);
+    assert.equal((await listOwnedQuotes(user.id)).length, quotesBefore);
+  });
+
+  it('opens logo studio even with 0 coins', async () => {
+    const { user } = await seed('nav-0');
+    const before = await getCoinBalance(user.id);
+    if (before > 0) await deductAmount(user.id, before, 'nav-zero');
+    assert.equal(await getCoinBalance(user.id), 0);
+    const last = lastAssistant(await nexterChat(user.id, 'Öffne das Logo Studio.'));
+    assert.equal((last.actions ?? []).find((a) => a.tool === 'open_studio')?.autoNavigate, true);
+    assert.doesNotMatch(last.content, blockedNav);
+    assert.equal(await getCoinBalance(user.id), 0);
+  });
+
+  it('create logo still quotes 15 and does not auto-confirm', async () => {
+    const { user } = await seed('create-15');
+    const before = await getCoinBalance(user.id);
+    const last = lastAssistant(await nexterChat(user.id, 'Mach mir ein Logo.'));
+    const start = (last.actions ?? []).find((a) => a.tool === 'start_generation');
+    assert.equal(resolveNexterConversationIntent('Mach mir ein Logo.').intent, 'CREATE_ASSET');
+    assert.equal(start?.requiresConfirmation, true);
+    assert.equal(start?.coinCost ?? start?.payload?.coinCost, 15);
+    assert.doesNotMatch(last.content, /Nicht genügend Coins/i);
+    assert.equal(await getCoinBalance(user.id), before);
+  });
+
+  it('insufficient coins only apply to generation, not navigation', async () => {
+    const { user } = await seed('nav-low');
+    const before = await getCoinBalance(user.id);
+    if (before > 10) await deductAmount(user.id, before - 10, 'nav-ten');
+    assert.equal(await getCoinBalance(user.id), 10);
+    const create = lastAssistant(await nexterChat(user.id, 'Mach mir ein Logo.'));
+    assert.match(create.content, /Nicht genügend Coins|Benötigt: 15|vorhanden: 10/i);
+    assert.equal((create.actions ?? []).some((a) => a.tool === 'start_generation'), true);
+    const nav = lastAssistant(await nexterChat(user.id, 'Öffne das Logo Studio.'));
+    assert.equal((nav.actions ?? []).find((a) => a.tool === 'open_studio')?.autoNavigate, true);
+    assert.doesNotMatch(nav.content, blockedNav);
+    assert.equal(await getCoinBalance(user.id), 10);
+  });
+
+  it('stale streamset or logo quotes do not gate later navigation', async () => {
+    const { user, project } = await seed('stale-quote');
+    await createQuote(user.id, 'streamset', project.id);
+    await createQuote(user.id, 'logo', project.id);
+    const quotesBefore = (await listOwnedQuotes(user.id)).length;
+    assert.equal(quotesBefore >= 2, true);
+    const last = lastAssistant(await nexterChat(user.id, 'Öffne das Logo Studio.'));
+    assert.equal((last.actions ?? []).some((a) => a.tool === 'start_generation'), false);
+    assert.equal((last.actions ?? []).find((a) => a.tool === 'open_studio')?.autoNavigate, true);
+    assert.doesNotMatch(last.content, blockedNav);
+    assert.doesNotMatch(last.content, /200 Coins|Komplettset/i);
+    assert.equal((await listOwnedQuotes(user.id)).length, quotesBefore);
+  });
+
+  it('analysis stays click-only while explicit streamset open auto-navigates', async () => {
+    const { user } = await seed('nav-ss-iso');
+    const analysis = lastAssistant(await nexterChat(user.id, 'Was fehlt meinem Streamset?'));
+    const analysisOpen = (analysis.actions ?? []).find((a) => a.tool === 'open_studio');
+    assert.equal(analysisOpen?.autoNavigate, false);
+    const nav = lastAssistant(await nexterChat(user.id, 'Öffne das Streamset Studio.'));
+    const open = (nav.actions ?? []).find((a) => a.tool === 'open_studio');
+    assert.equal(open?.path, NEXTER_STUDIO_PATHS.streamset);
+    assert.equal(open?.autoNavigate, true);
+    assert.doesNotMatch(nav.content, blockedNav);
+  });
+});
+
 describe('nexter conversation intelligence — format routing', () => {
   it('uses format only when the request needs one', () => {
     assert.equal(recommendFormat('Wie geht es dir?', { preferredPlatforms: ['tiktok'] }), null);
@@ -358,6 +459,8 @@ describe('nexter conversation intelligence — safety freeze', () => {
     assert.match(prompt, /FIRST RESPOND TO THE USER'S CURRENT INTENT/);
     assert.match(prompt, /Do not append a creator call-to-action/);
     assert.match(prompt, /CURRENT INTENT: PROJECT_ANALYSIS/);
+    assert.match(prompt, /CURRENT INTENT: NAVIGATION_ACTION/);
+    assert.match(conv, /NAVIGATION_ACTION/);
     assert.doesNotMatch(conv, /confirmQuote/);
     assert.equal(isPaidProviderTestBlocked(), true);
     assert.equal(arePaymentsEnabled(), false);
