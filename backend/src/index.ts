@@ -113,6 +113,11 @@ app.use(
   })
 );
 
+app.use((_req, res, next) => {
+  res.setHeader('Permissions-Policy', 'microphone=(self), camera=(), geolocation=()');
+  next();
+});
+
 app.use(
   cors({
     origin(origin, callback) {

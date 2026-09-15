@@ -15,6 +15,7 @@ export function getProductionCspDirectives() {
     ],
     styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://accounts.google.com'],
     imgSrc: ["'self'", 'data:', 'https:', 'blob:'],
+    mediaSrc: ["'self'", 'blob:', 'mediastream:', 'data:'],
     connectSrc: [
       "'self'",
       ...origins,
@@ -27,6 +28,8 @@ export function getProductionCspDirectives() {
       'https://firestore.googleapis.com',
       'https://firebasestorage.googleapis.com',
       'https://www.googleapis.com',
+      'https://www.google.com',
+      'https://www.gstatic.com',
       'https://login.microsoftonline.com',
     ],
     fontSrc: ["'self'", 'https:', 'data:', 'https://fonts.gstatic.com', 'https://*.gstatic.com'],

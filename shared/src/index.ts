@@ -31,6 +31,7 @@ export * from './ultimate-creator';
 export * from './api';
 export * from './video-formats';
 export * from './nexter';
+export * from './nexter-speech';
 export * from './nexter-quality';
 export * from './nexter-intelligence';
 export * from './streamset';

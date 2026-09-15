@@ -2,10 +2,19 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Mic, Plus, Send, Volume2 } from 'lucide-react';
 import { api, ApiError, type NexterChatMessage, type NexterAction } from '@/services/api';
-import { COIN_COSTS, CoinSpendCategory, nexterOrbStatusLabel, shouldAutoNavigateNexterStudio } from '@ucbs/shared';
+import {
+  COIN_COSTS,
+  CoinSpendCategory,
+  createNexterSpeechController,
+  nexterOrbStatusLabel,
+  nexterSpeechErrorMessage,
+  shouldAutoNavigateNexterStudio,
+  type NexterMicState,
+} from '@ucbs/shared';
 import { useNexterStore } from '@/v2/store/nexter-store';
 import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 import { useAuth } from '@/context/AuthContext';
+import { createBrowserRecognition, readBrowserSpeechCapability, requestBrowserMicPermission } from '@/lib/nexter-speech';
 import { NexterOrb } from './NexterOrb';
 import { cn, formatCoins } from '@/lib/utils';
 
@@ -25,16 +34,17 @@ export function NexterPanel({
   const [messages, setMessages] = useState<NexterChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [recording, setRecording] = useState(false);
+  const [micState, setMicState] = useState<NexterMicState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [closedQuotes, setClosedQuotes] = useState<Set<string>>(() => new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const audioCleanupRef = useRef<(() => void) | null>(null);
-  const mediaRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const sendRef = useRef<(text: string) => Promise<void>>(async () => undefined);
   const lastAttemptRef = useRef<string | null>(null);
   const speakingRef = useRef(false);
+  const loadingRef = useRef(false);
+  const speechRef = useRef<ReturnType<typeof createNexterSpeechController> | null>(null);
+  const recording = micState === 'listening' || micState === 'requesting_permission';
 
   useEffect(() => {
     let cancelled = false;
@@ -70,13 +80,38 @@ export function NexterPanel({
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  useEffect(() => {
+    const controller = createNexterSpeechController({
+      getCapability: readBrowserSpeechCapability,
+      createRecognition: createBrowserRecognition,
+      requestMicPermission: requestBrowserMicPermission,
+      onState: (next) => {
+        setMicState(next);
+        if (next === 'listening' || next === 'requesting_permission') setOrbState('listening');
+        else if (next === 'processing') setOrbState('thinking');
+        else if (!loadingRef.current) setOrbState('idle');
+      },
+      onTranscript: (text) => {
+        setInput(text);
+        setError(null);
+      },
+      onError: (code) => {
+        const message = nexterSpeechErrorMessage(code);
+        if (message) setError(message);
+        pulse('warning');
+      },
+    });
+    speechRef.current = controller;
+    return () => {
       audioCleanupRef.current?.();
-      mediaRef.current?.stop();
-    },
-    []
-  );
+      controller.dispose();
+      speechRef.current = null;
+    };
+  }, [pulse, setOrbState]);
 
   async function send(text: string) {
     const msg = text.trim();
@@ -172,41 +207,8 @@ export function NexterPanel({
   }
 
   async function toggleListen() {
-    if (recording) {
-      mediaRef.current?.stop();
-      setRecording(false);
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
-      chunksRef.current = [];
-      rec.ondataavailable = (e) => {
-        if (e.data.size) chunksRef.current.push(e.data);
-      };
-      rec.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
-        void blobToBase64(blob).then(async (b64) => {
-          try {
-            setOrbState('listening');
-            const { transcript } = await api.nexter.listen(b64, blob.type);
-            setInput(transcript);
-            void send(transcript);
-          } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'Spracheingabe fehlgeschlagen — bitte tippen.');
-            pulse('warning');
-          }
-        });
-      };
-      mediaRef.current = rec;
-      rec.start();
-      setRecording(true);
-      setOrbState('listening');
-    } catch {
-      setError('Mikrofon nicht verfügbar — der Text-Chat funktioniert weiter.');
-      pulse('warning');
-    }
+    setError(null);
+    await speechRef.current?.start();
   }
 
   function closeQuote(quoteId: string) {
@@ -467,7 +469,7 @@ export function NexterPanel({
         </div>
         <p className="mt-2 flex items-center gap-1 text-[10px] text-zinc-600">
           <Mic className="h-3 w-3" />
-          {recording ? 'Aufnahme läuft — erneut klicken zum Senden' : 'Mikrofon transkribiert. Vorlesen ist optional und unabhängig vom Textchat.'}
+          {recording ? 'Nexter hört zu — erneut klicken zum Stoppen' : 'Spracheingabe füllt das Feld. Senden bleibt manuell.'}
           {' · '}
           <Link to="/nexter" className="text-violet-300 hover:underline">
             Vollansicht
@@ -517,15 +519,4 @@ function QuoteCard({
       <p className="mt-1 text-[11px] text-violet-200/80">Bestätigen startet erst nach „Erstellen“. Chat-Nachrichten buchen keine Coins.</p>
     </div>
   );
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return blob.arrayBuffer().then((buf) => {
-    const bytes = new Uint8Array(buf);
-    let binary = '';
-    bytes.forEach((b) => {
-      binary += String.fromCharCode(b);
-    });
-    return btoa(binary);
-  });
 }
