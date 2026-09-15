@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { detectDnaChangeScope, detectStudioChangeScope, NEXTER_STUDIO_PATHS } from '@ucbs/shared';
+import { CoinSpendCategory, detectDnaChangeScope, detectStudioChangeScope, NEXTER_STUDIO_PATHS } from '@ucbs/shared';
 import { getOrCreateUser, getUserById } from './user.service.js';
 import { upsertDna } from './dna.service.js';
 import { createProject } from './project.service.js';
@@ -455,5 +455,59 @@ describe('nexter chat Firestore undefined payload compatibility', () => {
     const conv = src('src/services/nexter/conversation.service.ts');
     assert.match(conv, /persistSession/);
     assert.match(conv, /dsSet\(COLLECTION, session\.id/);
+    const coins = src('src/services/coins.service.ts');
+    assert.match(coins, /omitUndefinedFields/);
+    assert.match(coins, /\.\.\.\(pc\.jobId \? \{ jobId: pc\.jobId \} : \{\}\)/);
+    assert.doesNotMatch(coins, /transaction\.set\(chargeRef, \{/);
+    assert.doesNotMatch(src('src/config/firebase.ts'), /ignoreUndefinedProperties/);
+  });
+
+  it('omits optional jobId from quotes, sessions, and billable charges', async () => {
+    const { user } = await seed('jobid');
+    const withoutJob = await createQuote(user.id, 'logo', undefined, {
+      changeRequest: true,
+      jobId: undefined,
+      request: 'Mach mir ein Logo',
+    });
+    assert.equal(withoutJob.payload && 'jobId' in withoutJob.payload, false);
+    const storedQuote = await dsGet('nexterQuotes', withoutJob.id);
+    assert.ok(storedQuote);
+    const payload = storedQuote.payload as Record<string, unknown> | undefined;
+    assert.equal(payload && 'jobId' in payload, false);
+    assert.deepEqual(undefinedPaths(storedQuote), []);
+
+    const withJob = await createQuote(user.id, 'logo', undefined, { jobId: 'job-keep' });
+    assert.equal(withJob.payload?.jobId, 'job-keep');
+    const storedWithJob = await dsGet('nexterQuotes', withJob.id);
+    assert.equal((storedWithJob?.payload as { jobId?: string } | undefined)?.jobId, 'job-keep');
+
+    const session = await nexterChat(user.id, 'Wie geht es dir?');
+    const storedSession = await dsGet('nexterSessions', session.id);
+    assert.ok(storedSession);
+    assert.equal('jobId' in storedSession, false);
+    assert.deepEqual(undefinedPaths(storedSession), []);
+
+    const logo = await nexterChat(user.id, 'Mach mir ein Logo.');
+    assert.equal(hasStartGeneration(logo), true);
+    const quotes = await listOwnedQuotes(user.id);
+    const logoQuote = quotes.find((q) => q.kind === 'logo');
+    assert.ok(logoQuote);
+    assert.equal(logoQuote.payload && 'jobId' in logoQuote.payload, false);
+    assert.deepEqual(undefinedPaths(logoQuote), []);
+
+    const chargeId = randomUUID();
+    const charged = await deductAmount(user.id, 1, 'jobId sanitizer charge', {
+      persistCharge: {
+        id: chargeId,
+        category: CoinSpendCategory.LOGO_GENERATION,
+        description: 'jobId sanitizer charge',
+        jobId: undefined,
+      },
+    });
+    assert.equal(charged.success, true);
+    const charge = await dsGet('billable_charges', chargeId);
+    assert.ok(charge);
+    assert.equal('jobId' in charge, false);
+    assert.deepEqual(undefinedPaths(charge), []);
   });
 });

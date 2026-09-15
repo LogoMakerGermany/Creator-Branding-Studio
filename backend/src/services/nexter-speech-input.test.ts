@@ -162,6 +162,9 @@ describe('nexter speech input — transcript stays in the input', () => {
     assert.match(panel, /setInput\(text\)/);
     assert.doesNotMatch(panel, /void send\(transcript\)/);
     assert.doesNotMatch(panel, /api\.nexter\.listen/);
+    const sendFn = panel.split('async function send')[1]?.split('sendRef.current = send')[0] ?? '';
+    assert.match(sendFn, /api\.nexter\.chat\(msg/);
+    assert.doesNotMatch(panel, /api\.nexter\.listen|firestore|dsSet|nexterSessions/);
   });
 
   it('8. Mach mir ein Logo stays in the input without quote or debit', async () => {

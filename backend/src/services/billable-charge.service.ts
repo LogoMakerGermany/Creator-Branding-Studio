@@ -56,7 +56,7 @@ export async function settleBillableCharge(id: string, jobId?: string): Promise<
   await dsSet(BILLABLE_CHARGES, id, {
     ...row,
     status: 'settled',
-    jobId: jobId ?? row.jobId,
+    ...(jobId || row.jobId ? { jobId: jobId ?? row.jobId } : {}),
     updatedAt: new Date().toISOString(),
   } as unknown as Record<string, unknown>);
 }

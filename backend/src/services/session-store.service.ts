@@ -1,5 +1,6 @@
 import { isDevMode } from '../config/env.js';
 import { devStore } from '../lib/dev-store.js';
+import { omitUndefinedFields } from '../lib/firestore-payload.js';
 import { paymentLockKey, withDevLock } from '../lib/dev-mutex.js';
 
 const COLLECTION = 'processedStripeSessions';
@@ -54,9 +55,9 @@ async function readClaim(
 
 async function writeClaim(claim: PaymentClaim): Promise<void> {
   const now = new Date().toISOString();
-  const row = { ...claim, updatedAt: now };
+  const row = omitUndefinedFields({ ...claim, updatedAt: now } as unknown as Record<string, unknown>);
   if (isDevMode()) {
-    devStore.saveToCollection(collectionName(claim.provider), claim.id, row as unknown as Record<string, unknown>);
+    devStore.saveToCollection(collectionName(claim.provider), claim.id, row);
     if (claim.status === 'credited') {
       devStore.markSessionProcessed(`${claim.provider}:${claim.id}`);
     }
@@ -133,7 +134,7 @@ export async function beginPaymentCredit(
         status: 'processing',
         updatedAt: now,
       };
-      t.set(ref, claim, { merge: true });
+      t.set(ref, omitUndefinedFields(claim as unknown as Record<string, unknown>), { merge: true });
       return { action: 'proceed' as const, claim };
     }
     const claim: PaymentClaim = {
@@ -144,7 +145,7 @@ export async function beginPaymentCredit(
       createdAt: now,
       updatedAt: now,
     };
-    t.create(ref, claim);
+    t.create(ref, omitUndefinedFields(claim as unknown as Record<string, unknown>));
     return { action: 'proceed' as const, claim };
   });
 }
@@ -230,15 +231,17 @@ export async function claimStripeSession(
   const now = new Date().toISOString();
 
   try {
-    await ref.create({
-      ...data,
-      id: sessionId,
-      provider: 'stripe',
-      status: 'credited',
-      processedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    });
+    await ref.create(
+      omitUndefinedFields({
+        ...data,
+        id: sessionId,
+        provider: 'stripe',
+        status: 'credited',
+        processedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as unknown as Record<string, unknown>)
+    );
     return true;
   } catch (err: unknown) {
     const code = (err as { code?: number }).code;
@@ -289,15 +292,17 @@ export async function claimPayPalOrder(
   const ref = db.collection(PAYPAL_COLLECTION).doc(orderId);
   const now = new Date().toISOString();
   try {
-    await ref.create({
-      ...data,
-      id: orderId,
-      provider: 'paypal',
-      status: 'credited',
-      processedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    });
+    await ref.create(
+      omitUndefinedFields({
+        ...data,
+        id: orderId,
+        provider: 'paypal',
+        status: 'credited',
+        processedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as unknown as Record<string, unknown>)
+    );
     return true;
   } catch (err: unknown) {
     const code = (err as { code?: number }).code;

@@ -1181,7 +1181,7 @@ export async function nexterChat(
       meta?.projectId || ctx.projectId,
       {
         changeRequest: true,
-        jobId: batchId,
+        ...(batchId ? { jobId: batchId } : {}),
         request: message,
         selectedKeys: keys,
         scope: 'set',
@@ -1641,7 +1641,7 @@ export async function nexterChat(
     }
     const quote = await createQuote(userId, quoteKind, meta?.projectId || ctx.projectId, {
       changeRequest: true,
-      jobId: resolved.jobId,
+      ...(resolved.jobId ? { jobId: resolved.jobId } : {}),
       ...(quoteKind === 'facecam' || quoteKind === 'overlay' || quoteKind === 'sticker' || quoteKind === 'mockup'
         ? { parentJobId: resolved.jobId }
         : {}),

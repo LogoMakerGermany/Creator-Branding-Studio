@@ -7,6 +7,7 @@ import {
   type NexterQuoteKind,
 } from '@ucbs/shared';
 import { dsGet, dsSet, dsList } from '../../lib/data-store.js';
+import { omitUndefinedFields } from '../../lib/firestore-payload.js';
 import { ServiceError } from '../../lib/errors.js';
 import { resolveDnaForRequest } from '../dna.service.js';
 import { getCoinBalance } from '../coins.service.js';
@@ -74,7 +75,7 @@ export async function createQuote(
     quote.projectId = projectId.trim();
   }
   if (resolvedPayload !== undefined) {
-    quote.payload = resolvedPayload;
+    quote.payload = omitUndefinedFields(resolvedPayload);
   }
   await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
   return quote;

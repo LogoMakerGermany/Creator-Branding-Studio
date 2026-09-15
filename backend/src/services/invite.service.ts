@@ -1,6 +1,7 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import type { CreateInviteCodeInput, InviteCode } from '@ucbs/shared';
 import { dsDelete, dsGet, dsList, dsSet } from '../lib/data-store.js';
+import { omitUndefinedFields } from '../lib/firestore-payload.js';
 import { ServiceError } from '../lib/errors.js';
 import { isDevMode } from '../config/env.js';
 import { inviteLockKey, withDevLock } from '../lib/dev-mutex.js';
@@ -168,7 +169,7 @@ export async function redeemInviteCode(
       updatedAt: new Date().toISOString(),
       isActive: current.currentUses + 1 < current.maximumUses ? current.isActive : false,
     };
-    t.set(ref, updated);
+    t.set(ref, omitUndefinedFields(updated as unknown as Record<string, unknown>));
     return { invite: updated, grantRole: current.grantRole || 'tester' };
   });
 }

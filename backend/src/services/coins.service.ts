@@ -1,7 +1,7 @@
 import { CoinSpendCategory, COIN_COSTS, COIN_PACKAGE_DEFINITIONS } from '@ucbs/shared';
 import type { CoinSourceType, CoinTransaction, CoinTransactionType } from '@ucbs/shared';
-import { getStripePriceId } from '../config/env.js';
-import { isDevMode } from '../config/env.js';
+import { getStripePriceId, isDevMode } from '../config/env.js';
+import { omitUndefinedFields } from '../lib/firestore-payload.js';
 import { devStore } from '../lib/dev-store.js';
 import { coinsLockKey, withDevLock } from '../lib/dev-mutex.js';
 import { getUserById, updateCoinBalance } from './user.service.js';
@@ -202,7 +202,7 @@ async function applyMutationDev(input: {
     if (input.options?.persistCharge && input.delta < 0) {
       const now = tx.createdAt;
       const pc = input.options.persistCharge;
-      devStore.saveToCollection('billable_charges', pc.id, {
+      devStore.saveToCollection('billable_charges', pc.id, omitUndefinedFields({
         id: pc.id,
         userId: input.userId,
         amount: Math.abs(input.delta),
@@ -210,11 +210,11 @@ async function applyMutationDev(input: {
         status: 'charged',
         category: pc.category,
         description: pc.description,
-        jobId: pc.jobId,
-        quoteId: pc.quoteId,
+        ...(pc.jobId ? { jobId: pc.jobId } : {}),
+        ...(pc.quoteId ? { quoteId: pc.quoteId } : {}),
         createdAt: now,
         updatedAt: now,
-      });
+      }));
     }
     return {
       success: true,
@@ -285,33 +285,39 @@ async function applyMutationFirestore(input: {
       description: input.description,
       options: input.options,
     });
-    transaction.set(txRef, tx);
+    transaction.set(txRef, omitUndefinedFields(tx as unknown as Record<string, unknown>));
     if (idempRef) {
-      transaction.set(idempRef, {
-        transactionId: txId,
-        userId: input.userId,
-        newBalance,
-        previousBalance,
-        amount: input.delta,
-        createdAt: now,
-      });
+      transaction.set(
+        idempRef,
+        omitUndefinedFields({
+          transactionId: txId,
+          userId: input.userId,
+          newBalance,
+          previousBalance,
+          amount: input.delta,
+          createdAt: now,
+        })
+      );
     }
     if (input.options?.persistCharge && input.delta < 0) {
       const pc = input.options.persistCharge;
       const chargeRef = db.collection('billable_charges').doc(pc.id);
-      transaction.set(chargeRef, {
-        id: pc.id,
-        userId: input.userId,
-        amount: Math.abs(input.delta),
-        chargeTransactionId: txId,
-        status: 'charged',
-        category: pc.category,
-        description: pc.description,
-        jobId: pc.jobId,
-        quoteId: pc.quoteId,
-        createdAt: now,
-        updatedAt: now,
-      });
+      transaction.set(
+        chargeRef,
+        omitUndefinedFields({
+          id: pc.id,
+          userId: input.userId,
+          amount: Math.abs(input.delta),
+          chargeTransactionId: txId,
+          status: 'charged',
+          category: pc.category,
+          description: pc.description,
+          ...(pc.jobId ? { jobId: pc.jobId } : {}),
+          ...(pc.quoteId ? { quoteId: pc.quoteId } : {}),
+          createdAt: now,
+          updatedAt: now,
+        })
+      );
     }
     return {
       success: true,
@@ -545,15 +551,18 @@ export async function writeWelcomeLedgerOnly(params: {
   await db.runTransaction(async (t) => {
     const snap = await t.get(idempRef);
     if (snap.exists) return;
-    t.set(txRef, tx);
-    t.set(idempRef, {
-      transactionId: tx.id,
-      userId: params.userId,
-      newBalance: params.amount,
-      previousBalance: 0,
-      amount: params.amount,
-      createdAt: params.createdAt,
-    });
+    t.set(txRef, omitUndefinedFields(tx as unknown as Record<string, unknown>));
+    t.set(
+      idempRef,
+      omitUndefinedFields({
+        transactionId: tx.id,
+        userId: params.userId,
+        newBalance: params.amount,
+        previousBalance: 0,
+        amount: params.amount,
+        createdAt: params.createdAt,
+      })
+    );
   });
 }
 

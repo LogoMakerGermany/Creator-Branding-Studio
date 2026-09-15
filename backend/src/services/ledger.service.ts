@@ -5,6 +5,7 @@ import type {
 } from '@ucbs/shared';
 import { createHash, randomUUID } from 'node:crypto';
 import { dsGet, dsListWhere, dsSet } from '../lib/data-store.js';
+import { omitUndefinedFields } from '../lib/firestore-payload.js';
 import { ServiceError } from '../lib/errors.js';
 import { isDevMode } from '../config/env.js';
 import { getFirestore } from '../config/firebase.js';
@@ -196,14 +197,17 @@ export async function appendLedgerEntry(
         updatedAt: now,
       };
 
-      tx.create(idempRef, {
-        entryId,
-        userId: input.userId,
-        key: input.idempotencyKey,
-        createdAt: now,
-      });
-      tx.set(entryRef, entry);
-      tx.set(balanceRef, nextBalance);
+      tx.create(
+        idempRef,
+        omitUndefinedFields({
+          entryId,
+          userId: input.userId,
+          key: input.idempotencyKey,
+          createdAt: now,
+        })
+      );
+      tx.set(entryRef, omitUndefinedFields(entry as unknown as Record<string, unknown>));
+      tx.set(balanceRef, omitUndefinedFields(nextBalance as unknown as Record<string, unknown>));
       return { entry, balance: nextBalance, duplicate: false as const };
     });
     return result;

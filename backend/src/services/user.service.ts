@@ -10,6 +10,7 @@ import {
 import { getDefaultFreeCoins } from '../config/env.js';
 import { devStore, isDevMode } from '../lib/dev-store.js';
 import { getFirestore } from '../config/firebase.js';
+import { omitUndefinedFields } from '../lib/firestore-payload.js';
 import { ServiceError } from '../lib/errors.js';
 import { userLockKey, withDevLock } from '../lib/dev-mutex.js';
 
@@ -210,7 +211,7 @@ async function createOrLoadUserFirestore(
     if (options.legalAcceptance) {
       user.legalAcceptance = options.legalAcceptance;
     }
-    t.set(ref, user);
+    t.set(ref, omitUndefinedFields(user as unknown as Record<string, unknown>));
     return { profile: user, created: true };
   });
 
@@ -286,7 +287,7 @@ export async function updateUser(
   updates: Partial<UserProfile>
 ): Promise<UserProfile> {
   const now = new Date().toISOString();
-  const payload = { ...updates, updatedAt: now };
+  const payload = omitUndefinedFields({ ...updates, updatedAt: now } as Record<string, unknown>);
 
   if (isDevMode()) {
     const existing = await getUserById(uid);

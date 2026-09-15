@@ -10,7 +10,7 @@ import { getOrCreateUser } from '../user.service.js';
 import { upsertDna } from '../dna.service.js';
 import { createProject } from '../project.service.js';
 import { deductAmount, getCoinBalance } from '../coins.service.js';
-import { dsSet } from '../../lib/data-store.js';
+import { dsGet, dsSet } from '../../lib/data-store.js';
 import { isPaidProviderTestBlocked } from '../../lib/media-providers.js';
 import { updateNexterPreferencesForUser } from './preferences.service.js';
 import { nexterChat } from './conversation.service.js';
@@ -180,6 +180,9 @@ describe('nexter conversation intelligence — smalltalk side effects', () => {
     const quotesBefore = (await listOwnedQuotes(user.id)).length;
     const session = await nexterChat(user.id, 'Wie geht es dir?');
     const last = lastAssistant(session);
+    const stored = await dsGet('nexterSessions', session.id);
+    assert.ok(stored);
+    assert.equal('jobId' in stored, false);
     assert.match(last.content, /gut|danke|geht/i);
     assert.doesNotMatch(last.content, CREATOR_CTA);
     assert.equal((last.suggestions ?? []).some((s) => /Dir fehlt|Starting Soon|TikTok|erstellen/i.test(s)), false);
