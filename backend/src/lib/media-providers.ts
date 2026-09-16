@@ -9,6 +9,7 @@ import {
   getMusicProviderPreference,
   hasImageAiProvider,
   hasVideoAiProvider,
+  hasMusicAiProvider,
   areGenerationsEnabled,
   areImageGenerationsEnabled,
   areVideoGenerationsEnabled,
@@ -56,7 +57,7 @@ export function getMusicProviderLimits(): MusicProviderLimits {
   return { ok: true, id: spec.id, maxDurationSec: spec.maxDurationSec, label: spec.label };
 }
 
-function requireMusicProvider(): Extract<MusicProviderLimits, { ok: true }> {
+function requireMusicProviderLimits(): Extract<MusicProviderLimits, { ok: true }> {
   const limits = getMusicProviderLimits();
   if (!limits.ok) {
     throw new ServiceError(503, limits.code, limits.message);
@@ -64,8 +65,22 @@ function requireMusicProvider(): Extract<MusicProviderLimits, { ok: true }> {
   return limits;
 }
 
+export const MUSIC_PROVIDER_UNAVAILABLE_CODE = 'MUSIC_PROVIDER_UNAVAILABLE';
+export const MUSIC_PROVIDER_UNAVAILABLE_MESSAGE =
+  'Die Musikgenerierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.';
+
+export function throwMusicProviderUnavailable(): never {
+  throw new ServiceError(503, MUSIC_PROVIDER_UNAVAILABLE_CODE, MUSIC_PROVIDER_UNAVAILABLE_MESSAGE);
+}
+
+export function requireMusicProvider(): void {
+  if (isPaidProviderTestBlocked() || !hasMusicAiProvider()) {
+    throwMusicProviderUnavailable();
+  }
+}
+
 export function assertMusicDurationSupported(durationSec: number): number {
-  const limits = requireMusicProvider();
+  const limits = requireMusicProviderLimits();
   const check = checkMusicDuration(durationSec, limits.maxDurationSec);
   if (!check.ok) {
     throw new ServiceError(400, 'MUSIC_DURATION_UNSUPPORTED', check.message);
@@ -139,7 +154,7 @@ export async function generateMusic(
   if (!areGenerationsEnabled()) {
     throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
   }
-  const limits = requireMusicProvider();
+  const limits = requireMusicProviderLimits();
   const requested = options?.duration ?? limits.maxDurationSec;
   const duration = assertMusicDurationSupported(requested);
 
@@ -182,7 +197,7 @@ async function generateMusicWithReplicate(
   let prediction = (await createRes.json()) as {
     id: string;
     status: string;
-    output?: string;
+    output?: string | string[];
     error?: string;
   };
 
@@ -196,11 +211,13 @@ async function generateMusicWithReplicate(
     attempts++;
   }
 
-  if (prediction.status === 'failed' || !prediction.output) {
+  const output = prediction.output;
+  const audioUrl = Array.isArray(output) ? output[0] : output;
+  if (prediction.status === 'failed' || typeof audioUrl !== 'string' || !audioUrl.trim()) {
     throw new Error(prediction.error || 'Music generation failed');
   }
 
-  return { audioUrl: prediction.output, provider: 'replicate-musicgen', duration };
+  return { audioUrl, provider: 'replicate-musicgen', duration };
 }
 
 async function generateMusicWithSuno(

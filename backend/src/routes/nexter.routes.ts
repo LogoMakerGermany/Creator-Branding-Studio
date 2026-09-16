@@ -164,6 +164,7 @@ nexterRoutes.post(
           err.code === 'QUOTE_NOT_FOUND' ||
           err.code === 'IMAGE_GENERATION_UNAVAILABLE' ||
           err.code === 'VIDEO_PROVIDER_UNAVAILABLE' ||
+          err.code === 'MUSIC_PROVIDER_UNAVAILABLE' ||
           err.code === 'GENERATIONS_DISABLED' ||
           err.code === 'PROVIDER_UNAVAILABLE' ||
           err.code === 'PROVIDER_TIMEOUT' ||

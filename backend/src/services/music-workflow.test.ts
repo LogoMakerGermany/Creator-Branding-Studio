@@ -279,6 +279,9 @@ describe('music closure — safety', () => {
     const music = src('music.service.ts');
     assert.equal(music.includes('api.replicate.com'), false);
     assert.equal(music.includes('api.stripe.com'), false);
+    assert.match(music, /requireMusicProvider\(\)/);
+    const generate = music.split('export async function generateMusicTrack')[1]?.split('async function resolveMusicAudio')[0] ?? '';
+    assert.ok(generate.indexOf('requireMusicProvider()') < generate.indexOf('withCoinCharge'));
     const { user, project } = await seed();
     await assert.rejects(
       () => generateMusicTrack(user.id, project.id, { duration: 99, purpose: 'background' }),

@@ -88,6 +88,10 @@ export function areVideoGenerationsEnabled(): boolean {
   return areGenerationsEnabled() && readEnv('VIDEO_GENERATIONS_ENABLED') !== 'false';
 }
 
+export function areMusicGenerationsEnabled(): boolean {
+  return areGenerationsEnabled() && readEnv('MUSIC_GENERATIONS_ENABLED') !== 'false';
+}
+
 /**
  * Nexter text-chat kill switch. Fail-closed.
  * Missing, empty, or any value other than "true" keeps chat disabled.
@@ -470,6 +474,15 @@ export function hasImageAiProvider(): boolean {
 /** ENV presence only — Runway or Replicate video, and video generations not killed. */
 export function hasVideoAiProvider(): boolean {
   return areVideoGenerationsEnabled() && Boolean(getRunwayApiKey() || getReplicateApiToken());
+}
+
+/** ENV presence only — MusicGen via Replicate. Unofficial Suno does not count. */
+export function hasMusicAiProvider(): boolean {
+  if (!areMusicGenerationsEnabled()) return false;
+  const pref = getMusicProviderPreference()?.toLowerCase();
+  if (pref === 'suno') return false;
+  if (pref && pref !== 'replicate' && pref !== 'replicate-musicgen') return false;
+  return Boolean(getReplicateApiToken());
 }
 
 export function getResendApiKey(): string | undefined {

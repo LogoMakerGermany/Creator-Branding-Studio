@@ -79,6 +79,14 @@ export async function uploadAssetFromDataUrl(
   });
 }
 
+export async function uploadAssetFromBuffer(
+  userId: string,
+  buffer: Buffer,
+  options: { folder?: string; fileName?: string; contentType: string; extension?: string }
+): Promise<string> {
+  return uploadBuffer(userId, buffer, options);
+}
+
 /**
  * Upload private object and return a short-lived signed URL.
  * Objects are NOT made public — storage.rules remain authoritative.

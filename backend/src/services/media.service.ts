@@ -1,7 +1,7 @@
 import type { CreatorDNA, VideoFormatId, VideoEditPlan, VideoMetadata, VideoScene, VideoPause, AudioActivityBucket, VideoCrop, VideoFitMode, VideoAspectPreset, VideoPreviewState } from '@ucbs/shared';
 import { buildDnaPromptContext, getVideoFormatPreset, ffmpegScaleFilter, defaultEditPlan, clipSubtitlesToRange, ffmpegCropScaleFilter, isValidTrim, outputSizeForAspect, buildVideoPreviewState, isSupportedVideoTransition, isValidCaption, sanitizeCaptionText, captionsFromTranscript, MAX_TRANSITION_SEC, DEFAULT_TRANSITION_SEC, CoinSpendCategory } from '@ucbs/shared';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
-import { uploadAssetFromDataUrl, uploadAssetFromUrl } from '../lib/firebase-storage.js';
+import { uploadAssetFromBuffer, uploadAssetFromDataUrl, uploadAssetFromUrl } from '../lib/firebase-storage.js';
 import { buildPromptFromDNA, generateImage } from './ai.service.js';
 import { generateMusic, generateSpeech, generateVideo, assertMusicDurationSupported, getMusicProviderLimits } from '../lib/media-providers.js';
 import {
@@ -18,7 +18,7 @@ import {
   probeVideoMetadata,
   exportEditedVideo,
 } from '../lib/video-processing.js';
-import { getElevenLabsVoiceId } from '../config/env.js';
+import { fetchProviderAudio } from '../lib/safe-provider-fetch.js';
 import { randomUUID } from 'node:crypto';
 import { ServiceError } from '../lib/errors.js';
 import { saveUserFile, getUserFile, issueFileDownloadUrl, mintDownloadUrlForOwnedFile } from './file-cloud.service.js';
@@ -32,7 +32,7 @@ import {
   MAX_CONCURRENT_LOCAL_VIDEO_JOBS,
   looksLikePathInjection,
 } from '../lib/upload-validation.js';
-import { getMaxConcurrentJobsPerUser } from '../config/env.js';
+import { getElevenLabsVoiceId, getMaxConcurrentJobsPerUser } from '../config/env.js';
 const COLLECTION = 'mediaJobs';
 const VIDEO_COLLECTION = 'videoProjects';
 
@@ -1152,10 +1152,13 @@ async function persistVideo(userId: string, url: string): Promise<string> {
 }
 
 async function persistAudio(userId: string, url: string): Promise<string> {
-  if (url.startsWith('data:')) {
-    return uploadAssetFromDataUrl(userId, url, { folder: 'audio', fileName: `${randomUUID()}.mp3` });
-  }
-  return uploadAssetFromUrl(userId, url, { folder: 'audio', contentType: 'audio/mpeg' });
+  const audio = await fetchProviderAudio(url);
+  return uploadAssetFromBuffer(userId, audio.buffer, {
+    folder: 'audio',
+    fileName: `${randomUUID()}.${audio.extension}`,
+    contentType: audio.mimeType,
+    extension: audio.extension,
+  });
 }
 
 function generateVoiceScript(dna: CreatorDNA, custom?: string): string {

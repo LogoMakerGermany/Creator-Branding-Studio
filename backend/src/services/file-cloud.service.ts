@@ -13,9 +13,11 @@ import {
   isOwnedStoragePath,
   signOwnedStoragePath,
   SIGNED_URL_TTL_MS,
+  uploadAssetFromBuffer,
   uploadAssetFromDataUrl,
   uploadAssetFromUrl,
 } from '../lib/firebase-storage.js';
+import { audioExtensionForMime, MUSIC_STORAGE_ERROR_CODE, MUSIC_STORAGE_FAILED_MESSAGE } from '../lib/safe-provider-fetch.js';
 
 const FILES_COLLECTION = 'files';
 export const FILE_LIST_DEFAULT_LIMIT = 50;
@@ -540,5 +542,61 @@ export async function saveGeneratedAsset(
   };
 
   await dsSet(FILES_COLLECTION, id, file as unknown as Record<string, unknown>);
+  return file;
+}
+
+export async function saveGeneratedAudioFile(
+  userId: string,
+  input: {
+    name: string;
+    mimeType: string;
+    buffer: Buffer;
+    projectId?: string;
+    sourceJobId?: string;
+    version?: number;
+  }
+): Promise<UserFile> {
+  if (saveGeneratedAssetTestHooks?.fail) {
+    throw new ServiceError(503, MUSIC_STORAGE_ERROR_CODE, MUSIC_STORAGE_FAILED_MESSAGE);
+  }
+  if (input.projectId) {
+    await assertOwnedProject(userId, input.projectId);
+  }
+  const id = randomUUID();
+  const ext = audioExtensionForMime(input.mimeType);
+  const fileName = sanitizeZipEntryName(`${id}.${ext}`, `${id}.bin`);
+  const storagePath = `users/${userId}/other/${fileName}`;
+  let downloadUrl: string;
+  try {
+    downloadUrl = await uploadAssetFromBuffer(userId, input.buffer, {
+      folder: 'other',
+      fileName,
+      contentType: input.mimeType,
+      extension: ext,
+    });
+  } catch (err) {
+    if (err instanceof ServiceError) throw err;
+    throw new ServiceError(503, MUSIC_STORAGE_ERROR_CODE, MUSIC_STORAGE_FAILED_MESSAGE);
+  }
+  const file: UserFile = {
+    id,
+    userId,
+    name: sanitizeFileDisplayName(input.name),
+    mimeType: input.mimeType,
+    size: input.buffer.length,
+    category: 'other',
+    downloadUrl,
+    storagePath,
+    source: 'generation',
+    projectId: input.projectId,
+    sourceJobId: input.sourceJobId,
+    version: input.version,
+    createdAt: new Date().toISOString(),
+  };
+  await dsSet(
+    FILES_COLLECTION,
+    id,
+    Object.fromEntries(Object.entries(file).filter(([, v]) => v !== undefined)) as Record<string, unknown>
+  );
   return file;
 }

@@ -125,6 +125,13 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
         'Die Bildgenerierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.',
       VIDEO_PROVIDER_UNAVAILABLE:
         'Die KI-Videogenerierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.',
+      MUSIC_PROVIDER_UNAVAILABLE:
+        'Die Musikgenerierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.',
+      MUSIC_REQUIRES_QUOTE: 'Musik startet nur über Nexter nach Bestätigung.',
+      MUSIC_INVALID_AUDIO: 'Die Musikgenerierung lieferte keine gültige Audiodatei. Coins wurden erstattet.',
+      MUSIC_DOWNLOAD_TIMEOUT: 'Der Audio-Download hat zu lange gedauert. Coins wurden erstattet.',
+      MUSIC_PROVIDER_FAILED: 'Die Musikgenerierung ist fehlgeschlagen. Coins wurden erstattet.',
+      MUSIC_STORAGE_ERROR: 'Die Musikdatei konnte nicht gespeichert werden. Coins wurden erstattet.',
       PROVIDER_UNAVAILABLE: 'Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.',
       PROVIDER_TIMEOUT: 'Die Bildgenerierung hat zu lange gedauert. Coins wurden erstattet.',
       PROVIDER_ERROR: 'Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.',

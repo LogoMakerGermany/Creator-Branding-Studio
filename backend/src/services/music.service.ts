@@ -15,14 +15,26 @@ import {
 } from '@ucbs/shared';
 import { withCoinCharge } from '../lib/billable-job.js';
 import { ServiceError } from '../lib/errors.js';
-import { generateMusic, getMusicProviderLimits, isPaidProviderTestBlocked } from '../lib/media-providers.js';
+import {
+  generateMusic,
+  requireMusicProvider,
+} from '../lib/media-providers.js';
 import { createTinyTestAudio } from '../lib/audio-test.js';
+import {
+  audioExtensionForMime,
+  fetchProviderAudio,
+  MUSIC_INVALID_AUDIO_CODE,
+  MUSIC_INVALID_AUDIO_MESSAGE,
+  MUSIC_STORAGE_ERROR_CODE,
+  MUSIC_STORAGE_FAILED_MESSAGE,
+} from '../lib/safe-provider-fetch.js';
+import { omitUndefinedFields } from '../lib/firestore-payload.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { resolveDnaForRequest } from './dna.service.js';
 import {
   issueFileDownloadUrl,
   listUserFiles,
-  saveUserFile,
+  saveGeneratedAudioFile,
   type UserFile,
 } from './file-cloud.service.js';
 import { getMediaJob, listMediaJobs, type MediaJob } from './media.service.js';
@@ -35,7 +47,15 @@ export interface MusicJobView extends MediaJob {
   downloadName?: string;
 }
 
-let musicTestHooks: { result?: 'success' | 'fail'; audioDataUrl?: string } | undefined;
+let musicTestHooks:
+  | {
+      result?: 'success' | 'fail';
+      audioDataUrl?: string;
+      providerOutput?: string;
+      persistFail?: boolean;
+      jobPersistFail?: boolean;
+    }
+  | undefined;
 
 export function setMusicTestHooks(hooks: typeof musicTestHooks | null): void {
   musicTestHooks = hooks ?? undefined;
@@ -91,11 +111,15 @@ export async function hydrateMusicJob(job: MediaJob, userId: string): Promise<Mu
   const next: MusicJobView = { ...job, config };
   const fileId = typeof job.metadata?.fileId === 'string' ? job.metadata.fileId : undefined;
   const version = typeof job.metadata?.version === 'number' ? job.metadata.version : 1;
+  const ext =
+    typeof job.metadata?.outputFormat === 'string' && job.metadata.outputFormat
+      ? String(job.metadata.outputFormat)
+      : 'wav';
   next.downloadName = musicDownloadFilename({
     creatorName: typeof job.metadata?.creatorName === 'string' ? job.metadata.creatorName : 'creator',
     purpose: config.purpose,
     version,
-    ext: 'wav',
+    ext,
   });
   if (!fileId) {
     if (job.status === 'completed') next.fileMissing = true;
@@ -201,18 +225,8 @@ export async function generateMusicTrack(
   const quoteId = typeof payload?.quoteId === 'string' ? payload.quoteId : undefined;
   const prompt = plan.prompt;
 
-  if (musicTestHooks?.result !== 'success' && musicTestHooks?.result !== 'fail') {
-    if (isPaidProviderTestBlocked()) {
-      throw new ServiceError(
-        503,
-        'AI_NOT_CONFIGURED',
-        'Musik-Provider ist nicht konfiguriert. Vorschau bleibt die Konfiguration.'
-      );
-    }
-    const limits = getMusicProviderLimits();
-    if (!limits.ok) {
-      throw new ServiceError(503, limits.code, limits.message);
-    }
+  if (!musicTestHooks) {
+    requireMusicProvider();
   }
 
   try {
@@ -235,39 +249,35 @@ export async function generateMusicTrack(
             error: 'mock-fail',
             createdAt: new Date().toISOString(),
             completedAt: new Date().toISOString(),
-            metadata: { ...plan, creatorName: dna.name },
+            metadata: omitUndefinedFields({ ...plan, creatorName: dna.name, quoteId }),
           };
           const { dsSet } = await import('../lib/data-store.js');
           await dsSet('mediaJobs', job.id, job as unknown as Record<string, unknown>);
           return job;
         }
 
-        if (isPaidProviderTestBlocked() || musicTestHooks?.result === 'success') {
-          if (isPaidProviderTestBlocked() && musicTestHooks?.result !== 'success') {
-            throw new ServiceError(
-              503,
-              'AI_NOT_CONFIGURED',
-              'Musik-Provider ist nicht konfiguriert. Vorschau bleibt die Konfiguration.'
-            );
+        try {
+          const audio = await resolveMusicAudio(plan, prompt);
+          if (musicTestHooks?.persistFail) {
+            throw new ServiceError(503, MUSIC_STORAGE_ERROR_CODE, MUSIC_STORAGE_FAILED_MESSAGE);
           }
-          const dataUrl =
-            musicTestHooks?.audioDataUrl ??
-            `data:audio/wav;base64,${createTinyTestAudio().toString('base64')}`;
-          return persistMockMusicResult(userId, dna, plan, prompt, projectId, parentJobId, dataUrl);
+          return await persistOwnedMusicResult(
+            userId,
+            dna,
+            plan,
+            prompt,
+            projectId,
+            parentJobId,
+            audio,
+            quoteId,
+            musicTestHooks?.jobPersistFail
+          );
+        } catch (err) {
+          if (err instanceof ServiceError) {
+            throw new AppError(err.statusCode, err.code, err.message);
+          }
+          throw err;
         }
-
-        const music = await generateMusic(prompt, {
-          duration: plan.durationSec,
-          title: plan.title || `${dna.name} Music`,
-        });
-        const dataUrl = music.audioUrl.startsWith('data:')
-          ? music.audioUrl
-          : await fetchAudioAsDataUrl(music.audioUrl);
-        const job = await persistMockMusicResult(userId, dna, plan, prompt, projectId, parentJobId, dataUrl);
-        job.provider = music.provider;
-        const { dsSet } = await import('../lib/data-store.js');
-        await dsSet('mediaJobs', job.id, job as unknown as Record<string, unknown>);
-        return job;
       },
       { quoteId }
     );
@@ -279,39 +289,65 @@ export async function generateMusicTrack(
   }
 }
 
-async function fetchAudioAsDataUrl(url: string): Promise<string> {
-  if (url.startsWith('data:')) return url;
-  throw new ServiceError(503, 'AI_NOT_CONFIGURED', 'Remote-Audio ohne Mock ist in diesem Block nicht erlaubt');
+async function resolveMusicAudio(
+  plan: MusicConfig,
+  prompt: string
+): Promise<{ buffer: Buffer; mimeType: string; extension: string; provider: string }> {
+  if (musicTestHooks?.providerOutput) {
+    const audio = await fetchProviderAudio(musicTestHooks.providerOutput);
+    return { ...audio, provider: 'mock-https' };
+  }
+  if (musicTestHooks?.result === 'success') {
+    const dataUrl =
+      musicTestHooks.audioDataUrl ?? `data:audio/wav;base64,${createTinyTestAudio().toString('base64')}`;
+    const audio = await fetchProviderAudio(dataUrl);
+    return { ...audio, provider: 'mock' };
+  }
+
+  const music = await generateMusic(prompt, {
+    duration: plan.durationSec,
+    title: plan.title,
+  });
+  if (typeof music.audioUrl !== 'string' || !music.audioUrl.trim()) {
+    throw new ServiceError(502, MUSIC_INVALID_AUDIO_CODE, MUSIC_INVALID_AUDIO_MESSAGE);
+  }
+  const audio = await fetchProviderAudio(music.audioUrl);
+  return { ...audio, provider: music.provider };
 }
 
-async function persistMockMusicResult(
+async function persistOwnedMusicResult(
   userId: string,
   dna: CreatorDNA,
   plan: MusicConfig,
   prompt: string,
   projectId: string | undefined,
   parentJobId: string | undefined,
-  dataUrl: string
+  audio: { buffer: Buffer; mimeType: string; extension: string; provider: string },
+  quoteId?: string,
+  jobPersistFail?: boolean
 ): Promise<MediaJob> {
   const id = randomUUID();
   const rootId = parentJobId || id;
   const existing = await getVersionsForJob(rootId, userId);
   const version = existing.length + 1;
+  const ext = audio.extension || audioExtensionForMime(audio.mimeType);
   const filename = musicDownloadFilename({
     creatorName: dna.name,
     purpose: plan.purpose,
     version,
-    ext: 'wav',
+    ext,
   });
-  const file = await saveUserFile(userId, {
+  const file = await saveGeneratedAudioFile(userId, {
     name: filename,
-    mimeType: 'audio/wav',
-    category: 'other',
-    dataUrl,
-    source: 'generation',
+    mimeType: audio.mimeType,
+    buffer: audio.buffer,
     projectId,
     sourceJobId: id,
+    version,
   });
+  if (!file.downloadUrl) {
+    throw new ServiceError(503, MUSIC_STORAGE_ERROR_CODE, MUSIC_STORAGE_FAILED_MESSAGE);
+  }
   const versionRow = await recordJobVersion(userId, rootId, file.id, parentJobId ? 'Variante' : 'Original');
   const job: MediaJob = {
     id,
@@ -323,36 +359,41 @@ async function persistMockMusicResult(
     duration: plan.durationSec,
     dnaId: dna.id,
     projectId,
-    provider: 'mock',
+    provider: audio.provider,
     audioUrl: file.downloadUrl,
     createdAt: new Date().toISOString(),
     completedAt: new Date().toISOString(),
-    metadata: {
+    metadata: omitUndefinedFields({
       ...plan,
       fileId: file.id,
       version: versionRow.version,
       parentJobId,
       creatorName: dna.name,
-      mimeType: 'audio/wav',
-      outputFormat: 'wav',
+      mimeType: audio.mimeType,
+      outputFormat: ext,
       instrumental: true,
       vocalsCapability: 'instrumental-only',
       downloadName: filename,
-    },
+      quoteId,
+    }),
   };
+  if (jobPersistFail) {
+    throw new ServiceError(503, MUSIC_STORAGE_ERROR_CODE, MUSIC_STORAGE_FAILED_MESSAGE);
+  }
   const { dsSet } = await import('../lib/data-store.js');
   await dsSet('mediaJobs', job.id, job as unknown as Record<string, unknown>);
-  if (projectId) {
+  const ownedUrl = file.downloadUrl;
+  if (projectId && ownedUrl) {
     await attachAssetToProject(userId, projectId, {
       name: filename,
       type: 'audio',
-      url: file.downloadUrl || dataUrl,
+      url: ownedUrl,
       jobId: id,
       fileId: file.id,
       module: 'ai-music',
       sourceType: 'generation',
       sourceId: id,
-      mimeType: 'audio/wav',
+      mimeType: audio.mimeType,
       version: versionRow.version,
     }).catch(() => undefined);
   }

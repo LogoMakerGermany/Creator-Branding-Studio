@@ -143,7 +143,7 @@ export function AIMusicPage() {
   return (
     <StudioShell
       title="Musik Studio"
-      description="Stil, Dauer und Einsatz konfigurieren — Provider-Job nur nach Nexter-Quote."
+      description="Stil, Dauer und Einsatz konfigurieren — Nexter-Angebot, ohne Musik-Provider keine Coin-Abbuchung."
       coinCost={MUSIC_COST}
       nexterHint="Musik"
       badge={<Badge variant="brand">MusicGen</Badge>}
@@ -219,6 +219,9 @@ export function AIMusicPage() {
               <p>{summary}</p>
               <p>
                 {MUSIC_COST} Coins · Bestand {coins} → nach Bestätigung {remainder < 0 ? 'unzureichend' : remainder}
+              </p>
+              <p className="mt-1">
+                Ohne verfügbaren Musik-Provider stoppt die Bestätigung vor der Abbuchung.
               </p>
               {remainder < 0 && (
                 <p className="mt-1 text-amber-300" data-testid="music-insufficient-coins">
@@ -302,7 +305,7 @@ export function AIMusicPage() {
                     <p className="mt-1 text-xs text-red-400">Audio-Vorschau fehlgeschlagen.</p>
                   )}
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {j.status === 'completed' && (
+                    {j.status === 'completed' && !j.fileMissing && (
                       <Button size="sm" className="min-h-11" data-testid="music-download" onClick={() => void downloadJob(j)}>
                         Download
                       </Button>

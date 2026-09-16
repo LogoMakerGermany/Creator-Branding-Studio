@@ -592,12 +592,12 @@ async function confirmMusicQuote(
         quoteId: quote.id,
       });
       quote.status = 'confirmed';
-      quote.payload = {
+      quote.payload = omitUndefinedFields({
         ...(quote.payload ?? {}),
         jobIds: [result.job.id],
         coinsSpent: result.coinsSpent,
         refundedCoins: 0,
-      };
+      });
       await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
       return {
         quote,
@@ -608,10 +608,10 @@ async function confirmMusicQuote(
       };
     } catch (err) {
       quote.status = 'pending';
-      quote.payload = {
+      quote.payload = omitUndefinedFields({
         ...(quote.payload ?? {}),
         lastError: err instanceof Error ? err.message : 'music-failed',
-      };
+      });
       await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
       throw err;
     }
