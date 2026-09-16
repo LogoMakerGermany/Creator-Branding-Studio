@@ -656,10 +656,16 @@ export function parseOverlayIntent(
   const logoPos = parseLogoPosition(lower);
   if (logoPos) config.logoPosition = logoPos;
 
-  if (/starting soon|startbildschirm/.test(lower)) {
-    config.overlayType = 'starting-soon';
+  if (/starting[- ]?soon|startbildschirm|startscreen/.test(lower) && !/animier/.test(lower)) {
     config.transparentBackground = false;
     config = applyOverlayLayoutPreset(config, 'gameplay-full');
+    config.overlayType = 'starting-soon';
+    config.gameplayRegion = { ...config.gameplayRegion, transparent: false };
+  }
+  if ((/\bending\b|endscreen|end[- ]?screen|stream[- ]?ende/.test(lower)) && !/animier/.test(lower) && !/outro|abspann/.test(lower)) {
+    config.transparentBackground = false;
+    config = applyOverlayLayoutPreset(config, 'gameplay-full');
+    config.overlayType = 'ending';
     config.gameplayRegion = { ...config.gameplayRegion, transparent: false };
   }
   if (/\bbrb\b|be right back/.test(lower)) config.overlayType = 'brb';

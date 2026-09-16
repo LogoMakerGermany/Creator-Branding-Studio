@@ -24,7 +24,7 @@ import { ServiceError } from '../lib/errors.js';
 export const changeRequestRoutes = Router();
 changeRequestRoutes.use(authenticate, requirePermission(Permission.USE_LOGO_STUDIO));
 
-const PARENT_QUOTE_KINDS = new Set(['facecam', 'overlay', 'sticker', 'mockup', 'animation', 'music', 'voice']);
+const PARENT_QUOTE_KINDS = new Set(['facecam', 'overlay', 'sticker', 'mockup', 'animation', 'ai-video', 'music', 'voice']);
 
 function mapErr(err: unknown): never {
   if (err instanceof AppError) throw err;

@@ -372,6 +372,7 @@ export function followOnAssetLabel(kind: NexterQuoteKind | string): string {
     sticker: 'Sticker/Badges',
     mockup: 'ein Mockup',
     animation: 'Intro/Outro',
+    'ai-video': 'ein KI-Video',
     music: 'einen Musik-Track',
     voice: 'ein Voiceover',
     logo: 'ein Logo',

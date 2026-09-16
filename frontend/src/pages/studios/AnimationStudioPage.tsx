@@ -185,6 +185,8 @@ export function AnimationStudioPage() {
   }
 
   function nexterPrompt(): string {
+    if (type === 'stream-start') return 'Erstelle einen animierten Starting-Soon-Screen.';
+    if (type === 'stream-end') return 'Erstelle einen animierten Endscreen.';
     if (effect === 'rotate') return 'Lass mein Logo einmal um die eigene Achse drehen.';
     if (effect === 'fade-in') return 'Lass das Logo langsam einblenden.';
     if (type === 'intro') return `Mach daraus ein ${durationSec} Sekunden Intro.`;

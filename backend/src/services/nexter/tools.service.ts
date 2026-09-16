@@ -15,6 +15,9 @@ import {
   platformFormatHint,
   parseVideoStudioPrep,
   parseVideoClosureCommand,
+  isAiVideoQuoteIntent,
+  isAnimatedStreamScreenIntent,
+  isStaticStreamScreenIntent,
   formatColorsForNexter,
   humanColorName,
   type NexterAction,
@@ -31,6 +34,7 @@ export const QUOTE_KIND_CATEGORY: Record<NexterQuoteKind, CoinSpendCategory> = {
   streamset: CoinSpendCategory.STREAMSET_PACK,
   mockup: CoinSpendCategory.MOCKUP_GENERATION,
   animation: CoinSpendCategory.ANIMATION_GENERATION,
+  'ai-video': CoinSpendCategory.AI_VIDEO,
   text: CoinSpendCategory.TEXT_GENERATION,
   music: CoinSpendCategory.AI_MUSIC,
   voice: CoinSpendCategory.AI_VOICE,
@@ -279,10 +283,17 @@ export function detectQuoteKind(message: string): NexterQuoteKind | null {
   if (detectVoiceQuoteIntent(message)) {
     return 'voice';
   }
+  if (isAiVideoQuoteIntent(message)) {
+    return 'ai-video';
+  }
   if (
-    /animier(?:e|en|t)?\b|logo[- ]?loop|(mach|erstell|generier).*(intro|outro|stinger|alert)/.test(lower) ||
+    /animier(?:e|en|t)?\b|\banimation\b|logo[- ]?loop|(mach|erstell|generier).*(intro|outro|stinger|alert)/.test(
+      lower
+    ) ||
     /(intro|outro|stinger).*(sek|s\b|animation)/.test(lower) ||
-    /um die eigene achse|langsam einblend|version für tiktok/.test(lower)
+    /um die eigene achse|langsam einblend|version für tiktok/.test(lower) ||
+    isAnimatedStreamScreenIntent(message) ||
+    /\bstream[- ]?start\b|\bstream[- ]?end\b/.test(lower)
   ) {
     return 'animation';
   }
@@ -298,9 +309,10 @@ export function detectQuoteKind(message: string): NexterQuoteKind | null {
   if (detectTextQuoteIntent(lower)) return 'text';
   if (/\bbanner\b/.test(lower)) return 'banner';
   if (
-    /\boverlay|starting soon|\boffline\b|gaming[- ]?layout|stream[- ]?overlay|twitch layout|tiktok layout|youtube layout|twitch overlay|tiktok overlay|youtube overlay|oben facecam.{0,40}gameplay.{0,40}chat|facecam oben.{0,20}gameplay/.test(
+    /\boverlay|starting soon|startscreen|startbildschirm|\boffline\b|gaming[- ]?layout|stream[- ]?overlay|twitch layout|tiktok layout|youtube layout|twitch overlay|tiktok overlay|youtube overlay|oben facecam.{0,40}gameplay.{0,40}chat|facecam oben.{0,20}gameplay/.test(
       lower
-    )
+    ) ||
+    isStaticStreamScreenIntent(message)
   ) {
     return 'overlay';
   }
@@ -354,6 +366,7 @@ export function detectOpenStudio(message: string): string | null {
   if (/logo/.test(lower)) return NEXTER_STUDIO_PATHS.logo;
   if (/streamset/.test(lower)) return NEXTER_STUDIO_PATHS.streamset;
   if (/short/.test(lower)) return NEXTER_STUDIO_PATHS.shorts;
+  if (/(?:ki|ai)[- ]?video/.test(lower)) return NEXTER_STUDIO_PATHS['ai-video'];
   if (/video/.test(lower) && !/logo/.test(lower)) return NEXTER_STUDIO_PATHS.video;
   if (/animation|intro|outro|stinger/.test(lower) && !/\b(musik|song|jingle|bgm)\b/.test(lower)) {
     return NEXTER_STUDIO_PATHS.animation;
@@ -609,6 +622,7 @@ export function quoteActions(
     sticker: NEXTER_STUDIO_PATHS.sticker,
     mockup: NEXTER_STUDIO_PATHS.mockup,
     animation: NEXTER_STUDIO_PATHS.animation,
+    'ai-video': NEXTER_STUDIO_PATHS['ai-video'],
     text: NEXTER_STUDIO_PATHS.text,
     overlay: NEXTER_STUDIO_PATHS.overlay,
     music: NEXTER_STUDIO_PATHS.music,

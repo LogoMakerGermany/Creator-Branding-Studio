@@ -17,7 +17,7 @@ import {
 } from '@ucbs/shared';
 import { withCoinCharge } from '../lib/billable-job.js';
 import { ServiceError } from '../lib/errors.js';
-import { isPaidProviderTestBlocked } from '../lib/media-providers.js';
+import { requireVideoProvider } from '../lib/media-providers.js';
 import { resolveDnaForRequest } from './dna.service.js';
 import { getJobsByUser } from './ai.service.js';
 import {
@@ -33,7 +33,15 @@ import { AppError } from '../middleware/errorHandler.js';
 import { MAX_UPLOAD_BYTES } from '../lib/upload-validation.js';
 import { createTinyTestVideo } from '../lib/video-processing.js';
 
-const ANIMATION_JOB_TYPES: MediaJobType[] = ['intro', 'outro', 'stinger', 'alert', 'logo-loop'];
+const ANIMATION_JOB_TYPES: MediaJobType[] = [
+  'intro',
+  'outro',
+  'stinger',
+  'alert',
+  'logo-loop',
+  'stream-start',
+  'stream-end',
+];
 
 function asJobType(type: AnimationTypeId): MediaJobType {
   return type;
@@ -196,7 +204,7 @@ function planFromPayload(payload?: Record<string, unknown>, parsed?: Partial<Ani
     durationSec: durationCheck.durationSec,
     aspectRatio,
     motion: motion === 'subtle' || motion === 'strong' ? motion : 'medium',
-    loop: Boolean(payload?.loop ?? parsed?.loop ?? typeRaw === 'logo-loop'),
+    loop: Boolean(payload?.loop ?? parsed?.loop ?? (typeRaw === 'logo-loop' || typeRaw === 'stream-start')),
     withAudio: Boolean(payload?.withAudio ?? parsed?.withAudio),
     effect: (effectRaw as AnimationConfig['effect']) || 'fade-in',
     rotations,
@@ -280,6 +288,10 @@ export async function generateAnimation(
 
   const quoteId = typeof payload?.quoteId === 'string' ? payload.quoteId : undefined;
 
+  if (!animationTestHooks) {
+    requireVideoProvider();
+  }
+
   try {
     return await withCoinCharge(
       userId,
@@ -307,16 +319,9 @@ export async function generateAnimation(
           return job;
         }
 
-        if (isPaidProviderTestBlocked() || animationTestHooks?.result === 'success') {
-          if (isPaidProviderTestBlocked() && animationTestHooks?.result !== 'success') {
-            throw new ServiceError(
-              503,
-              'AI_NOT_CONFIGURED',
-              'Animation-Provider ist nicht konfiguriert. Vorschau bleibt lokal.'
-            );
-          }
+        if (animationTestHooks?.result === 'success') {
           const dataUrl =
-            animationTestHooks?.videoDataUrl ??
+            animationTestHooks.videoDataUrl ??
             `data:video/mp4;base64,${(await createTinyTestVideo(Math.min(2.2, plan.durationSec))).toString('base64')}`;
           return persistMockAnimationResult(userId, dna, plan, prompt, projectId, ownedSource, parentJobId, dataUrl);
         }

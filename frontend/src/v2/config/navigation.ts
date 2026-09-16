@@ -69,7 +69,7 @@ export const BRANDING_MODULES: HubModule[] = [
   { id: 'banner', title: 'Banner', description: 'Twitch, YouTube, TikTok, Kick', path: '/banner-studio', accent: 'purple' },
   { id: 'facecam', title: 'Facecam', description: 'Webcam-Rahmen & Overlays', path: '/facecam-studio', accent: 'green' },
   { id: 'overlay', title: 'Overlay & Panels', description: 'HUD, Alerts, Szenen', path: '/overlay-studio', accent: 'cyan' },
-  { id: 'intro', title: 'Intro & Outro', description: 'Starting Soon, Ending Screen', path: '/intro-outro', accent: 'green' },
+  { id: 'intro', title: 'Intro & Outro', description: 'Animierte Stream-Intros und Outros', path: '/intro-outro', accent: 'green' },
   { id: 'sticker', title: 'Sticker & Emotes', description: 'Emotes, Badges, Sticker', path: '/sticker-studio', accent: 'cyan' },
   { id: 'mockup', title: 'Mockup', description: 'Design auf realen Produkten', path: '/mockup-studio', accent: 'purple' },
 ];

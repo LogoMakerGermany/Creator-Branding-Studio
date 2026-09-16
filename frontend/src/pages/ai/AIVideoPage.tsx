@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { PageHeader, Badge, Button, NeonCard, Input, StatCard } from '@/components/ui';
 import { Video, Sparkles, CheckCircle2, Download, History } from 'lucide-react';
+import { COIN_COSTS, CoinSpendCategory } from '@ucbs/shared';
 import { useAuth } from '@/context/AuthContext';
 import { api, type MediaJob } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
@@ -23,6 +24,7 @@ export function AIVideoPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentJob, setCurrentJob] = useState<MediaJob | null>(null);
   const [history, setHistory] = useState<MediaJob[]>([]);
+  const videoCost = COIN_COSTS[CoinSpendCategory.AI_VIDEO];
 
   useEffect(() => {
     api.aiVideo.list().then((r) => setHistory(r.jobs)).catch(() => {});
@@ -34,8 +36,8 @@ export function AIVideoPage() {
       return;
     }
     setLoading(true);
-    setError('KI-Video startet nicht direkt. Nutze das Video-Studio oder ein bestätigtes Nexter-Angebot.');
-    queueNexterPrompt(prompt.trim() ? `Ich brauche ein Video: ${prompt.trim()}` : 'Öffne das Video Studio.');
+    setError('KI-Video startet nur über Nexter nach Bestätigung.');
+    queueNexterPrompt(prompt.trim() ? `Erstelle ein KI-Video: ${prompt.trim()}` : 'Erstelle ein KI-Video.');
     setLoading(false);
   }
 
@@ -45,9 +47,9 @@ export function AIVideoPage() {
     <div>
       <PageHeader
         title="KI Video Generator"
-        description="Lokales Video-Studio und Nexter — direkte KI-Video-Provider nur nach Bestätigung"
-        badge={<Badge variant="brand">Runway · Replicate</Badge>}
-        actions={<Badge variant="default">{formatCoins(25)} Coins</Badge>}
+        description="KI-Video nur über Nexter-Angebot. Ohne Video-Provider werden keine Coins abgebucht."
+        badge={<Badge variant="brand">Nexter Quote</Badge>}
+        actions={<Badge variant="default">{formatCoins(videoCost)} Coins</Badge>}
       />
 
       {!activeDna && <DnaRequiredBanner />}
@@ -69,16 +71,16 @@ export function AIVideoPage() {
             onChange={(e) => setPrompt(e.target.value)}
           />
           <p className="mt-2 text-xs text-zinc-500">
-            Generiert echte MP4-Videos via Runway oder Replicate.
+            Direkte Generierung ist gesperrt. Nexter erstellt ein Angebot zu {videoCost} Coins — ohne Bestätigung und ohne Provider passiert nichts.
           </p>
           <Button
             className="mt-4 w-full gap-2"
             onClick={handleGenerate}
             loading={loading}
-            disabled={!activeDna || (user?.coinBalance ?? 0) < 25}
+            disabled={!activeDna || (user?.coinBalance ?? 0) < videoCost}
           >
             <Sparkles className="h-4 w-4" />
-            Video generieren (25 Coins)
+            Angebot anfragen ({videoCost} Coins)
           </Button>
         </NeonCard>
 

@@ -8,6 +8,7 @@ import {
   getReplicateVideoModel,
   getMusicProviderPreference,
   hasImageAiProvider,
+  hasVideoAiProvider,
   areGenerationsEnabled,
   areImageGenerationsEnabled,
   areVideoGenerationsEnabled,
@@ -322,6 +323,22 @@ export function throwImageProviderUnavailableAfterDebit(): never {
 export function requireImageProvider(): void {
   if (isPaidProviderTestBlocked() || !hasImageAiProvider()) {
     throwImageGenerationUnavailable();
+  }
+}
+
+export const VIDEO_PROVIDER_UNAVAILABLE_CODE = 'VIDEO_PROVIDER_UNAVAILABLE';
+export const VIDEO_PROVIDER_UNAVAILABLE_MESSAGE =
+  'Die KI-Videogenerierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.';
+export const VIDEO_PROVIDER_FAILED_MESSAGE =
+  'Die KI-Videogenerierung ist fehlgeschlagen. Coins wurden erstattet.';
+
+export function throwVideoProviderUnavailable(): never {
+  throw new ServiceError(503, VIDEO_PROVIDER_UNAVAILABLE_CODE, VIDEO_PROVIDER_UNAVAILABLE_MESSAGE);
+}
+
+export function requireVideoProvider(): void {
+  if (isPaidProviderTestBlocked() || !hasVideoAiProvider()) {
+    throwVideoProviderUnavailable();
   }
 }
 

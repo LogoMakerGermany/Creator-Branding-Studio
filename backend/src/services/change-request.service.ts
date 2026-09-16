@@ -76,6 +76,7 @@ const IMAGE_KIND_BY_MODULE: Record<string, NexterQuoteKind> = {
 
 const MEDIA_KIND_BY_MODULE: Record<string, NexterQuoteKind> = {
   animation: 'animation',
+  'ai-video': 'ai-video',
   music: 'music',
   voice: 'voice',
   mockup: 'mockup',
@@ -90,6 +91,7 @@ const SOURCE_LABELS: Record<string, string> = {
   sticker: 'Sticker',
   overlay: 'Overlay',
   animation: 'Animation',
+  'ai-video': 'KI-Video',
   music: 'Musik',
   voice: 'Stimme',
   mockup: 'Mockup',

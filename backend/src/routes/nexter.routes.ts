@@ -140,6 +140,8 @@ nexterRoutes.post(
                   ? ['Öffne das Mockup Studio', 'Was fehlt noch?']
                     : result.quote.kind === 'animation'
                     ? ['Öffne das Animation Studio', 'Was fehlt noch?']
+                    : result.quote.kind === 'ai-video'
+                      ? ['Öffne das KI-Video Studio', 'Was fehlt noch?']
                     : result.quote.kind === 'text'
                       ? ['Öffne das Text Studio', 'Mach die Caption kürzer']
                       : result.quote.kind === 'music'
@@ -161,6 +163,7 @@ nexterRoutes.post(
           err.code === 'QUOTE_USED' ||
           err.code === 'QUOTE_NOT_FOUND' ||
           err.code === 'IMAGE_GENERATION_UNAVAILABLE' ||
+          err.code === 'VIDEO_PROVIDER_UNAVAILABLE' ||
           err.code === 'GENERATIONS_DISABLED' ||
           err.code === 'PROVIDER_UNAVAILABLE' ||
           err.code === 'PROVIDER_TIMEOUT' ||

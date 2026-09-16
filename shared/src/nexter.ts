@@ -61,6 +61,7 @@ export type NexterQuoteKind =
   | 'streamset'
   | 'mockup'
   | 'animation'
+  | 'ai-video'
   | 'text'
   | 'music'
   | 'voice'
@@ -217,6 +218,7 @@ export const NEXTER_STUDIO_PATHS: Record<string, string> = {
   logo: '/logo-studio',
   streamset: '/streamset-studio',
   animation: '/animation-studio',
+  'ai-video': '/ai-video',
   music: '/ai-music',
   voice: '/ai-voice',
   video: '/video-studio',

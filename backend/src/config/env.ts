@@ -467,6 +467,11 @@ export function hasImageAiProvider(): boolean {
   );
 }
 
+/** ENV presence only — Runway or Replicate video, and video generations not killed. */
+export function hasVideoAiProvider(): boolean {
+  return areVideoGenerationsEnabled() && Boolean(getRunwayApiKey() || getReplicateApiToken());
+}
+
 export function getResendApiKey(): string | undefined {
   return readEnv('RESEND_API_KEY');
 }

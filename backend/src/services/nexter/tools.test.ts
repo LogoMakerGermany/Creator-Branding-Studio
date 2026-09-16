@@ -149,10 +149,38 @@ describe('nexter tools — open_studio', () => {
   it('maps animation generate vs open studio', () => {
     assert.equal(detectQuoteKind('Animier mein Logo'), 'animation');
     assert.equal(detectQuoteKind('Mach mir daraus ein 10 Sekunden Intro'), 'animation');
+    assert.equal(detectQuoteKind('Mach mir ein Intro'), 'animation');
+    assert.equal(detectQuoteKind('Mach mir ein Outro'), 'animation');
+    assert.equal(detectQuoteKind('Mach mir eine Animation'), 'animation');
+    assert.equal(detectQuoteKind('Erstelle einen animierten Starting-Soon-Screen.'), 'animation');
+    assert.equal(detectQuoteKind('Erstelle einen animierten Endscreen.'), 'animation');
     assert.equal(coinCostForKind('animation'), COIN_COSTS[CoinSpendCategory.ANIMATION_GENERATION]);
     assert.equal(COIN_COSTS[CoinSpendCategory.ANIMATION_GENERATION], 25);
     assert.equal(detectOpenStudio('Öffne das Animation Studio.'), NEXTER_STUDIO_PATHS.animation);
     assert.equal(detectQuoteKind('Öffne das Animation Studio.'), null);
+  });
+
+  it('maps KI-Video to ai-video quote and local video studio separately', () => {
+    assert.equal(detectQuoteKind('Mach mir ein KI-Video'), 'ai-video');
+    assert.equal(detectQuoteKind('Erstelle ein KI-Video: Hype-Trailer'), 'ai-video');
+    assert.equal(detectQuoteKind('Mach mir ein Video'), null);
+    assert.equal(detectQuoteKind('Analysiere dieses Video'), null);
+    assert.equal(coinCostForKind('ai-video'), COIN_COSTS[CoinSpendCategory.AI_VIDEO]);
+    assert.equal(COIN_COSTS[CoinSpendCategory.AI_VIDEO], 25);
+    assert.equal(detectOpenStudio('Öffne das Video Studio.'), NEXTER_STUDIO_PATHS.video);
+    assert.equal(detectOpenStudio('Öffne das KI-Video Studio.'), NEXTER_STUDIO_PATHS['ai-video']);
+    assert.equal(detectQuoteKind('Öffne das KI-Video Studio.'), null);
+    const actions = quoteActions('ai-video', 'quote-ai-video');
+    assert.equal(actions.some((a) => a.tool === 'start_generation' && a.requiresConfirmation), true);
+    assert.equal(actions.find((a) => a.tool === 'open_studio')?.path, '/ai-video');
+  });
+
+  it('separates static overlay screens from animated stream screens', () => {
+    assert.equal(detectQuoteKind('Mach mir einen normalen Starting-Soon-Screen.'), 'overlay');
+    assert.equal(detectQuoteKind('Erstelle einen normalen Ending-Screen.'), 'overlay');
+    assert.equal(detectQuoteKind('Mach mir einen Starting Soon Screen'), 'overlay');
+    assert.equal(coinCostForKind('overlay'), COIN_COSTS[CoinSpendCategory.OVERLAY_GENERATION]);
+    assert.equal(COIN_COSTS[CoinSpendCategory.OVERLAY_GENERATION], 12);
   });
 
   it('maps text generation to quote kind text from TEXT_GENERATION pricing', () => {

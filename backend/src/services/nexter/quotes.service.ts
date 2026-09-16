@@ -20,6 +20,7 @@ import { generateStickerAsset } from '../sticker.service.js';
 import { executeQuotedStreamset, getStreamsetDraft } from '../streamset.service.js';
 import { generateLifestyleMockup } from '../mockup.service.js';
 import { generateAnimation } from '../animation.service.js';
+import { generateAiVideo } from '../ai-video.service.js';
 import { generateMusicTrack } from '../music.service.js';
 import { generateVoiceTrack } from '../voice.service.js';
 import { generateContentPackage, type TextQuotePayload } from '../text.service.js';
@@ -423,6 +424,100 @@ async function confirmAnimationQuote(
         ...(quote.payload ?? {}),
         lastError: err instanceof Error ? err.message : 'animation-failed',
       };
+      await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
+      throw err;
+    }
+  };
+
+  if (isDevMode()) {
+    return withDevLock(quoteLockKey(quoteId), run);
+  }
+  return run();
+}
+
+async function confirmAiVideoQuote(
+  userId: string,
+  quoteId: string
+): Promise<{
+  quote: NexterQuote;
+  coinsSpent: number;
+  newBalance: number;
+  jobIds: string[];
+  refundedCoins?: number;
+}> {
+  const run = async () => {
+    const quote = await getQuote(userId, quoteId);
+    if (!quote) throw new ServiceError(404, 'QUOTE_NOT_FOUND', 'Angebot nicht gefunden');
+    if (quote.kind !== 'ai-video') throw new ServiceError(400, 'INVALID_QUOTE', 'Dieses Angebot ist kein KI-Video');
+
+    const balance = await getCoinBalance(userId);
+    if (quote.status === 'confirmed' || quote.status === 'completed') {
+      const jobIds = Array.isArray(quote.payload?.jobIds)
+        ? quote.payload.jobIds.filter((id): id is string => typeof id === 'string')
+        : [];
+      return {
+        quote,
+        coinsSpent: typeof quote.payload?.coinsSpent === 'number' ? quote.payload.coinsSpent : 0,
+        newBalance: balance,
+        jobIds,
+        refundedCoins: typeof quote.payload?.refundedCoins === 'number' ? quote.payload.refundedCoins : 0,
+      };
+    }
+    if (quote.status === 'cancelled') {
+      throw new ServiceError(409, 'QUOTE_USED', 'Dieses Angebot wurde bereits verwendet oder abgebrochen.');
+    }
+
+    const { dna } = await resolveDnaForRequest(userId, quote.projectId);
+    const serverCost = coinCostForKind('ai-video');
+    if (quote.coinCost !== serverCost) {
+      throw new ServiceError(409, 'PRICE_CHANGED', 'Der Preis hat sich geändert. Bitte ein neues Angebot bestätigen.');
+    }
+    const gate = evaluateGenerationGate({
+      quoteUserId: quote.userId,
+      requestUserId: userId,
+      status: quote.status === 'processing' ? 'pending' : quote.status,
+      expiresAt: quote.expiresAt,
+      coinCost: serverCost,
+      coinBalance: balance,
+      hasDna: Boolean(dna),
+    });
+    if (gate === 'wrong_user') throw new ServiceError(404, 'QUOTE_NOT_FOUND', 'Angebot nicht gefunden');
+    if (gate === 'not_pending') throw new ServiceError(409, 'QUOTE_USED', 'Dieses Angebot wurde bereits verwendet oder abgebrochen.');
+    if (gate === 'expired') throw new ServiceError(410, 'QUOTE_EXPIRED', 'Das Angebot ist abgelaufen. Bitte neu anfragen.');
+    if (gate === 'no_dna') throw new ServiceError(400, 'NO_DNA', 'Erstelle zuerst eine Creator DNA');
+    if (gate === 'insufficient_coins') {
+      throw new ServiceError(402, 'INSUFFICIENT_COINS', `Nicht genügend Coins. Dieses Angebot kostet ${serverCost} Coins.`);
+    }
+
+    quote.status = 'processing';
+    await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
+
+    try {
+      const result = await generateAiVideo(userId, quote.projectId, {
+        ...(quote.payload ?? {}),
+        quoteId: quote.id,
+      });
+      quote.status = 'confirmed';
+      quote.payload = omitUndefinedFields({
+        ...(quote.payload ?? {}),
+        jobIds: [result.job.id],
+        coinsSpent: result.coinsSpent,
+        refundedCoins: 0,
+      });
+      await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
+      return {
+        quote,
+        coinsSpent: result.coinsSpent,
+        newBalance: result.newBalance,
+        jobIds: [result.job.id],
+        refundedCoins: 0,
+      };
+    } catch (err) {
+      quote.status = 'pending';
+      quote.payload = omitUndefinedFields({
+        ...(quote.payload ?? {}),
+        lastError: err instanceof Error ? err.message : 'ai-video-failed',
+      });
       await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
       throw err;
     }
@@ -1470,6 +1565,10 @@ export async function confirmQuote(userId: string, quoteId: string): Promise<{
 
   if (quote.kind === 'animation') {
     return confirmAnimationQuote(userId, quoteId);
+  }
+
+  if (quote.kind === 'ai-video') {
+    return confirmAiVideoQuote(userId, quoteId);
   }
 
   if (quote.kind === 'music') {

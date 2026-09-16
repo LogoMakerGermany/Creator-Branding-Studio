@@ -6,6 +6,8 @@ export const ANIMATION_TYPES = [
   { id: 'stinger', label: 'Stinger', durationSec: 3, supportsLoop: false },
   { id: 'alert', label: 'Animierter Alert', durationSec: 4, supportsLoop: false },
   { id: 'logo-loop', label: 'Logo Loop', durationSec: 5, supportsLoop: true },
+  { id: 'stream-start', label: 'Animierter Starting Soon', durationSec: 6, supportsLoop: true },
+  { id: 'stream-end', label: 'Animiertes Stream-Ende', durationSec: 6, supportsLoop: false },
 ] as const;
 
 export type AnimationTypeId = (typeof ANIMATION_TYPES)[number]['id'];
@@ -291,14 +293,47 @@ function overlap(a: TimelineRange, b: TimelineRange): number {
   return union <= 0 ? 0 : inter / union;
 }
 
+export function isAiVideoQuoteIntent(message: string): boolean {
+  const lower = message.toLowerCase();
+  if (/analysier|transkrib|untertitel|\bcaptions?\b|\bshorts?\b/.test(lower)) return false;
+  if (!/(?:ki|ai)[- ]?video/.test(lower)) return false;
+  return /(mach|erstell|generier|brauche)/.test(lower);
+}
+
+export function isAnimatedStreamScreenIntent(message: string): boolean {
+  const lower = message.toLowerCase();
+  if (!/animier/.test(lower)) return false;
+  return isStreamScreenPhrase(lower);
+}
+
+export function isStaticStreamScreenIntent(message: string): boolean {
+  const lower = message.toLowerCase();
+  if (/animier/.test(lower)) return false;
+  return isStreamScreenPhrase(lower);
+}
+
+function isStreamScreenPhrase(lower: string): boolean {
+  return /starting[- ]?soon|startscreen|startbildschirm|stream[- ]?start|endscreen|ending[- ]?screen|stream[- ]?ende|\bending screen\b/.test(
+    lower
+  );
+}
+
 export function parseAnimationIntent(message: string): Partial<AnimationConfig> {
   const lower = message.toLowerCase();
   let type: AnimationTypeId = 'intro';
-  if (/outro|abspann/.test(lower)) type = 'outro';
+  const animatedScreen = /animier/.test(lower);
+  const startingSoon =
+    /starting[- ]?soon|startscreen|startbildschirm|stream[- ]?start/.test(lower);
+  const endingScreen = /endscreen|ending[- ]?screen|stream[- ]?ende|\bending screen\b/.test(lower);
+  if (animatedScreen && endingScreen) type = 'stream-end';
+  else if (animatedScreen && startingSoon) type = 'stream-start';
+  else if (/outro|abspann/.test(lower)) type = 'outro';
   else if (/stinger|transition/.test(lower)) type = 'stinger';
   else if (/alert|benachricht/.test(lower)) type = 'alert';
   else if (/loop|logo/.test(lower) && /anim/.test(lower)) type = 'logo-loop';
   else if (/intro/.test(lower)) type = 'intro';
+  else if (endingScreen) type = 'stream-end';
+  else if (startingSoon) type = 'stream-start';
 
   const wordDur: Record<string, number> = {
     eins: 1,
@@ -368,7 +403,7 @@ export function parseAnimationIntent(message: string): Partial<AnimationConfig> 
     type,
     durationSec,
     aspectRatio,
-    loop: type === 'logo-loop' || /loop/.test(lower),
+    loop: type === 'logo-loop' || type === 'stream-start' || /loop/.test(lower),
     motion: /langsam/.test(lower) ? 'subtle' : /stark|schnell/.test(lower) ? 'strong' : 'medium',
     withAudio: false,
     effect,
@@ -381,7 +416,9 @@ export function parseAnimationIntent(message: string): Partial<AnimationConfig> 
 export function animationNeedsFollowUp(message: string): boolean {
   const lower = message.toLowerCase();
   if (!/animier|animation/.test(lower)) return false;
-  if (/(intro|outro|stinger|alert)/.test(lower)) return false;
+  if (/(intro|outro|stinger|alert|starting[- ]?soon|startscreen|endscreen|stream[- ]?ende|stream[- ]?start)/.test(lower))
+    return false;
+  if (/(mach|erstell|generier).*\banimation\b/.test(lower)) return false;
   if (/(\d+)\s*(s|sek)/.test(lower)) return false;
   if (
     /dreh|rotat|einblend|ausblend|fade|zoom|pulse|slide|reveal|transparent|tiktok|achse/.test(

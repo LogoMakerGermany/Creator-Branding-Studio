@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Badge, Button, Input, StatCard } from '@/components/ui';
 import {
-  Play, Square, Radio, Tv, Sparkles, CheckCircle2, Download, Package,
+  Play, Square, Radio, Tv, Sparkles, CheckCircle2, Download,
 } from 'lucide-react';
+import { COIN_COSTS, CoinSpendCategory } from '@ucbs/shared';
 import { useAuth } from '@/context/AuthContext';
 import { api, type MediaJob, type IntroOutroType } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
@@ -20,6 +21,9 @@ import { StudioWorkbench } from '@/v2/components/StudioWorkbench';
 import { DnaRequiredBanner } from '@/v2/components/StudioAlerts';
 import { GlassCard } from '@/v2/components/GlassCard';
 
+const ANIM_COST = COIN_COSTS[CoinSpendCategory.ANIMATION_GENERATION];
+const OVERLAY_COST = COIN_COSTS[CoinSpendCategory.OVERLAY_GENERATION];
+
 const TYPES: { type: IntroOutroType; label: string; icon: typeof Play }[] = [
   { type: 'intro', label: 'Intro', icon: Play },
   { type: 'outro', label: 'Outro', icon: Square },
@@ -27,20 +31,41 @@ const TYPES: { type: IntroOutroType; label: string; icon: typeof Play }[] = [
   { type: 'stream-end', label: 'Stream Ende', icon: Tv },
 ];
 
+function isScreenType(type: IntroOutroType): boolean {
+  return type === 'stream-start' || type === 'stream-end';
+}
+
 export function IntroOutroPage() {
   const { user, activeDna } = useAuth();
   const queueNexterPrompt = useNexterStore((s) => s.queueNexterPrompt);
   const [jobs, setJobs] = useState<MediaJob[]>([]);
   const [selectedType, setSelectedType] = useState<IntroOutroType>('intro');
+  const [screenMode, setScreenMode] = useState<'static' | 'animated'>('static');
   const [prompt, setPrompt] = useState('');
   const [title, setTitle] = useState('');
   const [currentJob, setCurrentJob] = useState<MediaJob | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const screenSelected = isScreenType(selectedType);
+  const coinCost = screenSelected && screenMode === 'static' ? OVERLAY_COST : ANIM_COST;
+
   useEffect(() => {
     api.introOutro.list().then((r) => setJobs(r.jobs)).catch(() => {});
   }, [currentJob]);
+
+  function nexterPrompt(): string {
+    if (selectedType === 'intro') return 'Erstelle ein Intro für meinen Stream.';
+    if (selectedType === 'outro') return 'Erstelle ein Outro für meinen Stream.';
+    if (selectedType === 'stream-start') {
+      return screenMode === 'animated'
+        ? 'Erstelle einen animierten Starting-Soon-Screen.'
+        : 'Erstelle einen normalen Starting-Soon-Screen.';
+    }
+    return screenMode === 'animated'
+      ? 'Erstelle einen animierten Endscreen.'
+      : 'Erstelle einen normalen Ending-Screen.';
+  }
 
   async function handleGenerate() {
     if (!activeDna) {
@@ -48,19 +73,12 @@ export function IntroOutroPage() {
       return;
     }
     setLoading(true);
-    setError('Intro/Outro startet nur über Nexter nach Bestätigung (Für X Coins erstellen).');
-    queueNexterPrompt(`Erstelle ein ${selectedType} für meinen Stream.`);
-    setLoading(false);
-  }
-
-  async function handleGeneratePack() {
-    if (!activeDna) {
-      setError('Erstelle zuerst eine Creator DNA');
-      return;
-    }
-    setLoading(true);
-    setError('Intro/Outro-Paket startet nur über Nexter nach Bestätigung (Für X Coins erstellen).');
-    queueNexterPrompt('Erstelle Intro und Outro für meinen Stream.');
+    setError(
+      screenSelected && screenMode === 'static'
+        ? 'Starting Soon / Ending als Bild startet nur über Nexter nach Bestätigung.'
+        : 'Intro/Outro startet nur über Nexter nach Bestätigung (Für X Coins erstellen).'
+    );
+    queueNexterPrompt(prompt.trim() ? `${nexterPrompt()} ${prompt.trim()}` : nexterPrompt());
     setLoading(false);
   }
 
@@ -70,13 +88,16 @@ export function IntroOutroPage() {
   return (
     <StudioShell
       title="Intro & Outro Studio"
-      description="Stream Intros, Outros, Starting-Soon und End-Screens"
+      description="Animierte Intros und Outros (25 Coins). Starting Soon / Ending als Bild (12) oder Animation (25)."
       badge={<Badge variant="brand">UCBS</Badge>}
-      actions={<Badge variant="default">{formatCoins(20)} / {formatCoins(50)} Paket</Badge>}
+      actions={<Badge variant="default">{formatCoins(coinCost)}</Badge>}
     >
       <div className="space-y-4">
         {!activeDna && <DnaRequiredBanner />}
         {error && <StudioErrorBanner message={error} />}
+        <p className="text-xs text-zinc-500">
+          KI-Video und Animation starten erst nach Nexter-Bestätigung. Ohne Video-Provider werden keine Coins abgebucht.
+        </p>
       </div>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
@@ -101,6 +122,22 @@ export function IntroOutroPage() {
                 </TypeOptionButton>
               ))}
             </div>
+            {screenSelected && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <TypeOptionButton
+                  active={screenMode === 'static'}
+                  onClick={() => setScreenMode('static')}
+                >
+                  Bild · {OVERLAY_COST} Coins
+                </TypeOptionButton>
+                <TypeOptionButton
+                  active={screenMode === 'animated'}
+                  onClick={() => setScreenMode('animated')}
+                >
+                  Animiert · {ANIM_COST} Coins
+                </TypeOptionButton>
+              </div>
+            )}
             <Input className="mt-4" placeholder="Titel (optional)" value={title} onChange={(e) => setTitle(e.target.value)} />
             <Input className="mt-2" placeholder="Prompt (optional)" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
           </>
@@ -126,20 +163,10 @@ export function IntroOutroPage() {
               className="gap-2"
               onClick={handleGenerate}
               loading={loading}
-              disabled={!activeDna || (user?.coinBalance ?? 0) < 20}
+              disabled={!activeDna || (user?.coinBalance ?? 0) < coinCost}
             >
               <Sparkles className="h-4 w-4" />
-              Generieren (20 Coins)
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2"
-              onClick={handleGeneratePack}
-              loading={loading}
-              disabled={!activeDna || (user?.coinBalance ?? 0) < 50}
-            >
-              <Package className="h-4 w-4" />
-              Komplett-Paket (50 Coins)
+              Angebot anfragen ({coinCost} Coins)
             </Button>
             {downloadUrl && (
               <>

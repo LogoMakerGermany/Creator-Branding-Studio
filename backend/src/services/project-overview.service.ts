@@ -99,6 +99,9 @@ function groupType(module?: string, type?: string, assetKey?: string): string {
   if (m.includes('layout')) return 'layout';
   if (m.includes('music')) return 'music';
   if (m.includes('voice') || m.includes('speech')) return 'voice';
+  if (['intro', 'outro', 'stinger', 'logo-loop', 'alert', 'stream-start', 'stream-end'].includes(m) || m.includes('animation'))
+    return 'animation';
+  if (m === 'ai-video') return 'ai-video';
   if (
     key.includes('stream') ||
     key === 'offline' ||
@@ -113,7 +116,6 @@ function groupType(module?: string, type?: string, assetKey?: string): string {
     return 'overlay';
   }
   if (m.includes('mockup')) return 'mockup';
-  if (['intro', 'outro', 'stinger', 'logo-loop', 'alert'].includes(m) || m.includes('animation')) return 'animation';
   if (m === 'short' || m.includes('short')) return 'short';
   if (m.includes('video')) return 'video';
   if (m === 'text' || m.includes('content')) return 'text';

@@ -123,6 +123,8 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
       AI_NOT_CONFIGURED: 'KI-Funktion nicht konfiguriert. Ein Provider-Key fehlt.',
       IMAGE_GENERATION_UNAVAILABLE:
         'Die Bildgenerierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.',
+      VIDEO_PROVIDER_UNAVAILABLE:
+        'Die KI-Videogenerierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.',
       PROVIDER_UNAVAILABLE: 'Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.',
       PROVIDER_TIMEOUT: 'Die Bildgenerierung hat zu lange gedauert. Coins wurden erstattet.',
       PROVIDER_ERROR: 'Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.',
