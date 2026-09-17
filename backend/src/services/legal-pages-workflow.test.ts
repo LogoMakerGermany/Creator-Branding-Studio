@@ -97,7 +97,11 @@ describe('legal pages local closure', () => {
       assert.ok(page);
       assert.equal(page.draft, true);
       assert.equal(page.status, 'draft');
+      assert.equal(page.publicationStatus, 'draft');
+      assert.equal(page.publishable, false);
       assert.match(page.notice, /Entwurf/);
+      assert.ok(page.lastUpdated);
+      assert.ok(page.documentVersion);
       assert.equal(page.seoTitle.includes('Entwurf'), true);
       assert.equal(/DSGVO-zertifiziert|100 % DSGVO|vollständig rechtssicher|anwaltlich geprüft/.test(page.html), false);
     }
@@ -114,11 +118,11 @@ describe('legal pages local closure', () => {
     assert.ok(fields.includes('contactEmail'));
     assert.ok(fields.includes('vatId'));
     const impressum = getLegalPage('impressum')!;
-    assert.match(impressum.html, /BETREIBER_NAME_EINTRAGEN/);
-    assert.match(impressum.html, /FIRMENNAME_EINTRAGEN/);
-    assert.match(impressum.html, /STRASSE_EINTRAGEN/);
-    assert.match(impressum.html, /KONTAKT_EMAIL_EINTRAGEN/);
-    assert.match(impressum.html, /USt-IdNr\._EINTRAGEN/);
+    assert.equal(/EINTRAGEN/.test(impressum.html), false);
+    assert.match(impressum.html, /nicht hinterlegt/);
+    assert.match(impressum.html, /Fehlende Pflichtangaben/);
+    assert.match(sharedLegal, /BETREIBER_NAME_EINTRAGEN/);
+    assert.match(sharedLegal, /KONTAKT_EMAIL_EINTRAGEN/);
     assertNoFakeOperator(impressum.html);
     assertNoFakeOperator(legalService);
     assertNoFakeOperator(legalPage);
@@ -139,6 +143,7 @@ describe('legal pages local closure', () => {
     assert.match(privacy.html, /Coin-Guthaben/);
     assert.match(privacy.html, /provider-gated/);
     assert.match(privacy.html, /Zahlungen sind derzeit deaktiviert/);
+    assert.match(privacy.html, /Welcome-Bonus 50/);
     assert.match(privacy.html, /keine Kryptowährung/);
     assert.match(privacy.html, /Aufbewahrungsfristen sind technisch nicht festgelegt/);
     assert.match(privacy.html, /Google Fonts/);

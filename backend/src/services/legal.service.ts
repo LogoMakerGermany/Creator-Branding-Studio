@@ -1,15 +1,24 @@
 import {
+  LEGAL_DOCUMENT_VERSIONS,
   LEGAL_DRAFT_NOTICE,
+  LEGAL_INCOMPLETE_NOTICE,
+  LEGAL_LAST_UPDATED,
   LEGAL_OPERATOR,
+  LEGAL_OPERATOR_FIELD_LABELS,
   LEGAL_PRIVACY_VERSION,
   LEGAL_PUBLIC_SLUGS,
   LEGAL_REACCEPTANCE_REQUIRED,
   LEGAL_TERMS_VERSION,
-  LEGAL_TEXT_STATUS,
+  currentLegalIntendedStatus,
+  displayOperatorValue,
+  evaluateLegalPublishGate,
   isCurrentLegalAcceptance,
+  missingLegalOperatorFields,
   shouldForceLegalReacceptance,
   type LegalAcceptanceInput,
   type LegalAcceptanceRecord,
+  type LegalOperatorField,
+  type LegalPublicationStatus,
   type LegalPublicSlug,
 } from '@ucbs/shared';
 import { AppError } from '../middleware/errorHandler.js';
@@ -27,11 +36,16 @@ export type LegalBlock =
 export interface LegalPagePayload {
   slug: LegalPublicSlug;
   title: string;
-  draft: true;
-  status: typeof LEGAL_TEXT_STATUS;
+  draft: boolean;
+  status: LegalPublicationStatus;
+  publicationStatus: LegalPublicationStatus;
+  publishable: boolean;
   notice: string;
   termsVersion: string;
   privacyVersion: string;
+  documentVersion: string;
+  lastUpdated: string;
+  missingOperatorFields: LegalOperatorField[];
   seoTitle: string;
   seoDescription: string;
   blocks: LegalBlock[];
@@ -65,31 +79,68 @@ function blocksToHtml(blocks: LegalBlock[]): string {
     .join('');
 }
 
+function operatorLine(label: string, field: LegalOperatorField): string {
+  return `${label}: ${displayOperatorValue(LEGAL_OPERATOR[field])}`;
+}
+
+function operatorAddressLine(): string {
+  const street = displayOperatorValue(LEGAL_OPERATOR.street);
+  const postal = displayOperatorValue(LEGAL_OPERATOR.postalCode);
+  const city = displayOperatorValue(LEGAL_OPERATOR.city);
+  const country = displayOperatorValue(LEGAL_OPERATOR.country);
+  if ([street, postal, city, country].every((value) => value === 'nicht hinterlegt')) {
+    return 'Anschrift: nicht hinterlegt';
+  }
+  return `Anschrift: ${street}, ${postal} ${city}, ${country}`;
+}
+
+function pageNotice(status: LegalPublicationStatus, missing: LegalOperatorField[]): string {
+  if (status === 'published') return '';
+  if (missing.length || status === 'incomplete') return LEGAL_INCOMPLETE_NOTICE;
+  return DRAFT_NOTICE;
+}
+
 function page(
   slug: LegalPublicSlug,
   title: string,
   seoDescription: string,
   blocks: LegalBlock[]
 ): LegalPagePayload {
+  const html = blocksToHtml(blocks);
+  const gate = evaluateLegalPublishGate({
+    intendedStatus: currentLegalIntendedStatus(),
+    operator: LEGAL_OPERATOR,
+    lastUpdated: LEGAL_LAST_UPDATED,
+    termsVersion: LEGAL_TERMS_VERSION,
+    privacyVersion: LEGAL_PRIVACY_VERSION,
+    contentPresent: blocks.length > 0 && html.length > 0,
+    userFacingHtml: html,
+  });
+  const published = gate.status === 'published';
+  const notice = pageNotice(gate.status, gate.missingOperatorFields);
   return {
     slug,
     title,
-    draft: true,
-    status: LEGAL_TEXT_STATUS,
-    notice: DRAFT_NOTICE,
+    draft: !published,
+    status: gate.status,
+    publicationStatus: gate.status,
+    publishable: gate.publishable,
+    notice,
     termsVersion: LEGAL_TERMS_VERSION,
     privacyVersion: LEGAL_PRIVACY_VERSION,
-    seoTitle: `${title} (Entwurf) — NEXTER Creator Studio`,
+    documentVersion: LEGAL_DOCUMENT_VERSIONS[slug],
+    lastUpdated: LEGAL_LAST_UPDATED,
+    missingOperatorFields: gate.missingOperatorFields,
+    seoTitle: published ? `${title} — NEXTER Creator Studio` : `${title} (Entwurf) — NEXTER Creator Studio`,
     seoDescription,
     blocks,
-    html: blocksToHtml(blocks),
+    html,
   };
 }
 
-const op = LEGAL_OPERATOR;
-
 function impressumBlocks(): LegalBlock[] {
-  return [
+  const missing = missingLegalOperatorFields();
+  const blocks: LegalBlock[] = [
     {
       type: 'note',
       text: 'Technischer Entwurf. Keine anwaltliche Prüfung, keine rechtsverbindliche Finalfassung, keine Launch-Freigabe.',
@@ -97,22 +148,37 @@ function impressumBlocks(): LegalBlock[] {
     { type: 'h2', text: 'Anbieter' },
     {
       type: 'p',
-      text: 'NEXTER Creator Studio ist der Produktname der Anwendung. Die folgenden Betreiberangaben sind Platzhalter, solange echte Impressumsdaten nicht zentral hinterlegt sind. Es werden keine erfundenen Namen, Adressen oder Registerdaten verwendet.',
+      text: 'NEXTER Creator Studio ist der Produktname der Anwendung. Die folgenden Betreiberangaben sind nur hinterlegt, soweit reale Impressumsdaten zentral gepflegt sind. Fehlende Felder erscheinen als „nicht hinterlegt“. Es werden keine erfundenen Namen, Adressen oder Registerdaten verwendet.',
     },
     {
       type: 'ul',
       items: [
-        `Name / Betreiber: ${op.operatorName}`,
-        `Firma: ${op.companyName}`,
-        `Rechtsform: ${op.legalForm}`,
-        `Anschrift: ${op.street}, ${op.postalCode} ${op.city}, ${op.country}`,
-        `E-Mail: ${op.contactEmail}`,
-        `Telefon: ${op.contactPhone}`,
-        `USt-IdNr.: ${op.vatId}`,
-        `Registergericht: ${op.registerCourt}`,
-        `Registernummer: ${op.registerNumber}`,
+        operatorLine('Name / Betreiber', 'operatorName'),
+        operatorLine('Firma', 'companyName'),
+        operatorLine('Rechtsform', 'legalForm'),
+        operatorAddressLine(),
+        operatorLine('E-Mail', 'contactEmail'),
+        operatorLine('Telefon', 'contactPhone'),
+        operatorLine('USt-IdNr.', 'vatId'),
+        operatorLine('Registergericht', 'registerCourt'),
+        operatorLine('Registernummer', 'registerNumber'),
       ],
     },
+  ];
+  if (missing.length) {
+    blocks.push(
+      { type: 'h2', text: 'Fehlende Pflichtangaben' },
+      {
+        type: 'p',
+        text: 'Diese Felder sind für eine Veröffentlichung technisch erforderlich und derzeit nicht hinterlegt. Es werden keine Platzhalter als echte Angaben dargestellt.',
+      },
+      {
+        type: 'ul',
+        items: missing.map((field) => LEGAL_OPERATOR_FIELD_LABELS[field]),
+      }
+    );
+  }
+  blocks.push(
     { type: 'h2', text: 'Status des Dienstes' },
     {
       type: 'p',
@@ -124,26 +190,32 @@ function impressumBlocks(): LegalBlock[] {
       text: 'Verantwortliche nach Medienrecht, Datenschutzbeauftragte und Aufsichtsbehörden werden hier nicht genannt, weil dazu keine belegten Angaben im Projekt hinterlegt sind.',
     },
     {
+      type: 'p',
+      text: 'Eine Production-Domain der App ist eine technische Erreichbarkeitsadresse, keine rechtliche Geschäftsanschrift und kein Ersatz für fehlende Kontaktdaten.',
+    },
+    {
       type: 'links',
       items: [
         { href: '/legal/datenschutz', label: 'Datenschutz' },
         { href: '/legal/agb', label: 'Nutzungsbedingungen' },
       ],
-    },
-  ];
+    }
+  );
+  return blocks;
 }
 
 function privacyBlocks(): LegalBlock[] {
+  const missing = missingLegalOperatorFields();
+  const responsible = missing.length
+    ? 'Die verantwortliche Stelle ist der Betreiber von NEXTER Creator Studio. Name, Anschrift und Kontakt sind derzeit nicht hinterlegt. Siehe Impressum. Es werden keine erfundenen Betreiberdaten verwendet.'
+    : `Verantwortlich für die Verarbeitung ist der Betreiber: ${displayOperatorValue(LEGAL_OPERATOR.operatorName)}, ${displayOperatorValue(LEGAL_OPERATOR.companyName)} ${displayOperatorValue(LEGAL_OPERATOR.legalForm)}, ${displayOperatorValue(LEGAL_OPERATOR.street)}, ${displayOperatorValue(LEGAL_OPERATOR.postalCode)} ${displayOperatorValue(LEGAL_OPERATOR.city)}, ${displayOperatorValue(LEGAL_OPERATOR.country)}, ${displayOperatorValue(LEGAL_OPERATOR.contactEmail)}.`;
   return [
     {
       type: 'note',
       text: 'Technischer Entwurf auf Basis des aktuellen Codes. Keine Aussage zur DSGVO-Zertifizierung, vollständigen Rechtskonformität oder anwaltlichen Prüfung.',
     },
     { type: 'h2', text: 'Verantwortliche Stelle' },
-    {
-      type: 'p',
-      text: `Verantwortlich für die Verarbeitung ist der Betreiber: ${op.operatorName}, ${op.companyName} ${op.legalForm}, ${op.street}, ${op.postalCode} ${op.city}, ${op.country}, ${op.contactEmail}.`,
-    },
+    { type: 'p', text: responsible },
     { type: 'h2', text: 'Welche Daten verarbeitet werden' },
     {
       type: 'p',
@@ -172,21 +244,49 @@ function privacyBlocks(): LegalBlock[] {
     { type: 'h3', text: 'Google-Anmeldung' },
     {
       type: 'p',
-      text: 'Google Login über Firebase Authentication ist vorhanden. Weitere OAuth-Anbieter können in der Oberfläche genannt, aber als nicht verfügbar gekennzeichnet sein. Es werden keine zusätzlichen Google-Marketingdienste erfunden.',
+      text: 'Google Login über Firebase Authentication ist vorhanden. Es werden keine zusätzlichen Google-Marketingdienste erfunden.',
     },
-    { type: 'h2', text: 'KI- und Medienanbieter' },
+    { type: 'h2', text: 'Hosting' },
     {
       type: 'p',
-      text: 'Im Code sind Integrationen vorbereitet, die nur greifen, wenn sie konfiguriert und die jeweilige Funktion genutzt wird. Ein Request geht nicht automatisch an jeden Anbieter.',
+      text: 'Die Anwendung wird in der aktuellen Auslieferung auf Railway betrieben. Die Production-URL ist eine technische App-Adresse, keine rechtliche Geschäftsanschrift.',
+    },
+    { type: 'h2', text: 'Anmeldedienste (technischer Stand)' },
+    {
+      type: 'p',
+      text: 'Die folgende Einordnung beschreibt Code und Konfigurationsgating. Sie ist keine Aussage, dass ein Anbieter rechtlich zulässig, unzulässig oder dauerhaft aktiv ist.',
     },
     {
       type: 'ul',
       items: [
-        'Vorbereitet / provider-gated: OpenAI, Google Gemini, Replicate, Runway, ElevenLabs (jeweils abhängig von vorhandener Konfiguration und Funktionsaufruf)',
+        'E-Mail/Passwort (Firebase Authentication): ACTIVE IN PRODUCTION, soweit Firebase Auth konfiguriert ist',
+        'Google Login (Firebase Authentication): ACTIVE IN PRODUCTION, soweit Firebase Auth konfiguriert ist',
+        'Discord OAuth: IMPLEMENTED; nur aktiv, wenn Client-ID und Secret gesetzt sind',
+        'Twitch OAuth: IMPLEMENTED BUT ENV-GATED — nicht behauptet als dauerhaft aktiv und nicht als „niemals verwendet“',
+        'TikTok OAuth: IMPLEMENTED BUT ENV-GATED — nicht behauptet als dauerhaft aktiv und nicht als „niemals verwendet“',
+        'Microsoft OAuth: IMPLEMENTED BUT ENV-GATED — nicht behauptet als dauerhaft aktiv und nicht als „niemals verwendet“',
+        'GitHub-Login: NOT USED (kein Anmeldepfad im aktuellen Code)',
+        'Apple-Login: NOT USED (kein Anmeldepfad im aktuellen Code)',
+      ],
+    },
+    { type: 'h2', text: 'E-Mail' },
+    {
+      type: 'p',
+      text: 'Firebase Authentication kann Verifizierungs- und Zurücksetzungsmails versenden, soweit der Firebase-E-Mail-Dienst verfügbar ist. Transaktionale App-Mails über Resend sind im Code vorbereitet, derzeit aber nicht konfiguriert (UNAVAILABLE). Es wird weder behauptet, dass Resend aktiv versendet, noch dass Resend niemals verwendet wird.',
+    },
+    { type: 'h2', text: 'KI- und Medienanbieter' },
+    {
+      type: 'p',
+      text: 'Im Code sind Integrationen vorbereitet, die nur greifen, wenn sie konfiguriert und die jeweilige Funktion genutzt wird. Ein Request geht nicht automatisch an jeden Anbieter. Image-, Video- und Musikgenerierung sind derzeit deaktiviert. Es wird weder ein Live-Betrieb dieser Anbieter behauptet noch, dass sie niemals verwendet werden.',
+    },
+    {
+      type: 'ul',
+      items: [
+        'OpenAI, Google Gemini, Replicate, Runway, ElevenLabs: IMPLEMENTED / provider-gated; nur bei vorhandener Konfiguration und Funktionsaufruf',
         'Lokal/Test: Mock- und Gating-Pfade, ohne echte Provider-Aufrufe in der Testumgebung',
         'Suno: im Code erwähnt; der inoffizielle Endpunkt ist deaktiviert',
         'Voice: Stimmenpräferenz, lokale Preview und TTS-Generierung sind zu unterscheiden; TTS ist provider-gated',
-        'Musik/Bild/Video: Verarbeitung nur, wenn der jeweilige Pfad aktiviert ist',
+        'Musik/Bild/Video: Verarbeitung nur, wenn der jeweilige Pfad aktiviert ist (aktuell DISABLED)',
       ],
     },
     {
@@ -206,7 +306,7 @@ function privacyBlocks(): LegalBlock[] {
     { type: 'h2', text: 'Zahlungen und Coins' },
     {
       type: 'p',
-      text: 'Zahlungen sind derzeit deaktiviert. Stripe- und PayPal-Code kann vorbereitet sein, ohne dass aktuell Zahlungsaufrufe stattfinden. Coins sind internes App-Guthaben (Welcome-Bonus, Generierungskosten, Erstattungen, Historie, Quotes). Coins sind keine Kryptowährung und begründen keine Auszahlung.',
+      text: 'Zahlungen sind derzeit deaktiviert. Stripe- und PayPal-Code kann vorbereitet sein (CONFIGURED BUT DISABLED bzw. implementiert ohne Live-Checkout), ohne dass aktuell Zahlungsaufrufe stattfinden. Coins sind internes App-Guthaben (Welcome-Bonus 50, Generierungskosten laut App-Katalog, Erstattungen). Coins sind keine Kryptowährung und begründen keine Auszahlung. Es wird nicht behauptet, dass Live-Käufe verfügbar sind.',
     },
     { type: 'h2', text: 'Export und Löschung' },
     {
@@ -263,7 +363,7 @@ function termsBlocks(): LegalBlock[] {
     { type: 'h2', text: 'Account' },
     {
       type: 'p',
-      text: 'Ein Konto entsteht über Firebase Authentication (E-Mail/Passwort oder Google) und die serverseitige App-Synchronisation. Der Zugang ist in der Regel nur mit Einladung möglich. Login-Daten sind geheim zu halten.',
+      text: 'Ein Konto entsteht über Firebase Authentication (E-Mail/Passwort oder Google) und die serverseitige App-Synchronisation. Weitere OAuth-Anbieter können verfügbar sein, wenn sie konfiguriert sind. Der Zugang ist in der Regel nur mit Einladung möglich. Login-Daten sind geheim zu halten.',
     },
     { type: 'h2', text: 'Beta-Status' },
     {
@@ -288,7 +388,7 @@ function termsBlocks(): LegalBlock[] {
     { type: 'h2', text: 'Coins' },
     {
       type: 'p',
-      text: 'Coins sind internes App-Guthaben für Funktionen der Plattform (einschließlich Welcome-Bonus, Generierungskosten, Erstattungen bei technischen Fehlschlägen soweit der bestehende Mechanismus greift, Transaktionshistorie und Kostenvoranschläge). Coins sind keine Kryptowährung, kein Finanzprodukt und nicht auszahlbar. Ein Echtgeldkauf ist derzeit nicht verfügbar, solange Zahlungen deaktiviert sind.',
+      text: 'Coins sind internes App-Guthaben für Funktionen der Plattform (einschließlich Welcome-Bonus 50, Generierungskosten laut App-Katalog, Erstattungen bei technischen Fehlschlägen soweit der bestehende Mechanismus greift, Transaktionshistorie und Kostenvoranschläge). Coins sind keine Kryptowährung, kein Finanzprodukt und nicht auszahlbar. Ein Echtgeldkauf ist derzeit nicht verfügbar, solange Zahlungen deaktiviert sind.',
     },
     { type: 'h2', text: 'Kostenpflichtige Funktionen' },
     {
@@ -344,12 +444,12 @@ function withdrawalBlocks(): LegalBlock[] {
   return [
     {
       type: 'note',
-      text: 'Platzhalter. Ein Widerrufstext wird erst aufgenommen, wenn er rechtlich vorliegt. Es werden keine Fristen oder Musterbelehrungen erfunden.',
+      text: 'Platzhalter für NEXTER Creator Studio. Ein Widerrufstext wird erst aufgenommen, wenn er rechtlich vorliegt. Es werden keine Fristen oder Musterbelehrungen erfunden.',
     },
     { type: 'h2', text: 'Hinweis' },
     {
       type: 'p',
-      text: `Kontakt für rechtliche Korrespondenz, sobald hinterlegt: ${op.contactEmail}. Zahlungen sind derzeit deaktiviert; ein Kauf-Widerruf greift daher aktuell nicht als laufender Checkout-Prozess.`,
+      text: `Kontakt für rechtliche Korrespondenz: ${displayOperatorValue(LEGAL_OPERATOR.contactEmail)}. Zahlungen sind derzeit deaktiviert; ein Kauf-Widerruf greift daher aktuell nicht als laufender Checkout-Prozess.`,
     },
   ];
 }
@@ -358,7 +458,7 @@ function cookiesBlocks(): LegalBlock[] {
   return [
     {
       type: 'note',
-      text: 'Technischer Entwurf zum tatsächlich vorhandenen Speicher. Kein Marketing-Cookie-Banner, weil aktuell keine optionalen Tracking-Dienste gesteuert werden.',
+      text: 'Technischer Entwurf zum tatsächlich vorhandenen Speicher in NEXTER Creator Studio. Kein Marketing-Cookie-Banner, weil aktuell keine optionalen Tracking-Dienste gesteuert werden.',
     },
     { type: 'h2', text: 'Cookies' },
     {
@@ -406,7 +506,7 @@ const PAGES: Record<LegalPublicSlug, () => LegalPagePayload> = {
     page(
       'impressum',
       'Impressum',
-      'Impressum-Entwurf von NEXTER Creator Studio. Betreiberangaben sind Platzhalter, solange sie nicht hinterlegt sind.',
+      'Impressum-Entwurf von NEXTER Creator Studio. Betreiberangaben sind nicht hinterlegt, solange sie nicht real gepflegt sind.',
       impressumBlocks()
     ),
   datenschutz: () =>
@@ -470,12 +570,25 @@ export function existingUserNeedsLegalReacceptance(record: LegalAcceptanceRecord
 }
 
 export function legalVersions() {
-  return {
-    status: LEGAL_TEXT_STATUS,
+  const gate = evaluateLegalPublishGate({
+    intendedStatus: currentLegalIntendedStatus(),
+    operator: LEGAL_OPERATOR,
+    lastUpdated: LEGAL_LAST_UPDATED,
     termsVersion: LEGAL_TERMS_VERSION,
     privacyVersion: LEGAL_PRIVACY_VERSION,
+    contentPresent: true,
+    userFacingHtml: '',
+  });
+  return {
+    status: gate.status,
+    publicationStatus: gate.status,
+    publishable: gate.publishable,
+    termsVersion: LEGAL_TERMS_VERSION,
+    privacyVersion: LEGAL_PRIVACY_VERSION,
+    lastUpdated: LEGAL_LAST_UPDATED,
     reacceptanceRequired: LEGAL_REACCEPTANCE_REQUIRED,
-    draft: true as const,
-    notice: DRAFT_NOTICE,
+    draft: gate.status !== 'published',
+    notice: pageNotice(gate.status, gate.missingOperatorFields),
+    missingOperatorFields: gate.missingOperatorFields,
   };
 }

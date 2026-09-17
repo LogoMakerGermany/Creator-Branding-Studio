@@ -13,8 +13,7 @@ function sendLegalPage(slug: string, res: Response) {
   }
   sendSuccess(res, {
     ...page,
-    draft: true,
-    notice: DRAFT_NOTICE,
+    notice: page.notice || DRAFT_NOTICE,
   });
 }
 

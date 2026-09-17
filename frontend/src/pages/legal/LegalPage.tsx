@@ -78,6 +78,8 @@ export function LegalPage() {
   const [blocks, setBlocks] = useState<LegalBlock[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState(false);
+  const [documentVersion, setDocumentVersion] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -101,7 +103,9 @@ export function LegalPage() {
         setHtml(r.html);
         setBlocks(Array.isArray(r.blocks) ? r.blocks : null);
         setNotice(r.notice ?? null);
-        setDraft(Boolean(r.draft) || r.status === LEGAL_TEXT_STATUS);
+        setDraft(r.publicationStatus ? r.publicationStatus !== 'published' : Boolean(r.draft) || r.status === LEGAL_TEXT_STATUS);
+        setDocumentVersion(r.documentVersion ?? null);
+        setLastUpdated(r.lastUpdated ?? null);
         document.title = r.seoTitle || `${r.title} (Entwurf) — NEXTER Creator Studio`;
         const desc = document.querySelector('meta[name="description"]');
         if (desc && r.seoDescription) desc.setAttribute('content', r.seoDescription);
@@ -129,6 +133,13 @@ export function LegalPage() {
       {draft && (
         <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200 print:border-black print:text-black">
           {notice || 'Entwurf / vor Veröffentlichung rechtlich prüfen lassen'}
+        </p>
+      )}
+      {(documentVersion || lastUpdated) && (
+        <p className="text-xs text-zinc-500">
+          {documentVersion ? `Version ${documentVersion}` : null}
+          {documentVersion && lastUpdated ? ' · ' : null}
+          {lastUpdated ? `Stand ${lastUpdated}` : null}
         </p>
       )}
       {loading && (

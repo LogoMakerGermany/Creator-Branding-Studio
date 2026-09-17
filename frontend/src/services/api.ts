@@ -1171,6 +1171,9 @@ export const api = {
         draft?: boolean;
         notice?: string;
         status?: string;
+        publicationStatus?: 'draft' | 'incomplete' | 'published';
+        documentVersion?: string;
+        lastUpdated?: string;
         seoTitle?: string;
         seoDescription?: string;
         blocks?: Array<
