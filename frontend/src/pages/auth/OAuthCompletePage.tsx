@@ -42,6 +42,31 @@ function mapOAuthQueryError(code: string): { code: string; message: string } {
       return { code: 'OAUTH_LINK_CONFLICT', message: '' };
     case 'not_configured':
       return { code: 'OAUTH_NOT_CONFIGURED', message: '' };
+    case 'invite_required':
+      return {
+        code: 'INVITE_REQUIRED',
+        message: 'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich',
+      };
+    case 'invite_invalid':
+      return { code: 'INVITE_INVALID', message: 'Ungültiger oder inaktiver Einladungscode' };
+    case 'invite_expired':
+      return { code: 'INVITE_EXPIRED', message: 'Einladungscode ist abgelaufen' };
+    case 'invite_exhausted':
+      return { code: 'INVITE_EXHAUSTED', message: 'Einladungscode wurde bereits zu oft verwendet' };
+    case 'invite_email_required':
+      return {
+        code: 'INVITE_EMAIL_REQUIRED',
+        message:
+          'Dieser Einladungscode ist an eine E-Mail-Adresse gebunden. Der gewählte Anbieter stellt für diese Anmeldung keine bestätigbare E-Mail-Adresse bereit. Melde dich zuerst mit der eingeladenen E-Mail-Adresse an und verknüpfe den Anbieter anschließend in deinen Einstellungen.',
+      };
+    case 'invite_email_mismatch':
+      return {
+        code: 'INVITE_EMAIL_MISMATCH',
+        message:
+          'Dieser Einladungscode ist an eine E-Mail-Adresse gebunden. Melde dich mit der eingeladenen E-Mail-Adresse an.',
+      };
+    case 'registration_closed':
+      return { code: 'ACCESS_DENIED', message: 'Registrierung ist derzeit geschlossen' };
     case 'invalid_code':
       return { code: 'OAUTH_FAILED', message: 'Anmeldung beim Anbieter fehlgeschlagen.' };
     case 'expired':

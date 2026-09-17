@@ -96,6 +96,12 @@ async function syncProfile(displayName?: string, authProvider?: string) {
     if (
       code === 'ACCESS_DENIED' ||
       code === 'LEGAL_ACCEPTANCE_REQUIRED' ||
+      code === 'INVITE_REQUIRED' ||
+      code === 'INVITE_INVALID' ||
+      code === 'INVITE_EXPIRED' ||
+      code === 'INVITE_EXHAUSTED' ||
+      code === 'INVITE_EMAIL_REQUIRED' ||
+      code === 'INVITE_EMAIL_MISMATCH' ||
       msg.toLowerCase().includes('einladung') ||
       msg.toLowerCase().includes('registrierung') ||
       msg.toLowerCase().includes('nutzungsbedingungen')

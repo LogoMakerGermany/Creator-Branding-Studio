@@ -143,7 +143,7 @@ export async function lookupFirebaseUserByEmail(
 }
 
 export async function createFirebaseAuthUser(input: {
-  email: string;
+  email?: string;
   emailVerified: boolean;
   displayName?: string;
 }): Promise<{ uid: string }> {
@@ -151,10 +151,24 @@ export async function createFirebaseAuthUser(input: {
   if (isDevMode() || !admin.apps.length) {
     throw new Error('Authentication service unavailable');
   }
+  const email = input.email?.trim();
   const user = await getAuth().createUser({
-    email: input.email,
-    emailVerified: input.emailVerified,
+    ...(email ? { email, emailVerified: input.emailVerified } : {}),
     displayName: input.displayName,
   });
   return { uid: user.uid };
+}
+
+export async function deleteFirebaseAuthUser(uid: string): Promise<void> {
+  initializeFirebase();
+  if (isDevMode() || !admin.apps.length) {
+    return;
+  }
+  try {
+    await getAuth().deleteUser(uid);
+  } catch (err) {
+    const code = (err as { code?: string })?.code;
+    if (code === 'auth/user-not-found') return;
+    throw err;
+  }
 }

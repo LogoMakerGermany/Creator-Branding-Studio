@@ -53,9 +53,9 @@ export function sanitizeDisplayName(name: unknown): string {
   return cleaned;
 }
 
-function cleanDisplayNameOrFallback(name: string | undefined, email: string): string {
+function cleanDisplayNameOrFallback(name: string | undefined, email?: string): string {
   const cleaned = (name ?? '').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, DISPLAY_NAME_MAX);
-  return cleaned || email.split('@')[0] || 'Creator';
+  return cleaned || email?.split('@')[0] || 'Creator';
 }
 
 /**
@@ -87,10 +87,12 @@ function normalizeRole(raw: unknown): UserRole {
 function normalizeUserProfile(uid: string, data: Record<string, unknown>): UserProfile {
   const coinBalance = normalizeCoinBalance(data);
   const locale = typeof data.locale === 'string' && data.locale.trim() ? data.locale : 'de';
+  const email = typeof data.email === 'string' ? data.email : '';
   const displayName = typeof data.displayName === 'string' ? data.displayName : '';
   return {
     id: uid,
     ...data,
+    email,
     role: normalizeRole(data.role),
     coinBalance,
     locale,
@@ -100,7 +102,7 @@ function normalizeUserProfile(uid: string, data: Record<string, unknown>): UserP
 
 function createDefaultUser(
   uid: string,
-  email: string,
+  email: string | undefined,
   displayName?: string,
   role: UserRole = UserRole.USER
 ): UserProfile {
@@ -108,7 +110,7 @@ function createDefaultUser(
   const name = cleanDisplayNameOrFallback(displayName, email);
   return {
     id: uid,
-    email,
+    email: email?.trim() || '',
     displayName: name,
     role,
     authProviders: [],
@@ -132,7 +134,7 @@ export interface CreateUserOptions {
 
 export async function getOrCreateUser(
   uid: string,
-  email: string,
+  email?: string,
   displayName?: string,
   authProviderOrOptions?: string | CreateUserOptions
 ): Promise<UserProfile> {
@@ -150,7 +152,7 @@ export async function getOrCreateUser(
 
 async function createOrLoadUserDev(
   uid: string,
-  email: string,
+  email: string | undefined,
   displayName: string | undefined,
   options: CreateUserOptions
 ): Promise<UserProfile> {
@@ -168,7 +170,11 @@ async function createOrLoadUserDev(
   if (options.legalAcceptance) {
     user.legalAcceptance = options.legalAcceptance;
   }
-  devStore.saveUser(uid, user as unknown as Record<string, unknown>);
+  const stored = omitUndefinedFields({
+    ...(user as unknown as Record<string, unknown>),
+    email: user.email.trim() ? user.email : undefined,
+  });
+  devStore.saveUser(uid, stored);
 
   if (DEFAULT_COINS > 0) {
     const { writeWelcomeLedgerOnly } = await import('./coins.service.js');
@@ -184,7 +190,7 @@ async function createOrLoadUserDev(
 
 async function createOrLoadUserFirestore(
   uid: string,
-  email: string,
+  email: string | undefined,
   displayName: string | undefined,
   options: CreateUserOptions
 ): Promise<UserProfile> {
@@ -211,7 +217,13 @@ async function createOrLoadUserFirestore(
     if (options.legalAcceptance) {
       user.legalAcceptance = options.legalAcceptance;
     }
-    t.set(ref, omitUndefinedFields(user as unknown as Record<string, unknown>));
+    t.set(
+      ref,
+      omitUndefinedFields({
+        ...(user as unknown as Record<string, unknown>),
+        email: user.email.trim() ? user.email : undefined,
+      })
+    );
     return { profile: user, created: true };
   });
 

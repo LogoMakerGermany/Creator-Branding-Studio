@@ -29,12 +29,17 @@ function repo(rel: string): string {
   return readFileSync(join(repoRoot, rel), 'utf8');
 }
 
-function isAccessDenied(err: unknown): boolean {
-  return (
-    (err instanceof AppError || err instanceof ServiceError) &&
-    err.statusCode === 403 &&
-    err.code === 'ACCESS_DENIED'
-  );
+function isInviteBlocked(err: unknown): boolean {
+  if (!(err instanceof AppError || err instanceof ServiceError) || err.statusCode !== 403) return false;
+  return [
+    'ACCESS_DENIED',
+    'INVITE_REQUIRED',
+    'INVITE_INVALID',
+    'INVITE_EXPIRED',
+    'INVITE_EXHAUSTED',
+    'INVITE_EMAIL_REQUIRED',
+    'INVITE_EMAIL_MISMATCH',
+  ].includes(err.code);
 }
 
 async function withRegistrationMode<T>(mode: RegistrationMode, fn: () => Promise<T>): Promise<T> {
@@ -111,7 +116,7 @@ describe('P1 invite-only vs public registration', () => {
             displayName: 'Blocked',
             authProvider: 'email',
           }),
-        isAccessDenied
+        isInviteBlocked
       );
       assert.equal(await getUserById(uid), null);
       assert.equal(await getCoinBalance(uid), 0);
@@ -129,7 +134,7 @@ describe('P1 invite-only vs public registration', () => {
             email: `${uid}@gmail.test`,
             authProvider: 'google',
           }),
-        isAccessDenied
+        isInviteBlocked
       );
       assert.equal(await getUserById(uid), null);
     });
@@ -155,7 +160,7 @@ describe('P1 invite-only vs public registration', () => {
       const uid = `reg-fb-${randomUUID()}`;
       await assert.rejects(
         () => syncAuthenticatedAppUser({ uid, email: `${uid}@firebase.test` }),
-        isAccessDenied
+        isInviteBlocked
       );
       assert.equal(await getUserById(uid), null);
     });
@@ -196,7 +201,7 @@ describe('P1 invite-only vs public registration', () => {
             authProvider: 'email',
             legalAcceptance: currentDraftLegalAcceptanceInput(),
           }),
-        isAccessDenied
+        isInviteBlocked
       );
       assert.equal(await getUserById(uid), null);
       assert.equal(await getCoinBalance(uid), 0);
@@ -225,7 +230,7 @@ describe('P1 invite-only vs public registration', () => {
             inviteCode: invite.code,
             legalAcceptance: currentDraftLegalAcceptanceInput(),
           }),
-        isAccessDenied
+        isInviteBlocked
       );
       assert.ok(await getUserById(first));
       assert.equal(await getUserById(second), null);

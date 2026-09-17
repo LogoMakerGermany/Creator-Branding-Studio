@@ -28,7 +28,7 @@ export interface AuthenticatedRequest extends Request {
   /** Decoded Firebase token available before profile exists (registration gate). */
   authToken?: {
     uid: string;
-    email: string;
+    email?: string;
     name?: string;
     emailVerified?: boolean;
     signInProvider?: string;
@@ -58,7 +58,7 @@ export async function authenticate(
     const signInProvider = decoded.firebase?.sign_in_provider;
     req.authToken = {
       uid: decoded.uid,
-      email: decoded.email || `${decoded.uid}@unknown.local`,
+      email: decoded.email || undefined,
       name: decoded.name,
       emailVerified: decoded.email_verified,
       signInProvider,
@@ -127,7 +127,7 @@ export async function authenticateAllowUnprovisioned(
     const decoded = await verifyIdToken(token);
     req.authToken = {
       uid: decoded.uid,
-      email: decoded.email || `${decoded.uid}@unknown.local`,
+      email: decoded.email || undefined,
       name: decoded.name,
       emailVerified: decoded.email_verified,
       signInProvider: decoded.firebase?.sign_in_provider,

@@ -40,25 +40,32 @@ function repo(rel: string): string {
 }
 
 function memoryAdapter(seed?: { email: string; uid: string; emailVerified?: boolean }): OAuthAuthAdapter {
-  const users = new Map<string, { uid: string; email: string; emailVerified: boolean }>();
+  const users = new Map<string, { uid: string; email?: string; emailVerified: boolean }>();
+  const byEmail = new Map<string, string>();
   if (seed) {
-    users.set(seed.email, { uid: seed.uid, email: seed.email, emailVerified: seed.emailVerified === true });
+    users.set(seed.uid, { uid: seed.uid, email: seed.email, emailVerified: seed.emailVerified === true });
+    byEmail.set(seed.email.toLowerCase(), seed.uid);
   }
   return {
     async getUserByEmail(email) {
-      return users.get(email.toLowerCase()) ?? null;
+      const uid = byEmail.get(email.toLowerCase());
+      if (!uid) return null;
+      const row = users.get(uid);
+      return row ? { uid: row.uid, emailVerified: row.emailVerified } : null;
     },
     async createUser(input) {
       const uid = `fb-${randomUUID()}`;
-      users.set(input.email.toLowerCase(), {
-        uid,
-        email: input.email,
-        emailVerified: input.emailVerified,
-      });
+      users.set(uid, { uid, email: input.email, emailVerified: input.emailVerified });
+      if (input.email) byEmail.set(input.email.toLowerCase(), uid);
       return { uid };
     },
     async createCustomToken(uid) {
       return `custom.${uid}`;
+    },
+    async deleteUser(uid) {
+      const row = users.get(uid);
+      if (row?.email) byEmail.delete(row.email.toLowerCase());
+      users.delete(uid);
     },
   };
 }
@@ -150,7 +157,7 @@ describe('Discord OAuth local closure', () => {
     assert.match(expired.redirectTo, /oauth_error=expired/);
 
     const first = await handleOAuthCallback({ provider: 'discord', state, code: 'ok' });
-    assert.match(first.redirectTo, /ticket=/);
+    assert.match(first.redirectTo, /oauth_error=invite_required/);
     const replay = await handleOAuthCallback({ provider: 'discord', state, code: 'ok' });
     assert.match(replay.redirectTo, /oauth_error=replay/);
   });
@@ -168,7 +175,8 @@ describe('Discord OAuth local closure', () => {
     assert.match(apiFail.redirectTo, /oauth_error=oauth_failed/);
 
     setOAuthFetchForTests(discordFetchMock({ id: 'discord-stable-id', email: 'stable@example.com', verified: true }));
-    const { state: state3 } = await startDiscord();
+    const invite = await createInviteCode({ description: 'discord-stable', maximumUses: 1 }, 'admin-discord');
+    const { state: state3 } = await startDiscord({ intent: 'register', inviteCode: invite.code });
     const ok = await handleOAuthCallback({ provider: 'discord', state: state3, code: 'ok' });
     const ticket = new URL(ok.redirectTo).searchParams.get('ticket')!;
     const done = await completeOAuthTicket(ticket);
@@ -185,27 +193,22 @@ describe('Discord OAuth local closure', () => {
 
   it('12-16 invite_only, collision, and unsafe auto-link', async () => {
     const { state } = await startDiscord();
-    const first = await handleOAuthCallback({ provider: 'discord', state, code: 'ok' });
+    const blocked = await handleOAuthCallback({ provider: 'discord', state, code: 'ok' });
+    assert.match(blocked.redirectTo, /oauth_error=invite_required/);
+    assert.equal(await dsGet('oauth_identities', 'discord:d1'), null);
+
+    const invite = await createInviteCode({ description: 'discord-invited', maximumUses: 1 }, 'admin-discord');
+    const { state: invitedState } = await startDiscord({ intent: 'register', inviteCode: invite.code });
+    const first = await handleOAuthCallback({ provider: 'discord', state: invitedState, code: 'ok' });
     const ticket = new URL(first.redirectTo).searchParams.get('ticket')!;
     const done = await completeOAuthTicket(ticket);
     const uid = uidFromToken(done.customToken);
-    await assert.rejects(
-      () =>
-        syncAuthenticatedAppUser({
-          uid,
-          email: 'discord@example.com',
-          authProvider: 'discord',
-          legalAcceptance: currentDraftLegalAcceptanceInput(),
-        }),
-      (err: unknown) => err instanceof AppError && err.code === 'ACCESS_DENIED'
-    );
-
-    const invite = await createInviteCode({ description: 'discord-invited', maximumUses: 1 }, 'admin-discord');
     const created = await syncAuthenticatedAppUser({
       uid,
       email: 'discord@example.com',
       inviteCode: invite.code,
       authProvider: 'discord',
+      emailVerified: true,
       legalAcceptance: currentDraftLegalAcceptanceInput(),
     });
     assert.equal(created.created, true);
@@ -228,7 +231,8 @@ describe('Discord OAuth local closure', () => {
       memoryAdapter({ email: 'taken@example.com', uid: 'existing-uid', emailVerified: true })
     );
     setOAuthFetchForTests(discordFetchMock({ id: 'd-col', email: 'taken@example.com', verified: true }));
-    const { state: colState } = await startDiscord();
+    const colInvite = await createInviteCode({ description: 'discord-col', maximumUses: 1 }, 'admin-discord');
+    const { state: colState } = await startDiscord({ intent: 'register', inviteCode: colInvite.code });
     const collision = await handleOAuthCallback({ provider: 'discord', state: colState, code: 'ok' });
     assert.match(collision.redirectTo, /oauth_error=account_collision/);
 
@@ -236,7 +240,8 @@ describe('Discord OAuth local closure', () => {
       memoryAdapter({ email: 'unv@example.com', uid: 'existing-unv', emailVerified: false })
     );
     setOAuthFetchForTests(discordFetchMock({ id: 'd-unv', email: 'unv@example.com', verified: false }));
-    const { state: unvState } = await startDiscord();
+    const unvInvite = await createInviteCode({ description: 'discord-unv', maximumUses: 1 }, 'admin-discord');
+    const { state: unvState } = await startDiscord({ intent: 'register', inviteCode: unvInvite.code });
     const unsafe = await handleOAuthCallback({ provider: 'discord', state: unvState, code: 'ok' });
     assert.match(unsafe.redirectTo, /oauth_error=account_collision/);
   });
@@ -295,12 +300,12 @@ describe('Discord OAuth local closure', () => {
     assert.match(repo('frontend/src/components/auth/ProtectedRoute.tsx'), /Navigate to="\/login"/);
 
     setOAuthFetchForTests(discordFetchMock({ id: 'd-relogin', email: 'relogin@example.com', verified: true }));
-    const { state } = await startDiscord();
+    const invite = await createInviteCode({ description: 'discord-relogin', maximumUses: 1 }, 'admin-discord');
+    const { state } = await startDiscord({ intent: 'register', inviteCode: invite.code });
     const first = await handleOAuthCallback({ provider: 'discord', state, code: 'ok' });
     const ticket = new URL(first.redirectTo).searchParams.get('ticket')!;
     const done = await completeOAuthTicket(ticket);
     const uid = uidFromToken(done.customToken);
-    const invite = await createInviteCode({ description: 'discord-relogin', maximumUses: 1 }, 'admin-discord');
     await syncAuthenticatedAppUser({
       uid,
       email: 'relogin@example.com',
@@ -361,12 +366,12 @@ describe('Discord OAuth local closure', () => {
 
   it('28-30 account delete, data export, and Discord button availability', async () => {
     setOAuthFetchForTests(discordFetchMock({ id: 'd-export', email: 'export-d@example.com', verified: true }));
-    const { state } = await startDiscord();
+    const invite = await createInviteCode({ description: 'discord-export', maximumUses: 1 }, 'admin-discord');
+    const { state } = await startDiscord({ intent: 'register', inviteCode: invite.code });
     const cb = await handleOAuthCallback({ provider: 'discord', state, code: 'ok' });
     const ticket = new URL(cb.redirectTo).searchParams.get('ticket')!;
     const done = await completeOAuthTicket(ticket);
     const uid = uidFromToken(done.customToken);
-    const invite = await createInviteCode({ description: 'discord-export', maximumUses: 1 }, 'admin-discord');
     await syncAuthenticatedAppUser({
       uid,
       email: 'export-d@example.com',
@@ -392,7 +397,9 @@ describe('Discord OAuth local closure', () => {
     assert.doesNotMatch(login, /GitHub/);
     assert.doesNotMatch(login, /Apple/);
     const settings = repo('frontend/src/v2/pages/SettingsHubPage.tsx');
-    assert.match(settings, /Discord verknüpfen/);
-    assert.match(settings, /startOAuthLink\('discord'\)/);
+    assert.match(settings, /label\} verknüpfen/);
+    assert.match(settings, /startOAuthLink\(provider\)/);
+    assert.match(settings, /tiktok: 'TikTok'/);
+    assert.match(settings, /twitch: 'Twitch'/);
   });
 });

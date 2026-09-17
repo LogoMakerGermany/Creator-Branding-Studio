@@ -173,6 +173,14 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
       FILE_TOO_LARGE: 'Datei ist zu groß.',
       INTERNAL_ERROR: 'Ein interner Fehler ist aufgetreten. Bitte später erneut versuchen.',
       EXPORT_FAILED: 'Export fehlgeschlagen. Bitte erneut versuchen.',
+      INVITE_REQUIRED: 'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich',
+      INVITE_INVALID: 'Ungültiger oder inaktiver Einladungscode',
+      INVITE_EXPIRED: 'Einladungscode ist abgelaufen',
+      INVITE_EXHAUSTED: 'Einladungscode wurde bereits zu oft verwendet',
+      INVITE_EMAIL_MISMATCH:
+        'Dieser Einladungscode ist an eine E-Mail-Adresse gebunden. Melde dich mit der eingeladenen E-Mail-Adresse an.',
+      INVITE_EMAIL_REQUIRED:
+        'Dieser Einladungscode ist an eine E-Mail-Adresse gebunden. Der gewählte Anbieter stellt für diese Anmeldung keine bestätigbare E-Mail-Adresse bereit. Melde dich zuerst mit der eingeladenen E-Mail-Adresse an und verknüpfe den Anbieter anschließend in deinen Einstellungen.',
     };
     throw new ApiError(
       friendly[code] || data.error?.message || `Fehler (${res.status})`,
@@ -243,7 +251,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ ticket }),
       }),
-    startOAuthLink: (provider: 'discord') =>
+    startOAuthLink: (provider: 'discord' | 'twitch' | 'tiktok') =>
       request<{ url: string }>(`/api/v1/auth/oauth/${provider}/link/start`, {
         method: 'POST',
       }),

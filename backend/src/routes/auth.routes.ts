@@ -94,6 +94,7 @@ authRoutes.post(
       displayName: body.displayName || token.name,
       inviteCode: body.inviteCode,
       authProvider: body.authProvider,
+      emailVerified: token.emailVerified === true || body.authProvider === 'email',
       legalAcceptance:
         body.acceptedTermsVersion || body.acceptedPrivacyVersion
           ? {

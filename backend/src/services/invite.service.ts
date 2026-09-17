@@ -78,49 +78,99 @@ export interface RedeemInviteResult {
   grantRole: 'user' | 'tester';
 }
 
+export const INVITE_REQUIRED_MESSAGE =
+  'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich';
+export const INVITE_INVALID_MESSAGE = 'Ungültiger oder inaktiver Einladungscode';
+export const INVITE_EXPIRED_MESSAGE = 'Einladungscode ist abgelaufen';
+export const INVITE_EXHAUSTED_MESSAGE = 'Einladungscode wurde bereits zu oft verwendet';
+export const INVITE_EMAIL_MISMATCH_MESSAGE =
+  'Dieser Einladungscode ist an eine E-Mail-Adresse gebunden. Melde dich mit der eingeladenen E-Mail-Adresse an.';
+export const INVITE_EMAIL_REQUIRED_MESSAGE =
+  'Dieser Einladungscode ist an eine E-Mail-Adresse gebunden. Der gewählte Anbieter stellt für diese Anmeldung keine bestätigbare E-Mail-Adresse bereit. Melde dich zuerst mit der eingeladenen E-Mail-Adresse an und verknüpfe den Anbieter anschließend in deinen Einstellungen.';
+
+export interface InviteEligibilityOptions {
+  email?: string;
+  emailVerified?: boolean;
+}
+
+function denyInvite(code: string, message: string): never {
+  throw new ServiceError(403, code, message);
+}
+
+function assertInviteUsable(current: InviteCode): void {
+  if (!current.isActive) denyInvite('INVITE_INVALID', INVITE_INVALID_MESSAGE);
+  if (current.expiresAt && new Date(current.expiresAt).getTime() < Date.now()) {
+    denyInvite('INVITE_EXPIRED', INVITE_EXPIRED_MESSAGE);
+  }
+  if (current.currentUses >= current.maximumUses) {
+    denyInvite('INVITE_EXHAUSTED', INVITE_EXHAUSTED_MESSAGE);
+  }
+}
+
+function assertAssignedEmailMatches(current: InviteCode, options?: InviteEligibilityOptions): void {
+  if (!current.assignedEmail) return;
+  const provided = options?.email?.trim().toLowerCase();
+  if (!provided || options?.emailVerified !== true) {
+    denyInvite('INVITE_EMAIL_REQUIRED', INVITE_EMAIL_REQUIRED_MESSAGE);
+  }
+  if (provided !== current.assignedEmail.toLowerCase()) {
+    denyInvite('INVITE_EMAIL_MISMATCH', INVITE_EMAIL_MISMATCH_MESSAGE);
+  }
+}
+
+function alreadyRedeemedBy(current: InviteCode, userId?: string): boolean {
+  return Boolean(userId && (current.usedBy ?? []).some((row) => row.userId === userId));
+}
+
+function consumeInvite(current: InviteCode, userId?: string): InviteCode {
+  const usedBy = [...(current.usedBy ?? [])];
+  if (userId) usedBy.push({ userId, usedAt: new Date().toISOString() });
+  return {
+    ...current,
+    currentUses: current.currentUses + 1,
+    usedBy,
+    updatedAt: new Date().toISOString(),
+    isActive: current.currentUses + 1 < current.maximumUses ? current.isActive : false,
+  };
+}
+
+/** Peek-only: does not consume uses. */
+export async function assertInviteEligible(
+  code: string,
+  options?: InviteEligibilityOptions
+): Promise<InviteCode> {
+  const invite = await getInviteByCode(code);
+  if (!invite || !invite.isActive) denyInvite('INVITE_INVALID', INVITE_INVALID_MESSAGE);
+  assertInviteUsable(invite);
+  assertAssignedEmailMatches(invite, options);
+  return invite;
+}
+
 /**
  * Validate and consume one use of an invite code atomically.
+ * Repeating redeem for the same userId is idempotent (sync retry).
  */
 export async function redeemInviteCode(
   code: string,
-  email: string,
-  userId?: string
+  email?: string,
+  userId?: string,
+  options?: { emailVerified?: boolean }
 ): Promise<RedeemInviteResult> {
+  const eligibility = { email, emailVerified: options?.emailVerified };
   const invite = await getInviteByCode(code);
-  if (!invite || !invite.isActive) {
-    throw new ServiceError(403, 'ACCESS_DENIED', 'Ungültiger oder inaktiver Einladungscode');
+  if (!invite) denyInvite('INVITE_INVALID', INVITE_INVALID_MESSAGE);
+  if (alreadyRedeemedBy(invite, userId)) {
+    return { invite, grantRole: invite.grantRole || 'tester' };
   }
+  if (!invite.isActive) denyInvite('INVITE_INVALID', INVITE_INVALID_MESSAGE);
 
   const apply = async (current: InviteCode): Promise<RedeemInviteResult> => {
-    if (!current.isActive) {
-      throw new ServiceError(403, 'ACCESS_DENIED', 'Ungültiger oder inaktiver Einladungscode');
+    if (alreadyRedeemedBy(current, userId)) {
+      return { invite: current, grantRole: current.grantRole || 'tester' };
     }
-    if (current.expiresAt && new Date(current.expiresAt).getTime() < Date.now()) {
-      throw new ServiceError(403, 'ACCESS_DENIED', 'Einladungscode ist abgelaufen');
-    }
-    if (current.currentUses >= current.maximumUses) {
-      throw new ServiceError(403, 'ACCESS_DENIED', 'Einladungscode wurde bereits zu oft verwendet');
-    }
-    if (current.assignedEmail && current.assignedEmail.toLowerCase() !== email.toLowerCase()) {
-      throw new ServiceError(
-        403,
-        'ACCESS_DENIED',
-        'Dieser Einladungscode ist einer anderen E-Mail-Adresse zugeordnet'
-      );
-    }
-
-    const usedBy = [...(current.usedBy ?? [])];
-    if (userId) {
-      usedBy.push({ userId, usedAt: new Date().toISOString() });
-    }
-
-    const updated: InviteCode = {
-      ...current,
-      currentUses: current.currentUses + 1,
-      usedBy,
-      updatedAt: new Date().toISOString(),
-      isActive: current.currentUses + 1 < current.maximumUses ? current.isActive : false,
-    };
+    assertInviteUsable(current);
+    assertAssignedEmailMatches(current, eligibility);
+    const updated = consumeInvite(current, userId);
     await dsSet(COLLECTION, updated.id, updated as unknown as Record<string, unknown>);
     return { invite: updated, grantRole: current.grantRole || 'tester' };
   };
@@ -128,9 +178,7 @@ export async function redeemInviteCode(
   if (isDevMode()) {
     return withDevLock(inviteLockKey(invite.id), async () => {
       const fresh = (await dsGet(COLLECTION, invite.id)) as unknown as InviteCode | null;
-      if (!fresh) {
-        throw new ServiceError(403, 'ACCESS_DENIED', 'Ungültiger oder inaktiver Einladungscode');
-      }
+      if (!fresh) denyInvite('INVITE_INVALID', INVITE_INVALID_MESSAGE);
       return apply(fresh);
     });
   }
@@ -140,35 +188,14 @@ export async function redeemInviteCode(
   const ref = db.collection(COLLECTION).doc(invite.id);
   return db.runTransaction(async (t) => {
     const snap = await t.get(ref);
-    if (!snap.exists) {
-      throw new ServiceError(403, 'ACCESS_DENIED', 'Ungültiger oder inaktiver Einladungscode');
-    }
+    if (!snap.exists) denyInvite('INVITE_INVALID', INVITE_INVALID_MESSAGE);
     const current = { id: snap.id, ...snap.data() } as InviteCode;
-    if (!current.isActive) {
-      throw new ServiceError(403, 'ACCESS_DENIED', 'Ungültiger oder inaktiver Einladungscode');
+    if (alreadyRedeemedBy(current, userId)) {
+      return { invite: current, grantRole: current.grantRole || 'tester' };
     }
-    if (current.expiresAt && new Date(current.expiresAt).getTime() < Date.now()) {
-      throw new ServiceError(403, 'ACCESS_DENIED', 'Einladungscode ist abgelaufen');
-    }
-    if (current.currentUses >= current.maximumUses) {
-      throw new ServiceError(403, 'ACCESS_DENIED', 'Einladungscode wurde bereits zu oft verwendet');
-    }
-    if (current.assignedEmail && current.assignedEmail.toLowerCase() !== email.toLowerCase()) {
-      throw new ServiceError(
-        403,
-        'ACCESS_DENIED',
-        'Dieser Einladungscode ist einer anderen E-Mail-Adresse zugeordnet'
-      );
-    }
-    const usedBy = [...(current.usedBy ?? [])];
-    if (userId) usedBy.push({ userId, usedAt: new Date().toISOString() });
-    const updated: InviteCode = {
-      ...current,
-      currentUses: current.currentUses + 1,
-      usedBy,
-      updatedAt: new Date().toISOString(),
-      isActive: current.currentUses + 1 < current.maximumUses ? current.isActive : false,
-    };
+    assertInviteUsable(current);
+    assertAssignedEmailMatches(current, eligibility);
+    const updated = consumeInvite(current, userId);
     t.set(ref, omitUndefinedFields(updated as unknown as Record<string, unknown>));
     return { invite: updated, grantRole: current.grantRole || 'tester' };
   });

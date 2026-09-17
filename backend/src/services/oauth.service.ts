@@ -13,8 +13,16 @@ import {
 import {
   createFirebaseAuthUser,
   createFirebaseCustomToken,
+  deleteFirebaseAuthUser,
   lookupFirebaseUserByEmail,
 } from '../config/firebase.js';
+import { ServiceError } from '../lib/errors.js';
+import { getRegistrationMode } from './system-settings.service.js';
+import { getUserById } from './user.service.js';
+import {
+  assertInviteEligible,
+  INVITE_REQUIRED_MESSAGE,
+} from './invite.service.js';
 
 const STATE_COLLECTION = 'oauth_states';
 const TICKET_COLLECTION = 'oauth_tickets';
@@ -36,14 +44,16 @@ export type OAuthIntent = 'login' | 'register' | 'link';
 
 export interface OAuthAuthAdapter {
   getUserByEmail(email: string): Promise<{ uid: string; emailVerified: boolean } | null>;
-  createUser(input: { email: string; emailVerified: boolean; displayName?: string }): Promise<{ uid: string }>;
+  createUser(input: { email?: string; emailVerified: boolean; displayName?: string }): Promise<{ uid: string }>;
   createCustomToken(uid: string): Promise<string>;
+  deleteUser(uid: string): Promise<void>;
 }
 
 const productionAdapter: OAuthAuthAdapter = {
   getUserByEmail: lookupFirebaseUserByEmail,
   createUser: createFirebaseAuthUser,
   createCustomToken: createFirebaseCustomToken,
+  deleteUser: deleteFirebaseAuthUser,
 };
 
 let authAdapter: OAuthAuthAdapter = productionAdapter;
@@ -93,6 +103,7 @@ interface OAuthIdentityRow {
   email?: string;
   emailVerified: boolean;
   createdAt: string;
+  registrationPending?: boolean;
 }
 
 interface ProviderProfile {
@@ -340,16 +351,35 @@ async function fetchProfile(
   };
 }
 
-function syntheticEmail(provider: BridgeOAuthProvider, providerUserId: string): string {
-  return `${provider}.${providerUserId}@users.noreply.nexter.invalid`;
+function writeIdentity(row: OAuthIdentityRow): Promise<void> {
+  return dsSet(IDENTITY_COLLECTION, row.id, row as unknown as Record<string, unknown>);
+}
+
+async function assertNewOAuthRegistrationAllowed(
+  inviteCode: string | undefined,
+  profile: ProviderProfile
+): Promise<void> {
+  const mode = await getRegistrationMode();
+  if (mode === 'closed') {
+    throw new AppError(403, 'ACCESS_DENIED', 'Registrierung ist derzeit geschlossen');
+  }
+  if (mode === 'public') return;
+  if (!inviteCode?.trim()) {
+    throw new AppError(403, 'INVITE_REQUIRED', INVITE_REQUIRED_MESSAGE);
+  }
+  await assertInviteEligible(inviteCode, {
+    email: profile.email,
+    emailVerified: profile.emailVerified,
+  });
 }
 
 async function resolveFirebaseUid(
   provider: BridgeOAuthProvider,
   profile: ProviderProfile,
   intent: OAuthIntent,
-  linkUid?: string
-): Promise<string> {
+  linkUid: string | undefined,
+  inviteCode: string | undefined
+): Promise<{ firebaseUid: string; created: boolean }> {
   const id = identityId(provider, profile.providerUserId);
   const existing = (await dsGet(IDENTITY_COLLECTION, id)) as OAuthIdentityRow | null;
 
@@ -361,7 +391,7 @@ async function resolveFirebaseUid(
       throw new AppError(409, 'OAUTH_LINK_CONFLICT', 'Dieser Anbieter ist bereits mit einem anderen Konto verknüpft.');
     }
     if (!existing) {
-      await dsSet(IDENTITY_COLLECTION, id, {
+      await writeIdentity({
         id,
         provider,
         providerUserId: profile.providerUserId,
@@ -371,11 +401,15 @@ async function resolveFirebaseUid(
         createdAt: nowIso(),
       });
     }
-    return linkUid;
+    return { firebaseUid: linkUid, created: false };
   }
 
   if (existing) {
-    return existing.firebaseUid;
+    const appUser = await getUserById(existing.firebaseUid);
+    if (!appUser) {
+      await assertNewOAuthRegistrationAllowed(inviteCode, profile);
+    }
+    return { firebaseUid: existing.firebaseUid, created: false };
   }
 
   if (profile.email) {
@@ -389,11 +423,12 @@ async function resolveFirebaseUid(
     }
   }
 
-  const email = profile.email || syntheticEmail(provider, profile.providerUserId);
+  await assertNewOAuthRegistrationAllowed(inviteCode, profile);
+
   let created: { uid: string };
   try {
     created = await authAdapter.createUser({
-      email,
+      email: profile.email,
       emailVerified: profile.emailVerified,
       displayName: profile.displayName,
     });
@@ -412,16 +447,49 @@ async function resolveFirebaseUid(
     throw err;
   }
 
-  await dsSet(IDENTITY_COLLECTION, id, {
-    id,
-    provider,
-    providerUserId: profile.providerUserId,
-    firebaseUid: created.uid,
-    email: profile.email,
-    emailVerified: profile.emailVerified,
-    createdAt: nowIso(),
-  });
-  return created.uid;
+  try {
+    await writeIdentity({
+      id,
+      provider,
+      providerUserId: profile.providerUserId,
+      firebaseUid: created.uid,
+      email: profile.email,
+      emailVerified: profile.emailVerified,
+      createdAt: nowIso(),
+      registrationPending: true,
+    });
+  } catch (err) {
+    await authAdapter.deleteUser(created.uid).catch(() => undefined);
+    throw err;
+  }
+  return { firebaseUid: created.uid, created: true };
+}
+
+export async function markOAuthRegistrationComplete(firebaseUid: string): Promise<void> {
+  const rows = await listOAuthIdentitiesForUser(firebaseUid);
+  for (const row of rows) {
+    const raw = (await dsGet(IDENTITY_COLLECTION, row.id)) as OAuthIdentityRow | null;
+    if (!raw?.registrationPending) continue;
+    await writeIdentity({ ...raw, registrationPending: false });
+  }
+}
+
+export async function compensatePendingOAuthRegistration(firebaseUid: string): Promise<boolean> {
+  if (!firebaseUid) return false;
+  const appUser = await getUserById(firebaseUid);
+  if (appUser) return false;
+  const rows = await listOAuthIdentitiesForUser(firebaseUid);
+  const pending = [];
+  for (const row of rows) {
+    const raw = (await dsGet(IDENTITY_COLLECTION, row.id)) as OAuthIdentityRow | null;
+    if (raw?.registrationPending && raw.firebaseUid === firebaseUid) pending.push(raw);
+  }
+  if (!pending.length) return false;
+  for (const row of pending) {
+    await dsDelete(IDENTITY_COLLECTION, row.id);
+  }
+  await authAdapter.deleteUser(firebaseUid).catch(() => undefined);
+  return true;
 }
 
 export async function startOAuth(input: {
@@ -518,38 +586,54 @@ export async function handleOAuthCallback(input: {
     const creds = credentialsFor(provider);
     const accessToken = await exchangeCode(provider, creds, input.code, row.redirectUri, row.codeVerifier);
     const profile = await fetchProfile(provider, creds, accessToken);
-    const firebaseUid = await resolveFirebaseUid(provider, profile, row.intent, row.linkUid);
-    const ticket = randomToken(24);
-    const ticketRow: OAuthTicketRow = {
-      id: ticket,
-      firebaseUid,
-      provider,
-      inviteCode: row.inviteCode,
-      termsVersion: row.termsVersion,
-      privacyVersion: row.privacyVersion,
-      createdAt: nowIso(),
-      expiresAt: new Date(Date.now() + TICKET_TTL_MS).toISOString(),
-    };
-    await dsSet(TICKET_COLLECTION, ticket, ticketRow as unknown as Record<string, unknown>);
-    return { redirectTo: getOAuthCompleteUrl(ticket) };
+    let created = false;
+    let firebaseUid = '';
+    try {
+      const resolved = await resolveFirebaseUid(provider, profile, row.intent, row.linkUid, row.inviteCode);
+      firebaseUid = resolved.firebaseUid;
+      created = resolved.created;
+      const ticket = randomToken(24);
+      const ticketRow: OAuthTicketRow = {
+        id: ticket,
+        firebaseUid,
+        provider,
+        inviteCode: row.inviteCode,
+        termsVersion: row.termsVersion,
+        privacyVersion: row.privacyVersion,
+        createdAt: nowIso(),
+        expiresAt: new Date(Date.now() + TICKET_TTL_MS).toISOString(),
+      };
+      await dsSet(TICKET_COLLECTION, ticket, ticketRow as unknown as Record<string, unknown>);
+      return { redirectTo: getOAuthCompleteUrl(ticket) };
+    } catch (inner) {
+      if (created && firebaseUid) {
+        await compensatePendingOAuthRegistration(firebaseUid).catch(() => undefined);
+      }
+      throw inner;
+    }
   } catch (err) {
-    if (err instanceof AppError && err.code === 'ACCOUNT_COLLISION') {
-      return { redirectTo: getOAuthCompleteUrl('', 'account_collision') };
-    }
-    if (err instanceof AppError && err.code === 'OAUTH_LINK_CONFLICT') {
-      return { redirectTo: getOAuthCompleteUrl('', 'link_conflict') };
-    }
-    if (err instanceof AppError && err.code === 'OAUTH_TOKEN_EXCHANGE_FAILED') {
-      return { redirectTo: getOAuthCompleteUrl('', 'invalid_code') };
-    }
-    if (err instanceof AppError && err.code === 'OAUTH_PROFILE_FAILED') {
-      return { redirectTo: getOAuthCompleteUrl('', 'oauth_failed') };
-    }
-    if (err instanceof AppError && err.code === 'OAUTH_NOT_CONFIGURED') {
-      return { redirectTo: getOAuthCompleteUrl('', 'not_configured') };
-    }
-    return { redirectTo: getOAuthCompleteUrl('', 'oauth_failed') };
+    return { redirectTo: getOAuthCompleteUrl('', oauthCallbackError(err)) };
   }
+}
+
+function oauthCallbackError(err: unknown): string {
+  const code = err instanceof AppError || err instanceof ServiceError ? err.code : '';
+  if (code === 'ACCOUNT_COLLISION') return 'account_collision';
+  if (code === 'OAUTH_LINK_CONFLICT') return 'link_conflict';
+  if (code === 'OAUTH_TOKEN_EXCHANGE_FAILED') return 'invalid_code';
+  if (code === 'OAUTH_PROFILE_FAILED') return 'oauth_failed';
+  if (code === 'OAUTH_NOT_CONFIGURED') return 'not_configured';
+  if (code === 'INVITE_REQUIRED') return 'invite_required';
+  if (code === 'INVITE_INVALID') return 'invite_invalid';
+  if (code === 'INVITE_EXPIRED') return 'invite_expired';
+  if (code === 'INVITE_EXHAUSTED') return 'invite_exhausted';
+  if (code === 'INVITE_EMAIL_REQUIRED') return 'invite_email_required';
+  if (code === 'INVITE_EMAIL_MISMATCH') return 'invite_email_mismatch';
+  if (code === 'ACCESS_DENIED' && err instanceof Error && /geschlossen/i.test(err.message)) {
+    return 'registration_closed';
+  }
+  if (code === 'ACCESS_DENIED') return 'invite_required';
+  return 'oauth_failed';
 }
 
 export async function listOAuthIdentitiesForUser(firebaseUid: string): Promise<

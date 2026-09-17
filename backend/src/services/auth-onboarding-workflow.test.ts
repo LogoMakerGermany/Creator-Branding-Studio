@@ -203,7 +203,8 @@ describe('auth & onboarding local closure — registration, invite, sync, coins'
           legalAcceptance: currentDraftLegalAcceptanceInput(),
         }),
       (err: unknown) =>
-        (err instanceof AppError || err instanceof ServiceError) && err.code === 'ACCESS_DENIED'
+        (err instanceof AppError || err instanceof ServiceError) &&
+        (err.code === 'ACCESS_DENIED' || err.code === 'INVITE_EXHAUSTED' || err.code === 'INVITE_INVALID')
     );
 
     const uid = `ao-race-${randomUUID()}`;

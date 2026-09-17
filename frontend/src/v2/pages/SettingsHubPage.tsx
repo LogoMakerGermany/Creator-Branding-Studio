@@ -223,8 +223,12 @@ export function SettingsHubPage() {
   const [screenshot, setScreenshot] = useState<string | undefined>();
   const [feedbackStatus, setFeedbackStatus] = useState<string | null>(null);
   const [sendingFeedback, setSendingFeedback] = useState(false);
-  const [discordAvailable, setDiscordAvailable] = useState(false);
-  const [linkingDiscord, setLinkingDiscord] = useState(false);
+  const [oauthAvailability, setOauthAvailability] = useState<{
+    discord?: boolean;
+    twitch?: boolean;
+    tiktok?: boolean;
+  }>({});
+  const [linkingProvider, setLinkingProvider] = useState<'discord' | 'twitch' | 'tiktok' | null>(null);
 
   const savedDraft = useMemo(() => draftFromUser(user), [user]);
   const savedName = user?.displayName ?? '';
@@ -256,8 +260,14 @@ export function SettingsHubPage() {
       });
     api
       .status()
-      .then((s) => setDiscordAvailable(s.features.oauth?.discord === true))
-      .catch(() => setDiscordAvailable(false));
+      .then((s) =>
+        setOauthAvailability({
+          discord: s.features.oauth?.discord === true,
+          twitch: s.features.oauth?.twitch === true,
+          tiktok: s.features.oauth?.tiktok === true,
+        })
+      )
+      .catch(() => setOauthAvailability({}));
   }, []);
 
   useEffect(() => {
@@ -410,16 +420,18 @@ export function SettingsHubPage() {
     await logout();
   }
 
-  async function linkDiscord() {
-    if (linkingDiscord || !discordAvailable) return;
-    setLinkingDiscord(true);
+  async function linkOAuthProvider(provider: 'discord' | 'twitch' | 'tiktok') {
+    if (linkingProvider) return;
+    const available = oauthAvailability[provider] === true;
+    if (!available) return;
+    setLinkingProvider(provider);
     setPasswordStatus(null);
     try {
-      const { url } = await api.auth.startOAuthLink('discord');
+      const { url } = await api.auth.startOAuthLink(provider);
       window.location.assign(url);
     } catch (err) {
       setPasswordStatus(formatAuthError(err));
-      setLinkingDiscord(false);
+      setLinkingProvider(null);
     }
   }
 
@@ -427,7 +439,6 @@ export function SettingsHubPage() {
   const emailVerified = user?.emailVerified ?? firebaseUser?.emailVerified;
   const needsEmailVerification = user?.needsEmailVerification === true;
   const canChangePassword = (user?.authProviders ?? []).includes('email') && !isDevMode;
-  const discordLinked = (user?.authProviders ?? []).includes('discord');
   const connectedProviders = (user?.authProviders ?? []).filter((id) => id in CONNECTED_PROVIDER_LABELS);
   const nameError = displayName !== savedName ? sanitizeClientDisplayName(displayName).error : null;
 
@@ -621,26 +632,31 @@ export function SettingsHubPage() {
           >
             Passwort-Reset senden
           </Button>
-          <Button
-            variant="secondary"
-            className="min-h-11"
-            loading={linkingDiscord}
-            disabled={!discordAvailable || discordLinked || linkingDiscord}
-            aria-label={
-              discordLinked
-                ? 'Discord ist bereits verbunden'
-                : discordAvailable
-                  ? 'Discord mit diesem Konto verknüpfen'
-                  : 'Discord ist derzeit nicht verfügbar'
-            }
-            onClick={() => void linkDiscord()}
-          >
-            {discordLinked
-              ? 'Discord verbunden'
-              : discordAvailable
-                ? 'Discord verknüpfen'
-                : 'Discord (nicht verfügbar)'}
-          </Button>
+          {(['discord', 'twitch', 'tiktok'] as const).map((provider) => {
+            const linked = (user?.authProviders ?? []).includes(provider);
+            const available = oauthAvailability[provider] === true;
+            const labels = { discord: 'Discord', twitch: 'Twitch', tiktok: 'TikTok' } as const;
+            const label = labels[provider];
+            return (
+              <Button
+                key={provider}
+                variant="secondary"
+                className="min-h-11"
+                loading={linkingProvider === provider}
+                disabled={!available || linked || Boolean(linkingProvider)}
+                aria-label={
+                  linked
+                    ? `${label} ist bereits verbunden`
+                    : available
+                      ? `${label} mit diesem Konto verknüpfen`
+                      : `${label} ist derzeit nicht verfügbar`
+                }
+                onClick={() => void linkOAuthProvider(provider)}
+              >
+                {linked ? `${label} verbunden` : available ? `${label} verknüpfen` : `${label} (nicht verfügbar)`}
+              </Button>
+            );
+          })}
           <Button variant="ghost" className="min-h-11" onClick={() => void handleLogout()}>
             Abmelden
           </Button>

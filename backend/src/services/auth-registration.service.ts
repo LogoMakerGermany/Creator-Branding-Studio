@@ -5,17 +5,22 @@ import { isDevMode } from '../config/env.js';
 import { userLockKey, withDevLock } from '../lib/dev-mutex.js';
 import { getOrCreateUser, getUserById, type UserProfile } from './user.service.js';
 import { getRegistrationMode } from './system-settings.service.js';
-import { redeemInviteCode } from './invite.service.js';
+import { redeemInviteCode, INVITE_REQUIRED_MESSAGE } from './invite.service.js';
 import { dispatchTransactionalEmail, welcomeEmail } from './email.service.js';
 import { assertNewUserLegalAcceptance } from './legal.service.js';
+import {
+  compensatePendingOAuthRegistration,
+  markOAuthRegistrationComplete,
+} from './oauth.service.js';
 
 export interface SyncAppUserInput {
   uid: string;
-  email: string;
+  email?: string;
   displayName?: string;
   inviteCode?: string;
   authProvider?: string;
   legalAcceptance?: LegalAcceptanceInput;
+  emailVerified?: boolean;
 }
 
 export interface SyncAppUserResult {
@@ -39,29 +44,35 @@ export async function syncAuthenticatedAppUser(input: SyncAppUserInput): Promise
 async function syncAuthenticatedAppUserLocked(input: SyncAppUserInput): Promise<SyncAppUserResult> {
   const existing = await getUserById(input.uid);
   if (existing) {
-    const user = await getOrCreateUser(input.uid, input.email, input.displayName || existing.displayName, {
+    const user = await getOrCreateUser(input.uid, input.email || existing.email, input.displayName || existing.displayName, {
       authProvider: input.authProvider,
     });
+    await markOAuthRegistrationComplete(input.uid).catch(() => undefined);
     return { user, created: false };
   }
 
+  const failClosed = async (err: unknown): Promise<never> => {
+    await compensatePendingOAuthRegistration(input.uid).catch(() => undefined);
+    throw err;
+  };
+
   const mode = await getRegistrationMode();
   if (mode === 'closed') {
-    throw new AppError(403, 'ACCESS_DENIED', 'Registrierung ist derzeit geschlossen');
+    await failClosed(new AppError(403, 'ACCESS_DENIED', 'Registrierung ist derzeit geschlossen'));
   }
 
   let role = UserRole.USER;
   let inviteCodeId: string | undefined;
 
   if (mode !== 'public' && !input.inviteCode?.trim()) {
-    throw new AppError(
-      403,
-      'ACCESS_DENIED',
-      'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich'
-    );
+    await failClosed(new AppError(403, 'ACCESS_DENIED', INVITE_REQUIRED_MESSAGE));
   }
 
-  assertNewUserLegalAcceptance(input.legalAcceptance);
+  try {
+    assertNewUserLegalAcceptance(input.legalAcceptance);
+  } catch (err) {
+    await failClosed(err);
+  }
   const legalAcceptance: LegalAcceptanceRecord = {
     termsVersion: LEGAL_TERMS_VERSION,
     privacyVersion: LEGAL_PRIVACY_VERSION,
@@ -70,18 +81,21 @@ async function syncAuthenticatedAppUserLocked(input: SyncAppUserInput): Promise<
 
   if (mode !== 'public') {
     try {
-      const redeemed = await redeemInviteCode(input.inviteCode!, input.email, input.uid);
+      const redeemed = await redeemInviteCode(input.inviteCode!, input.email, input.uid, {
+        emailVerified: input.emailVerified,
+      });
       role = redeemed.grantRole === 'tester' ? UserRole.TESTER : UserRole.USER;
       inviteCodeId = redeemed.invite.id;
     } catch (err) {
       const raced = await getUserById(input.uid);
       if (raced) {
-        const user = await getOrCreateUser(input.uid, input.email, input.displayName || raced.displayName, {
+        const user = await getOrCreateUser(input.uid, input.email || raced.email, input.displayName || raced.displayName, {
           authProvider: input.authProvider,
         });
+        await markOAuthRegistrationComplete(input.uid).catch(() => undefined);
         return { user, created: false };
       }
-      throw err;
+      await failClosed(err);
     }
   }
 
@@ -91,10 +105,13 @@ async function syncAuthenticatedAppUserLocked(input: SyncAppUserInput): Promise<
     inviteCodeId,
     legalAcceptance,
   });
+  await markOAuthRegistrationComplete(input.uid).catch(() => undefined);
 
-  void dispatchTransactionalEmail(`welcome:${input.uid}`, welcomeEmail(user.email, user.displayName)).catch(
-    () => undefined
-  );
+  if (user.email && user.email.includes('@') && !/\.local$/i.test(user.email) && !/\.invalid$/i.test(user.email)) {
+    void dispatchTransactionalEmail(`welcome:${input.uid}`, welcomeEmail(user.email, user.displayName)).catch(
+      () => undefined
+    );
+  }
 
   return { user, created: true };
 }

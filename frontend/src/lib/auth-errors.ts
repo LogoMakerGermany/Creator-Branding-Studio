@@ -119,6 +119,28 @@ export function formatAuthError(err: unknown): string {
     case 'OAUTH_FAILED':
       mapped = 'Anmeldung beim Anbieter fehlgeschlagen. Bitte erneut versuchen.';
       break;
+    case 'INVITE_REQUIRED':
+      mapped = message || 'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich';
+      break;
+    case 'INVITE_INVALID':
+      mapped = message || 'Ungültiger oder inaktiver Einladungscode';
+      break;
+    case 'INVITE_EXPIRED':
+      mapped = message || 'Einladungscode ist abgelaufen';
+      break;
+    case 'INVITE_EXHAUSTED':
+      mapped = message || 'Einladungscode wurde bereits zu oft verwendet';
+      break;
+    case 'INVITE_EMAIL_MISMATCH':
+      mapped =
+        message ||
+        'Dieser Einladungscode ist an eine E-Mail-Adresse gebunden. Melde dich mit der eingeladenen E-Mail-Adresse an.';
+      break;
+    case 'INVITE_EMAIL_REQUIRED':
+      mapped =
+        message ||
+        'Dieser Einladungscode ist an eine E-Mail-Adresse gebunden. Der gewählte Anbieter stellt für diese Anmeldung keine bestätigbare E-Mail-Adresse bereit. Melde dich zuerst mit der eingeladenen E-Mail-Adresse an und verknüpfe den Anbieter anschließend in deinen Einstellungen.';
+      break;
     case 'ACCESS_DENIED':
       mapped = message || 'Zugriff verweigert.';
       break;
