@@ -20,7 +20,7 @@ import {
 import { withCoinCharge } from '../lib/billable-job.js';
 import { ServiceError } from '../lib/errors.js';
 import { generateSpeech, isPaidProviderTestBlocked } from '../lib/media-providers.js';
-import { getElevenLabsApiKey } from '../config/env.js';
+import { getElevenLabsApiKey, isTtsGenerationEnabled } from '../config/env.js';
 import { createTinyTestAudio } from '../lib/audio-test.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { dsGet, dsSet } from '../lib/data-store.js';
@@ -261,7 +261,7 @@ export async function generateVoiceTrack(
   const quoteId = typeof payload?.quoteId === 'string' ? payload.quoteId : undefined;
 
   if (voiceTestHooks?.result !== 'success' && voiceTestHooks?.result !== 'fail') {
-    if (isPaidProviderTestBlocked() || !getElevenLabsApiKey()) {
+    if (isPaidProviderTestBlocked() || !isTtsGenerationEnabled() || !getElevenLabsApiKey()) {
       throw new ServiceError(
         503,
         'AI_NOT_CONFIGURED',
@@ -429,6 +429,9 @@ export async function speakNexterReply(
   const user = await getUserById(userId);
   if (user?.nexterPreferences?.voiceOutputEnabled === false) {
     throw new ServiceError(403, 'VOICE_DISABLED', 'Nexter-Sprachausgabe ist deaktiviert. Der Textchat bleibt aktiv.');
+  }
+  if (isPaidProviderTestBlocked() || !isTtsGenerationEnabled() || !getElevenLabsApiKey()) {
+    throw new ServiceError(503, 'TTS_GENERATION_DISABLED', 'Provider-Sprachausgabe ist deaktiviert.');
   }
   const checked = validateVoiceText(text, MAX_NEXTER_SPEAK_CHARS);
   if (!checked.ok) {

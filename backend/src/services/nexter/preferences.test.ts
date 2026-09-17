@@ -52,8 +52,10 @@ describe('nexter personalization V1', () => {
     assert.equal(user.nexterPreferences.uiTheme, 'dark');
     assert.equal(user.nexterPreferences.accentPreset, DEFAULT_NEXTER_ACCENT_PRESET);
     assert.equal(user.nexterPreferences.personalizationCompleted, false);
+    assert.equal(user.nexterPreferences.voiceOutputEnabled, false);
     const resolved = resolveNexterPreferences(undefined, { locale: 'de', displayName: 'Ada' });
     assert.equal(resolved.uiTheme, 'dark');
+    assert.equal(resolved.voiceOutputEnabled, false);
   });
 
   it('B) addressAs Lars is used in greeting, not repeated by helper contract', () => {

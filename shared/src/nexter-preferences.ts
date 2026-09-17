@@ -242,7 +242,7 @@ export interface NexterPreferences {
   creationInterests: NexterCreationInterestId[];
   stylePreferences: NexterStylePreferenceId[];
   creatorGoals: NexterCreatorGoalId[];
-  /** When false, Nexter spoken playback is off — text chat still works. */
+  /** When true, Nexter may auto-speak completed chat replies in the browser. Missing defaults to false. */
   voiceOutputEnabled: boolean;
   personalizationCompleted: boolean;
   /** Server-managed write stamp. Clients may read it; patches must not set it. */
@@ -337,7 +337,7 @@ export function defaultNexterPreferences(input?: {
     creationInterests: [],
     stylePreferences: [],
     creatorGoals: [],
-    voiceOutputEnabled: true,
+    voiceOutputEnabled: false,
     personalizationCompleted: false,
     updatedAt: input?.now ?? new Date(0).toISOString(),
   };
@@ -372,7 +372,7 @@ export function resolveNexterPreferences(
   const creationInterests = sanitizeIdList(data.creationInterests, NEXTER_CREATION_INTEREST_IDS);
   const stylePreferences = sanitizeIdList(data.stylePreferences, NEXTER_STYLE_PREFERENCE_IDS);
   const creatorGoals = sanitizeIdList(data.creatorGoals, NEXTER_CREATOR_GOAL_IDS);
-  const voiceOutputEnabled = data.voiceOutputEnabled === false ? false : true;
+  const voiceOutputEnabled = data.voiceOutputEnabled === true;
   const personalizationCompleted = data.personalizationCompleted === true;
   const updatedAt =
     typeof data.updatedAt === 'string' && data.updatedAt ? data.updatedAt : defaults.updatedAt;

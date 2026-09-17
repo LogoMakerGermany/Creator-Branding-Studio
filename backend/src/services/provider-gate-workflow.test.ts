@@ -125,7 +125,10 @@ describe('provider confirmation gate — legacy and listen/speak/captions', () =
     assert.match(voice, /SPEAK_RATE_LIMIT/);
     const panel = frontend('components/nexter/NexterPanel.tsx');
     assert.match(panel, /speakingRef/);
-    assert.equal(/async function send[\s\S]*speakLast/.test(panel.split('async function speakLast')[0] ?? ''), false);
+    assert.doesNotMatch(panel, /api\.nexter\.speak/);
+    assert.doesNotMatch(panel, /new Audio\(/);
+    const sendFn = panel.split('async function send')[1]?.split('sendRef.current = send')[0] ?? '';
+    assert.doesNotMatch(sendFn, /api\.nexter\.speak|new Audio\(|confirmQuote|deductAmount/);
   });
 
   it('automatic subtitles direct provider is blocked; confirmed caption quote can use mock', async () => {

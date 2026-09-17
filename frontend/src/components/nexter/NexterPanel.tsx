@@ -1,20 +1,31 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Mic, Plus, Send, Volume2 } from 'lucide-react';
+import { Mic, Plus, Send, Volume2, VolumeX } from 'lucide-react';
 import { api, ApiError, type NexterChatMessage, type NexterAction } from '@/services/api';
 import {
-  COIN_COSTS,
-  CoinSpendCategory,
   createNexterSpeechController,
+  createNexterTtsController,
+  isNexterTtsSupported,
+  isNexterVoiceOutputEnabled,
   nexterOrbStatusLabel,
   nexterSpeechErrorMessage,
+  nexterTtsStatusLabel,
   shouldAutoNavigateNexterStudio,
+  shouldAutoSpeakCompletedNexterReply,
   type NexterMicState,
+  type NexterTtsState,
 } from '@ucbs/shared';
 import { useNexterStore } from '@/v2/store/nexter-store';
 import { useBrandProjectStore } from '@/v2/store/brand-project-store';
 import { useAuth } from '@/context/AuthContext';
 import { createBrowserRecognition, readBrowserSpeechCapability, requestBrowserMicPermission } from '@/lib/nexter-speech';
+import {
+  cancelBrowserTts,
+  readBrowserTtsCapability,
+  readBrowserTtsVoices,
+  speakBrowserUtterance,
+  subscribeBrowserTtsVoices,
+} from '@/lib/nexter-tts';
 import { NexterOrb } from './NexterOrb';
 import { cn, formatCoins } from '@/lib/utils';
 
@@ -35,15 +46,23 @@ export function NexterPanel({
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [micState, setMicState] = useState<NexterMicState>('idle');
+  const [ttsState, setTtsState] = useState<NexterTtsState>('idle');
+  const [ttsSupported, setTtsSupported] = useState(false);
+  const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [closedQuotes, setClosedQuotes] = useState<Set<string>>(() => new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
-  const audioCleanupRef = useRef<(() => void) | null>(null);
   const sendRef = useRef<(text: string) => Promise<void>>(async () => undefined);
   const lastAttemptRef = useRef<string | null>(null);
   const speakingRef = useRef(false);
   const loadingRef = useRef(false);
+  const micStateRef = useRef<NexterMicState>('idle');
+  const voiceOutputRef = useRef(false);
+  const ttsSupportedRef = useRef(false);
+  const hydratedUserIdRef = useRef<string | null>(null);
   const speechRef = useRef<ReturnType<typeof createNexterSpeechController> | null>(null);
+  const ttsRef = useRef<ReturnType<typeof createNexterTtsController> | null>(null);
   const recording = micState === 'listening' || micState === 'requesting_permission';
 
   useEffect(() => {
@@ -85,6 +104,30 @@ export function NexterPanel({
   }, [loading]);
 
   useEffect(() => {
+    micStateRef.current = micState;
+  }, [micState]);
+
+  useEffect(() => {
+    voiceOutputRef.current = voiceOutputEnabled;
+  }, [voiceOutputEnabled]);
+
+  useEffect(() => {
+    ttsSupportedRef.current = ttsSupported;
+  }, [ttsSupported]);
+
+  useEffect(() => {
+    const id = user?.id ?? null;
+    if (!id) {
+      hydratedUserIdRef.current = null;
+      setVoiceOutputEnabled(false);
+      return;
+    }
+    if (hydratedUserIdRef.current === id) return;
+    hydratedUserIdRef.current = id;
+    setVoiceOutputEnabled(isNexterVoiceOutputEnabled(user?.nexterPreferences?.voiceOutputEnabled));
+  }, [user]);
+
+  useEffect(() => {
     const controller = createNexterSpeechController({
       getCapability: readBrowserSpeechCapability,
       createRecognition: createBrowserRecognition,
@@ -93,7 +136,7 @@ export function NexterPanel({
         setMicState(next);
         if (next === 'listening' || next === 'requesting_permission') setOrbState('listening');
         else if (next === 'processing') setOrbState('thinking');
-        else if (!loadingRef.current) setOrbState('idle');
+        else if (!loadingRef.current && !speakingRef.current) setOrbState('idle');
       },
       onTranscript: (text) => {
         setInput(text);
@@ -107,11 +150,90 @@ export function NexterPanel({
     });
     speechRef.current = controller;
     return () => {
-      audioCleanupRef.current?.();
       controller.dispose();
       speechRef.current = null;
     };
   }, [pulse, setOrbState]);
+
+  useEffect(() => {
+    const cap = readBrowserTtsCapability();
+    setTtsSupported(isNexterTtsSupported(cap));
+    const controller = createNexterTtsController({
+      getCapability: readBrowserTtsCapability,
+      getVoices: readBrowserTtsVoices,
+      cancelEngine: cancelBrowserTts,
+      speakUtterance: speakBrowserUtterance,
+      isMicListening: () => {
+        const m = micStateRef.current;
+        return m === 'listening' || m === 'requesting_permission' || m === 'processing';
+      },
+      onState: (next) => {
+        setTtsState(next);
+        speakingRef.current = next === 'speaking';
+        if (next === 'speaking') {
+          setOrbState('speaking');
+          return;
+        }
+        setSpeakingMessageId(null);
+        setAudioLevel(0);
+        if (!loadingRef.current && micStateRef.current !== 'listening' && micStateRef.current !== 'requesting_permission') {
+          setOrbState('idle');
+        }
+      },
+      onError: () => {
+        setError('Voice Output konnte nicht gestartet werden.');
+        pulse('warning');
+      },
+    });
+    ttsRef.current = controller;
+    const unsubVoices = subscribeBrowserTtsVoices(() => {
+      setTtsSupported(isNexterTtsSupported(readBrowserTtsCapability()));
+    });
+    return () => {
+      unsubVoices();
+      controller.dispose();
+      ttsRef.current = null;
+      speakingRef.current = false;
+      setSpeakingMessageId(null);
+      setAudioLevel(0);
+    };
+  }, [pulse, setAudioLevel, setOrbState]);
+
+  useEffect(() => {
+    ttsRef.current?.cancel();
+  }, [location.pathname]);
+
+  function speakAssistantMessage(message: NexterChatMessage, opts?: { auto?: boolean }) {
+    if (!message?.content) return;
+    if (opts?.auto && !shouldAutoSpeakCompletedNexterReply({
+      voiceOutputEnabled: voiceOutputRef.current,
+      ttsSupported: ttsSupportedRef.current,
+      micState: micStateRef.current,
+      replyComplete: true,
+      isExistingSessionLoad: false,
+    })) {
+      return;
+    }
+    setSpeakingMessageId(message.id);
+    void ttsRef.current?.speak(message.content, {
+      auto: opts?.auto,
+      language: user?.nexterPreferences?.language,
+    });
+  }
+
+  function speakLast() {
+    const last = [...messages].reverse().find((m) => m.role === 'assistant');
+    if (!last) return;
+    if (speakingRef.current && speakingMessageId === last.id) {
+      ttsRef.current?.cancel();
+      return;
+    }
+    speakAssistantMessage(last);
+  }
+
+  function stopSpeech() {
+    ttsRef.current?.cancel();
+  }
 
   async function send(text: string) {
     const msg = text.trim();
@@ -135,6 +257,9 @@ export function NexterPanel({
         navigate(open.path);
       }
       pulse(awaitingConfirm ? 'warning' : 'success');
+      if (last?.role === 'assistant') {
+        speakAssistantMessage(last, { auto: true });
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Nexter ist gerade nicht erreichbar');
       pulse('error');
@@ -156,57 +281,22 @@ export function NexterPanel({
     void send(input);
   }
 
-  async function speakLast() {
-    if (user?.nexterPreferences?.voiceOutputEnabled === false) return;
-    if (speakingRef.current) return;
-    const last = [...messages].reverse().find((m) => m.role === 'assistant');
-    if (!last) return;
-    speakingRef.current = true;
-    audioCleanupRef.current?.();
+  async function toggleVoiceOutput() {
+    if (!ttsSupported) return;
+    const next = !voiceOutputEnabled;
+    setVoiceOutputEnabled(next);
+    if (!next) ttsRef.current?.cancel();
+    if (!user?.id) return;
     try {
-      setOrbState('thinking');
-      const res = await api.nexter.speak(last.content);
-      const audio = new Audio(res.audioUrl);
-      setOrbState('speaking');
-      const ctx = new AudioContext();
-      const source = ctx.createMediaElementSource(audio);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      analyser.connect(ctx.destination);
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      let raf = 0;
-      const tick = () => {
-        analyser.getByteFrequencyData(data);
-        const avg = data.reduce((a, b) => a + b, 0) / data.length / 255;
-        setAudioLevel(avg);
-        raf = requestAnimationFrame(tick);
-      };
-      raf = requestAnimationFrame(tick);
-      const stop = () => {
-        cancelAnimationFrame(raf);
-        setAudioLevel(0);
-        setOrbState('idle');
-        speakingRef.current = false;
-        void ctx.close();
-        audioCleanupRef.current = null;
-      };
-      audioCleanupRef.current = () => {
-        audio.pause();
-        stop();
-      };
-      audio.onended = stop;
-      await audio.play();
-    } catch (err) {
-      speakingRef.current = false;
-      setOrbState('idle');
-      setAudioLevel(0);
-      setError(err instanceof ApiError ? err.message : 'Vorlesen nicht verfügbar — Chat bleibt nutzbar.');
-      pulse('warning');
+      await api.auth.updateNexterPreferences({ voiceOutputEnabled: next });
+      await refreshUser();
+    } catch {
+      /* local toggle stays; chat remains usable */
     }
   }
 
   async function toggleListen() {
+    ttsRef.current?.cancel();
     setError(null);
     await speechRef.current?.start();
   }
@@ -220,6 +310,7 @@ export function NexterPanel({
   }
 
   async function newConversation() {
+    ttsRef.current?.cancel();
     try {
       const r = await api.nexter.newSession();
       setMessages(r.session.messages);
@@ -298,7 +389,11 @@ export function NexterPanel({
 
   const orb = loading ? (orbState === 'generating' ? 'generating' : 'thinking') : recording ? 'listening' : orbState;
   const coinBalance = user?.coinBalance ?? 0;
-  const voiceEnabled = user?.nexterPreferences?.voiceOutputEnabled !== false;
+  const ttsLabel = !ttsSupported
+    ? 'Sprachausgabe nicht verfügbar'
+    : voiceOutputEnabled
+      ? 'Sprachausgabe an'
+      : 'Sprachausgabe aus';
 
   return (
     <aside
@@ -322,6 +417,20 @@ export function NexterPanel({
             Dein KI-Assistent · {nexterOrbStatusLabel(orb)} · {formatCoins(coinBalance)}
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => void toggleVoiceOutput()}
+          disabled={!ttsSupported}
+          aria-pressed={voiceOutputEnabled}
+          aria-label={ttsLabel}
+          title={ttsLabel}
+          className={cn(
+            'min-h-11 rounded-lg px-2 text-[11px] disabled:cursor-not-allowed disabled:opacity-40',
+            voiceOutputEnabled ? 'text-violet-200' : 'text-zinc-400 hover:text-white'
+          )}
+        >
+          {ttsSupported ? (voiceOutputEnabled ? 'Sprache an' : 'Sprache aus') : 'Sprache n. v.'}
+        </button>
         <button
           type="button"
           onClick={() => void newConversation()}
@@ -351,6 +460,37 @@ export function NexterPanel({
             >
               {m.content}
             </div>
+            {m.role === 'assistant' && ttsSupported ? (
+              <div className="mt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (speakingRef.current && speakingMessageId === m.id) {
+                      stopSpeech();
+                      return;
+                    }
+                    speakAssistantMessage(m);
+                  }}
+                  className="min-h-11 min-w-11 rounded-lg p-2 text-zinc-400 hover:text-white"
+                  aria-label={
+                    speakingMessageId === m.id && ttsState === 'speaking'
+                      ? 'Vorlesen stoppen'
+                      : 'Antwort vorlesen'
+                  }
+                  title={
+                    speakingMessageId === m.id && ttsState === 'speaking'
+                      ? 'Vorlesen stoppen'
+                      : 'Antwort vorlesen'
+                  }
+                >
+                  {speakingMessageId === m.id && ttsState === 'speaking' ? (
+                    <VolumeX className="h-4 w-4" />
+                  ) : (
+                    <Volume2 className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+            ) : null}
             {m.suggestions?.length ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {m.suggestions.map((s) => (
@@ -448,16 +588,27 @@ export function NexterPanel({
           >
             <Mic className="h-4 w-4" />
           </button>
-          {voiceEnabled && (
-          <button
-            type="button"
-            onClick={() => void speakLast()}
-            className="min-h-11 min-w-11 rounded-lg p-2 text-zinc-400 hover:text-white"
-            aria-label={`Letzte Antwort vorlesen (${COIN_COSTS[CoinSpendCategory.NEXTER_VOICE]} Coins)`}
-          >
-            <Volume2 className="h-4 w-4" />
-          </button>
-          )}
+          {ttsSupported && ttsState === 'speaking' ? (
+            <button
+              type="button"
+              onClick={stopSpeech}
+              className="min-h-11 min-w-11 rounded-lg p-2 text-zinc-400 hover:text-white"
+              aria-label="Vorlesen stoppen"
+              title="Vorlesen stoppen"
+            >
+              <VolumeX className="h-4 w-4" />
+            </button>
+          ) : ttsSupported ? (
+            <button
+              type="button"
+              onClick={() => void speakLast()}
+              className="min-h-11 min-w-11 rounded-lg p-2 text-zinc-400 hover:text-white"
+              aria-label="Letzte Antwort vorlesen"
+              title="Letzte Antwort vorlesen"
+            >
+              <Volume2 className="h-4 w-4" />
+            </button>
+          ) : null}
           <button
             type="submit"
             disabled={loading || !input.trim()}
@@ -470,6 +621,7 @@ export function NexterPanel({
         <p className="mt-2 flex items-center gap-1 text-[10px] text-zinc-600">
           <Mic className="h-3 w-3" />
           {recording ? 'Nexter hört zu — erneut klicken zum Stoppen' : 'Spracheingabe füllt das Feld. Senden bleibt manuell.'}
+          {ttsSupported ? ` · Sprachausgabe ${nexterTtsStatusLabel(ttsState)}` : ' · Sprachausgabe nicht verfügbar'}
           {' · '}
           <Link to="/nexter" className="text-violet-300 hover:underline">
             Vollansicht

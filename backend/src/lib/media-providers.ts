@@ -13,6 +13,7 @@ import {
   areGenerationsEnabled,
   areImageGenerationsEnabled,
   areVideoGenerationsEnabled,
+  isTtsGenerationEnabled,
 } from '../config/env.js';
 import { ServiceError } from './errors.js';
 import {
@@ -98,6 +99,9 @@ export async function generateSpeech(
       'AI_NOT_CONFIGURED',
       'TTS-Generierung ist provider-gated und in Tests blockiert'
     );
+  }
+  if (!isTtsGenerationEnabled()) {
+    throw new ServiceError(503, 'TTS_GENERATION_DISABLED', 'Provider-TTS ist deaktiviert.');
   }
   if (!areGenerationsEnabled()) {
     throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');

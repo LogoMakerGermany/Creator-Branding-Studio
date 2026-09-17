@@ -44,7 +44,7 @@ export function emptyPersonalizationDraft(name = ''): PersonalizationDraft {
     language: DEFAULT_NEXTER_LANGUAGE,
     addressAs: name,
     voiceCatalogId: DEFAULT_NEXTER_VOICE_CATALOG_ID,
-    voiceOutputEnabled: true,
+    voiceOutputEnabled: false,
     uiTheme: DEFAULT_NEXTER_UI_THEME,
     accentPreset: DEFAULT_NEXTER_ACCENT_PRESET,
     customPrimary: null,
@@ -67,7 +67,7 @@ export function personalizationDraftFromPrefs(
     language: typeof prefs.language === 'string' ? prefs.language : base.language,
     addressAs: prefs.addressAs?.trim() || base.addressAs,
     voiceCatalogId: prefs.voiceCatalogId === undefined ? base.voiceCatalogId : prefs.voiceCatalogId,
-    voiceOutputEnabled: prefs.voiceOutputEnabled !== false,
+    voiceOutputEnabled: prefs.voiceOutputEnabled === true,
     uiTheme: prefs.uiTheme ?? base.uiTheme,
     accentPreset: prefs.accentPreset ?? base.accentPreset,
     customPrimary: prefs.customPrimary === undefined ? base.customPrimary : prefs.customPrimary,
@@ -391,10 +391,10 @@ export function NexterPersonalizationFields({
             <input
               id="nexter-voice-output"
               type="checkbox"
-              checked={draft.voiceOutputEnabled !== false}
+              checked={draft.voiceOutputEnabled === true}
               onChange={(e) => onChange({ ...draft, voiceOutputEnabled: e.target.checked })}
             />
-            Nexter-Sprachausgabe aktiv (Textchat bleibt immer verfügbar)
+            Sprachausgabe (NEXTER liest Antworten vor — Textchat bleibt immer verfügbar)
           </label>
         </div>
       )}

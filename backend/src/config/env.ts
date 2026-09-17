@@ -93,6 +93,19 @@ export function areMusicGenerationsEnabled(): boolean {
 }
 
 /**
+ * Paid provider TTS (ElevenLabs). Fail-closed.
+ * ELEVENLABS_API_KEY alone must not enable live TTS.
+ * Only the exact value "true" on TTS_GENERATION_ENABLED allows a provider call.
+ */
+export function isTtsGenerationEnabled(): boolean {
+  return areGenerationsEnabled() && readEnv('TTS_GENERATION_ENABLED')?.toLowerCase() === 'true';
+}
+
+export function isElevenLabsTtsLiveEnabled(): boolean {
+  return isTtsGenerationEnabled() && Boolean(getElevenLabsApiKey());
+}
+
+/**
  * Nexter text-chat kill switch. Fail-closed.
  * Missing, empty, or any value other than "true" keeps chat disabled.
  * OPENAI_API_KEY alone must not enable chat.

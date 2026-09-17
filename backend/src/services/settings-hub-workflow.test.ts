@@ -136,7 +136,7 @@ describe('settings hub local closure — profile, prefs, ownership', () => {
       } as never,
     });
     const loaded = await getUserById(legacy.id);
-    assert.equal(loaded?.nexterPreferences.voiceOutputEnabled, true);
+    assert.equal(loaded?.nexterPreferences.voiceOutputEnabled, false);
     assert.deepEqual(loaded?.nexterPreferences.platforms, []);
     assert.equal(loaded?.nexterPreferences.personalizationCompleted, false);
     const fresh = await seed('New');
