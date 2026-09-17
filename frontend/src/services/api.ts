@@ -172,6 +172,7 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
       UPLOAD_FAILED: 'Upload fehlgeschlagen. Bitte erneut versuchen.',
       FILE_TOO_LARGE: 'Datei ist zu groß.',
       INTERNAL_ERROR: 'Ein interner Fehler ist aufgetreten. Bitte später erneut versuchen.',
+      EMAIL_NOT_APPLICABLE: 'Diese Einladung hat keine zugewiesene E-Mail-Adresse.',
       EXPORT_FAILED: 'Export fehlgeschlagen. Bitte erneut versuchen.',
       INVITE_REQUIRED: 'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich',
       INVITE_INVALID: 'Ungültiger oder inaktiver Einladungscode',
@@ -1283,6 +1284,7 @@ export const api = {
           isActive: boolean;
           grantRole?: string;
           createdAt: string;
+          email?: { status: string; sent: boolean };
         }>;
       }>('/api/v1/admin/invites'),
     createInvite: (body: {
@@ -1291,10 +1293,18 @@ export const api = {
       maximumUses?: number;
       grantRole?: 'user' | 'tester';
     }) =>
-      request<{ invite: { id: string; code: string } }>('/api/v1/admin/invites', {
+      request<{
+        invite: { id: string; code: string };
+        email?: { attempted: boolean; sent: boolean; duplicate: boolean; status: string; message: string };
+      }>('/api/v1/admin/invites', {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    resendInviteEmail: (id: string) =>
+      request<{
+        invite: { id: string };
+        email: { attempted: boolean; sent: boolean; duplicate: boolean; status: string; message: string };
+      }>(`/api/v1/admin/invites/${id}/resend-email`, { method: 'POST' }),
     deactivateInvite: (id: string) =>
       request(`/api/v1/admin/invites/${id}/deactivate`, { method: 'POST' }),
     feedback: (query?: { status?: string; type?: string; category?: string; limit?: number; offset?: number }) => {
@@ -2161,6 +2171,7 @@ export interface AdminSystemStatus {
     firebaseAuthEmail: 'available' | 'unavailable';
     customProvider: string;
     customProviderStatus: 'configured' | 'not_configured';
+    transactional?: 'available' | 'unavailable';
   };
   devStore: boolean;
   checkedAt?: string;
@@ -2608,6 +2619,7 @@ export interface PlatformStatus {
   resend?: { configured: boolean; liveChecked?: boolean; available?: boolean | null };
   firebaseAuthEmail?: { status: 'available' | 'unavailable'; liveChecked?: boolean };
   customEmailProvider?: { name: string; status: 'configured' | 'not_configured'; liveChecked?: boolean };
+  transactionalEmail?: { status: 'available' | 'unavailable' };
   rtmp: { server: string; appName: string; provider: string };
   ai: Record<string, { configured: boolean; liveChecked: boolean; available: boolean | null }>;
   features: {

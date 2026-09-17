@@ -1,6 +1,15 @@
-import { isDevMode, isProduction, getDefaultFreeCoins, getResendApiKey, getEmailFrom } from '../config/env.js';
+import type { InviteCode } from '@ucbs/shared';
+import {
+  isDevMode,
+  isProduction,
+  getDefaultFreeCoins,
+  getResendApiKey,
+  getEmailFrom,
+  isTransactionalEmailConfigured,
+} from '../config/env.js';
 import { isPaidProviderTestBlocked } from '../lib/media-providers.js';
 import { dsGet, dsSet } from '../lib/data-store.js';
+import { withDevLock } from '../lib/dev-mutex.js';
 
 export type EmailKind =
   | 'welcome'
@@ -12,6 +21,16 @@ export type EmailKind =
   | 'invite'
   | 'warning';
 
+export type EmailFailureReason = 'not_configured' | 'provider_error';
+
+export type EmailDeliveryStatus =
+  | 'not_attempted'
+  | 'skipped'
+  | 'sent'
+  | 'failed'
+  | 'not_configured'
+  | 'duplicate';
+
 export interface EmailPayload {
   to: string;
   kind: EmailKind;
@@ -19,12 +38,58 @@ export interface EmailPayload {
   text: string;
 }
 
-const DISPATCH_COLLECTION = 'email_dispatches';
+export interface SendEmailResult {
+  sent: boolean;
+  provider: string;
+  reason?: EmailFailureReason;
+}
 
 export interface DispatchResult {
   sent: boolean;
   duplicate: boolean;
   provider: string;
+  reason?: EmailFailureReason;
+  status: EmailDeliveryStatus;
+}
+
+export interface InviteEmailDelivery {
+  attempted: boolean;
+  sent: boolean;
+  duplicate: boolean;
+  status: EmailDeliveryStatus;
+  message: string;
+}
+
+export const INVITE_CREATED_MESSAGE = 'Einladung erstellt.';
+export const INVITE_CREATED_AND_SENT_MESSAGE = 'Einladung erstellt und E-Mail versendet.';
+export const INVITE_CREATED_EMAIL_FAILED_MESSAGE =
+  'Die Einladung wurde erstellt, aber die E-Mail konnte momentan nicht versendet werden.';
+export const EMAIL_NOT_SENT_MESSAGE =
+  'Die E-Mail konnte momentan nicht versendet werden. Bitte versuche es später erneut.';
+export const EMAIL_ALREADY_SENT_MESSAGE = 'Die E-Mail wurde bereits versendet.';
+export const EMAIL_SENT_MESSAGE = 'Die E-Mail wurde versendet.';
+export const EMAIL_NOT_APPLICABLE_MESSAGE = 'Diese Einladung hat keine zugewiesene E-Mail-Adresse.';
+
+const DISPATCH_COLLECTION = 'email_dispatches';
+
+type EmailTransport = (payload: EmailPayload) => Promise<SendEmailResult>;
+
+let testTransport: EmailTransport | null = null;
+
+export function setTestEmailTransport(transport: EmailTransport | null): void {
+  testTransport = transport;
+}
+
+export function resetTestEmailTransport(): void {
+  testTransport = null;
+}
+
+export function inviteEmailIdempotencyKey(inviteId: string): string {
+  return `invite:${inviteId}`;
+}
+
+export function welcomeEmailIdempotencyKey(uid: string): string {
+  return `welcome:${uid}`;
 }
 
 export function maskEmailAddress(email: string): string {
@@ -37,18 +102,37 @@ export function maskEmailAddress(email: string): string {
 }
 
 function sanitizeEmailTextField(value: string, max = 80): string {
-  return value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  return value
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/[<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+function redactLogText(message: string): string {
+  return message
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '***')
+    .replace(/\bre_[A-Za-z0-9]+\b/g, 're_***')
+    .replace(/RESEND_API_KEY|EMAIL_FROM/g, 'ENV');
+}
+
+function logDeliveryIssue(kind: EmailKind, reason: EmailFailureReason | 'error', provider?: string): void {
+  console.error('[email] delivery failed', { kind, reason, provider: provider || 'none' });
 }
 
 /**
- * Send is a side effect. Callers must not roll back money on failure.
+ * Send is a side effect. Callers must not roll back money or accounts on failure.
  * Tests never call a real provider.
  */
-export async function sendTransactionalEmail(
-  payload: EmailPayload
-): Promise<{ sent: boolean; provider: string }> {
+export async function sendTransactionalEmail(payload: EmailPayload): Promise<SendEmailResult> {
   if (isPaidProviderTestBlocked()) {
-    return { sent: true, provider: 'test' };
+    if (testTransport) return testTransport(payload);
+    if (isTransactionalEmailConfigured()) {
+      return { sent: true, provider: 'test' };
+    }
+    logDeliveryIssue(payload.kind, 'not_configured', 'none');
+    return { sent: false, provider: 'none', reason: 'not_configured' };
   }
 
   const key = getResendApiKey();
@@ -74,8 +158,8 @@ export async function sendTransactionalEmail(
   }
 
   if (isProduction()) {
-    console.error('[email] custom provider not configured — Versand übersprungen');
-    return { sent: false, provider: 'none' };
+    logDeliveryIssue(payload.kind, 'not_configured', 'none');
+    return { sent: false, provider: 'none', reason: 'not_configured' };
   }
 
   if (isDevMode()) {
@@ -83,35 +167,84 @@ export async function sendTransactionalEmail(
     return { sent: true, provider: 'log' };
   }
 
-  return { sent: false, provider: 'none' };
+  logDeliveryIssue(payload.kind, 'not_configured', 'none');
+  return { sent: false, provider: 'none', reason: 'not_configured' };
+}
+
+function emailDispatchLockKey(idempotencyKey: string): string {
+  return `email-dispatch:${idempotencyKey}`;
+}
+
+export async function getEmailDispatch(idempotencyKey: string): Promise<Record<string, unknown> | null> {
+  const row = await dsGet(DISPATCH_COLLECTION, idempotencyKey);
+  return row;
 }
 
 export async function dispatchTransactionalEmail(
   idempotencyKey: string,
   payload: EmailPayload
 ): Promise<DispatchResult> {
-  const existing = await dsGet(DISPATCH_COLLECTION, idempotencyKey);
-  if (existing?.sentAt) {
-    return { sent: false, duplicate: true, provider: String(existing.provider ?? 'none') };
-  }
+  return withDevLock(emailDispatchLockKey(idempotencyKey), async () => {
+    const existing = await dsGet(DISPATCH_COLLECTION, idempotencyKey);
+    if (existing?.sentAt) {
+      return {
+        sent: false,
+        duplicate: true,
+        provider: String(existing.provider ?? 'none'),
+        status: 'duplicate' as const,
+      };
+    }
 
-  try {
-    const result = await sendTransactionalEmail(payload);
-    if (result.sent) {
+    try {
+      const result = await sendTransactionalEmail(payload);
+      if (result.sent) {
+        await dsSet(DISPATCH_COLLECTION, idempotencyKey, {
+          id: idempotencyKey,
+          kind: payload.kind,
+          to: payload.to,
+          provider: result.provider,
+          status: 'sent',
+          sentAt: new Date().toISOString(),
+        });
+        return { sent: true, duplicate: false, provider: result.provider, status: 'sent' };
+      }
+      const reason = result.reason || 'provider_error';
       await dsSet(DISPATCH_COLLECTION, idempotencyKey, {
         id: idempotencyKey,
         kind: payload.kind,
-        to: payload.to,
         provider: result.provider,
-        sentAt: new Date().toISOString(),
+        status: reason === 'not_configured' ? 'not_configured' : 'failed',
+        failedAt: new Date().toISOString(),
+        reason,
       });
+      return {
+        sent: false,
+        duplicate: false,
+        provider: result.provider,
+        reason,
+        status: reason === 'not_configured' ? 'not_configured' : 'failed',
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'email failed';
+      console.error('[email] send failed:', redactLogText(message));
+      logDeliveryIssue(payload.kind, 'provider_error', 'error');
+      await dsSet(DISPATCH_COLLECTION, idempotencyKey, {
+        id: idempotencyKey,
+        kind: payload.kind,
+        provider: 'error',
+        status: 'failed',
+        failedAt: new Date().toISOString(),
+        reason: 'provider_error',
+      }).catch(() => undefined);
+      return {
+        sent: false,
+        duplicate: false,
+        provider: 'error',
+        reason: 'provider_error',
+        status: 'failed',
+      };
     }
-    return { sent: result.sent, duplicate: false, provider: result.provider };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'email failed';
-    console.error('[email] send failed:', message.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '***'));
-    return { sent: false, duplicate: false, provider: 'error' };
-  }
+  });
 }
 
 export function welcomeEmail(to: string, name: string, coins = getDefaultFreeCoins()): EmailPayload {
@@ -144,4 +277,62 @@ export function purchaseReceiptEmail(
     subject: `NEXTER: ${sanitizeEmailTextField(packageName, 80)} gutgeschrieben`,
     text: `Hallo ${sanitizeEmailTextField(name)},\n\n${coins} Coins (${sanitizeEmailTextField(packageName, 80)}) wurden deinem Konto gutgeschrieben.\n\n— NEXTER`,
   };
+}
+
+function inviteDeliveryMessage(
+  status: EmailDeliveryStatus,
+  created: boolean
+): string {
+  if (status === 'skipped' || status === 'not_attempted') {
+    return created ? INVITE_CREATED_MESSAGE : EMAIL_NOT_APPLICABLE_MESSAGE;
+  }
+  if (status === 'sent') {
+    return created ? INVITE_CREATED_AND_SENT_MESSAGE : EMAIL_SENT_MESSAGE;
+  }
+  if (status === 'duplicate') {
+    return created ? INVITE_CREATED_AND_SENT_MESSAGE : EMAIL_ALREADY_SENT_MESSAGE;
+  }
+  return created ? INVITE_CREATED_EMAIL_FAILED_MESSAGE : EMAIL_NOT_SENT_MESSAGE;
+}
+
+export async function deliverAssignedInviteEmail(
+  invite: InviteCode,
+  options?: { created?: boolean }
+): Promise<InviteEmailDelivery> {
+  const created = options?.created === true;
+  if (!invite.assignedEmail) {
+    return {
+      attempted: false,
+      sent: false,
+      duplicate: false,
+      status: 'skipped',
+      message: inviteDeliveryMessage('skipped', created),
+    };
+  }
+
+  const result = await dispatchTransactionalEmail(
+    inviteEmailIdempotencyKey(invite.id),
+    inviteEmail(invite.assignedEmail, invite.code, invite.description)
+  );
+  return {
+    attempted: true,
+    sent: result.sent,
+    duplicate: result.duplicate,
+    status: result.status,
+    message: inviteDeliveryMessage(result.status, created),
+  };
+}
+
+export async function inviteEmailDeliveryFromStore(invite: InviteCode): Promise<{
+  status: EmailDeliveryStatus;
+  sent: boolean;
+}> {
+  if (!invite.assignedEmail) {
+    return { status: 'skipped', sent: false };
+  }
+  const row = await getEmailDispatch(inviteEmailIdempotencyKey(invite.id));
+  if (!row) return { status: 'not_attempted', sent: false };
+  if (row.sentAt) return { status: 'sent', sent: true };
+  if (row.status === 'not_configured') return { status: 'not_configured', sent: false };
+  return { status: 'failed', sent: false };
 }

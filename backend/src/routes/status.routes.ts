@@ -14,6 +14,7 @@ import {
   areGenerationsEnabled,
   arePaymentsEnabled,
   isResendConfigured,
+  getTransactionalEmailStatus,
   getFirebaseAuthEmailStatus,
   getCustomEmailProviderStatus,
   getOAuthPublicAvailability,
@@ -49,6 +50,7 @@ statusRoutes.get(
       resend: { configured: isResendConfigured(), liveChecked: false, available: null },
       firebaseAuthEmail: { status: getFirebaseAuthEmailStatus(), liveChecked: false },
       customEmailProvider: { name: 'resend', status: getCustomEmailProviderStatus(), liveChecked: false },
+      transactionalEmail: { status: getTransactionalEmailStatus() },
       rtmp: getRtmpConfig(),
       ai: getAiProviderStatus(),
       registration: {

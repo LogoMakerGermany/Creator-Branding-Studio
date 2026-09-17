@@ -38,6 +38,7 @@ type InviteRow = {
   isActive: boolean;
   grantRole?: string;
   createdAt: string;
+  email?: { status: string; sent: boolean };
 };
 
 type JobRow = {
@@ -110,7 +111,11 @@ export function AdminPage() {
   const [confirmGrant, setConfirmGrant] = useState(false);
   const [statusMap, setStatusMap] = useState<Record<string, string>>({});
   const [inviteDesc, setInviteDesc] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
   const [inviteMax, setInviteMax] = useState('1');
+  const [inviteMsg, setInviteMsg] = useState<string | null>(null);
+  const [inviteSending, setInviteSending] = useState(false);
+  const [resendingInviteId, setResendingInviteId] = useState<string | null>(null);
   const [confirmInviteRevoke, setConfirmInviteRevoke] = useState<string | null>(null);
   const [confirmRecover, setConfirmRecover] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
@@ -260,6 +265,9 @@ export function AdminPage() {
                   Firebase Auth E-Mail:{' '}
                   {system.email.firebaseAuthEmail === 'available' ? 'AVAILABLE' : 'UNAVAILABLE'} · Resend:{' '}
                   {system.email.customProviderStatus === 'configured' ? 'CONFIGURED' : 'NOT CONFIGURED'}
+                  {system.email.transactional
+                    ? ` · Transactional Email: ${system.email.transactional === 'available' ? 'AVAILABLE' : 'UNAVAILABLE'}`
+                    : ''}
                 </p>
               )}
               <p className="text-xs text-zinc-500">
@@ -711,26 +719,48 @@ export function AdminPage() {
           className="mb-3 flex flex-wrap gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            if (inviteDesc.trim().length < 1) return;
+            if (inviteDesc.trim().length < 1 || inviteSending) return;
+            setInviteSending(true);
+            setInviteMsg(null);
+            const assigned = inviteEmail.trim() || undefined;
             void api.admin
               .createInvite({
                 description: inviteDesc.trim(),
                 maximumUses: Number.parseInt(inviteMax, 10) || 1,
                 grantRole: 'tester',
+                assignedEmail: assigned,
               })
-              .then(() => {
+              .then((result) => {
                 setInviteDesc('');
+                setInviteEmail('');
+                setInviteMsg(result.email?.message || 'Einladung erstellt.');
                 return loadInvites();
               })
-              .then(() => loadDashboard());
+              .catch((err) => {
+                setInviteMsg(err instanceof Error ? err.message : 'Einladung konnte nicht erstellt werden.');
+              })
+              .then(() => loadDashboard())
+              .finally(() => setInviteSending(false));
           }}
         >
           <Input id="invite-desc" label="Beschreibung" value={inviteDesc} onChange={(e) => setInviteDesc(e.target.value)} />
+          <Input
+            id="invite-email"
+            label="Zugewiesene E-Mail (optional)"
+            type="email"
+            value={inviteEmail}
+            onChange={(e) => setInviteEmail(e.target.value)}
+          />
           <Input id="invite-max" label="Max. Uses" className="w-24" value={inviteMax} onChange={(e) => setInviteMax(e.target.value)} />
-          <Button type="submit" className="min-h-11 self-end">
+          <Button type="submit" className="min-h-11 self-end" disabled={inviteSending}>
             Invite erstellen
           </Button>
         </form>
+        {inviteMsg && (
+          <p className="mb-2 text-sm text-zinc-300" role="status">
+            {inviteMsg}
+          </p>
+        )}
         {invitesLoading && (
           <p className="text-sm text-zinc-500" role="status">
             Invites werden geladen…
@@ -743,7 +773,38 @@ export function AdminPage() {
             <p>
               {inv.code} · {inv.description} · {inv.currentUses}/{inv.maximumUses} · {inv.isActive ? 'aktiv' : 'deaktiviert'}
               {inv.expiresAt ? ` · bis ${inv.expiresAt}` : ''}
+              {inv.assignedEmail ? ` · ${inv.assignedEmail}` : ''}
+              {` · E-Mail: ${
+                inv.email?.sent
+                  ? 'versendet'
+                  : inv.email?.status === 'skipped' || !inv.assignedEmail
+                    ? '—'
+                    : 'nicht versendet'
+              }`}
             </p>
+            {inv.assignedEmail && !inv.email?.sent && (
+              <Button
+                variant="ghost"
+                className="min-h-11"
+                disabled={resendingInviteId === inv.id}
+                onClick={() => {
+                  setResendingInviteId(inv.id);
+                  setInviteMsg(null);
+                  void api.admin
+                    .resendInviteEmail(inv.id)
+                    .then((result) => {
+                      setInviteMsg(result.email.message);
+                      return loadInvites();
+                    })
+                    .catch((err) => {
+                      setInviteMsg(err instanceof Error ? err.message : 'Die E-Mail konnte momentan nicht versendet werden. Bitte versuche es später erneut.');
+                    })
+                    .finally(() => setResendingInviteId(null));
+                }}
+              >
+                E-Mail erneut senden
+              </Button>
+            )}
             {inv.isActive && (
               <div className="flex items-center gap-2">
                 <label className="flex items-center gap-1 text-zinc-400">

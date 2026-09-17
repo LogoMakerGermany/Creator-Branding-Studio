@@ -108,9 +108,14 @@ async function syncAuthenticatedAppUserLocked(input: SyncAppUserInput): Promise<
   await markOAuthRegistrationComplete(input.uid).catch(() => undefined);
 
   if (user.email && user.email.includes('@') && !/\.local$/i.test(user.email) && !/\.invalid$/i.test(user.email)) {
-    void dispatchTransactionalEmail(`welcome:${input.uid}`, welcomeEmail(user.email, user.displayName)).catch(
-      () => undefined
-    );
+    try {
+      const mail = await dispatchTransactionalEmail(`welcome:${input.uid}`, welcomeEmail(user.email, user.displayName));
+      if (!mail.sent && !mail.duplicate) {
+        console.error('[email] welcome not delivered', { reason: mail.reason || 'failed', provider: mail.provider });
+      }
+    } catch {
+      console.error('[email] welcome not delivered', { reason: 'error' });
+    }
   }
 
   return { user, created: true };

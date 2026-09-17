@@ -477,38 +477,49 @@ describe('phase I — jobs recovery / limits', () => {
 
 describe('phase I — email / account / legal / security', () => {
   it('47-51 payment mail once; mail error does not roll coins; welcome mail no second bonus', async () => {
-    const user = await getOrCreateUser(`i-mail-${randomUUID()}`, 'mail@test.local', 'M');
-    const before = await getCoinBalance(user.id);
-    const pkg = getPackageById('starter')!;
-    const paymentId = `cs_mail_${randomUUID()}`;
-    await creditCoinsFromPackagePurchase({
-      provider: 'stripe',
-      paymentId,
-      userId: user.id,
-      packageId: 'starter',
-      amountCents: pkg.priceCents,
-      currency: 'eur',
-    });
-    await creditCoinsFromPackagePurchase({
-      provider: 'stripe',
-      paymentId,
-      userId: user.id,
-      packageId: 'starter',
-      amountCents: pkg.priceCents,
-      currency: 'eur',
-    });
-    const dispatch = await dsGet('email_dispatches', `purchase:stripe:${paymentId}`);
-    assert.ok(dispatch?.sentAt);
-    assert.equal(await getCoinBalance(user.id), before + pkg.coins + pkg.bonusCoins);
+    const prevKey = process.env.RESEND_API_KEY;
+    const prevFrom = process.env.EMAIL_FROM;
+    process.env.RESEND_API_KEY = 're_fake_not_a_real_key';
+    process.env.EMAIL_FROM = 'NEXTER <noreply@test.invalid>';
+    try {
+      const user = await getOrCreateUser(`i-mail-${randomUUID()}`, 'mail@test.local', 'M');
+      const before = await getCoinBalance(user.id);
+      const pkg = getPackageById('starter')!;
+      const paymentId = `cs_mail_${randomUUID()}`;
+      await creditCoinsFromPackagePurchase({
+        provider: 'stripe',
+        paymentId,
+        userId: user.id,
+        packageId: 'starter',
+        amountCents: pkg.priceCents,
+        currency: 'eur',
+      });
+      await creditCoinsFromPackagePurchase({
+        provider: 'stripe',
+        paymentId,
+        userId: user.id,
+        packageId: 'starter',
+        amountCents: pkg.priceCents,
+        currency: 'eur',
+      });
+      const dispatch = await dsGet('email_dispatches', `purchase:stripe:${paymentId}`);
+      assert.ok(dispatch?.sentAt);
+      assert.equal(await getCoinBalance(user.id), before + pkg.coins + pkg.bonusCoins);
 
-    const w1 = await dispatchTransactionalEmail(`welcome:${user.id}`, welcomeEmail(user.email, user.displayName));
-    const w2 = await dispatchTransactionalEmail(`welcome:${user.id}`, welcomeEmail(user.email, user.displayName));
-    assert.equal(w2.duplicate, true);
-    void w1;
-    const bonuses = ((await getTransactions(user.id, 30)) as Array<{ description: string }>).filter(
-      (t) => t.description === 'Willkommensbonus'
-    );
-    assert.equal(bonuses.length, 1);
+      const w1 = await dispatchTransactionalEmail(`welcome:${user.id}`, welcomeEmail(user.email, user.displayName));
+      const w2 = await dispatchTransactionalEmail(`welcome:${user.id}`, welcomeEmail(user.email, user.displayName));
+      assert.equal(w2.duplicate, true);
+      void w1;
+      const bonuses = ((await getTransactions(user.id, 30)) as Array<{ description: string }>).filter(
+        (t) => t.description === 'Willkommensbonus'
+      );
+      assert.equal(bonuses.length, 1);
+    } finally {
+      if (prevKey === undefined) delete process.env.RESEND_API_KEY;
+      else process.env.RESEND_API_KEY = prevKey;
+      if (prevFrom === undefined) delete process.env.EMAIL_FROM;
+      else process.env.EMAIL_FROM = prevFrom;
+    }
   });
 
   it('52-57 export isolation, delete confirmation, finance retained, disabled after delete', async () => {

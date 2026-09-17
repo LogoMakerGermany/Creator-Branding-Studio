@@ -258,7 +258,9 @@ describe('email delivery local closure', () => {
     assert.equal(maskEmailAddress('creator@example.com'), 'c***@example.com');
 
     const prev = process.env.RESEND_API_KEY;
+    const prevFrom = process.env.EMAIL_FROM;
     process.env.RESEND_API_KEY = 're_fake_not_a_real_key';
+    process.env.EMAIL_FROM = 'NEXTER <noreply@test.invalid>';
     let fetchCalled = false;
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (..._args: Parameters<typeof fetch>) => {
@@ -269,17 +271,19 @@ describe('email delivery local closure', () => {
       const result = await sendTransactionalEmail(welcomeEmail('a@b.test', 'Ada'));
       assert.equal(result.provider, 'test');
       assert.equal(fetchCalled, false);
+      const key = `welcome:ed-${randomUUID()}`;
+      const w1 = await dispatchTransactionalEmail(key, welcomeEmail('a@b.test', 'Ada'));
+      const w2 = await dispatchTransactionalEmail(key, welcomeEmail('a@b.test', 'Ada'));
+      assert.equal(w1.duplicate, false);
+      assert.equal(w2.duplicate, true);
+      assert.equal(w1.sent, true);
     } finally {
       globalThis.fetch = origFetch;
       if (prev === undefined) delete process.env.RESEND_API_KEY;
       else process.env.RESEND_API_KEY = prev;
+      if (prevFrom === undefined) delete process.env.EMAIL_FROM;
+      else process.env.EMAIL_FROM = prevFrom;
     }
-
-    const key = `welcome:ed-${randomUUID()}`;
-    const w1 = await dispatchTransactionalEmail(key, welcomeEmail('a@b.test', 'Ada'));
-    const w2 = await dispatchTransactionalEmail(key, welcomeEmail('a@b.test', 'Ada'));
-    assert.equal(w1.duplicate, false);
-    assert.equal(w2.duplicate, true);
 
     const injected = welcomeEmail('a@b.test', 'X\nBcc: evil@x');
     assert.equal(injected.text.includes('\nBcc:'), false);
@@ -291,7 +295,7 @@ describe('email delivery local closure', () => {
     assert.doesNotMatch(src('src/services/coins.service.ts'), /dispatchTransactionalEmail/);
     assert.doesNotMatch(account, /dispatchTransactionalEmail|sendTransactionalEmail/);
     assert.match(registration, /welcome:\$\{input\.uid\}/);
-    assert.match(src('src/routes/admin.routes.ts'), /inviteEmail/);
+    assert.match(src('src/routes/admin.routes.ts'), /deliverAssignedInviteEmail/);
     assert.equal(arePaymentsEnabled(), false);
     assert.match(src('src/services/payment-credit.service.ts'), /purchaseReceiptEmail/);
   });
@@ -324,6 +328,7 @@ describe('email delivery local closure', () => {
     assert.equal(getFirebaseProjectConsistency() === 'not_verified' || getFirebaseProjectConsistency() === 'ok' || getFirebaseProjectConsistency() === 'mismatch', true);
     assert.match(src('src/routes/status.routes.ts'), /firebaseAuthEmail/);
     assert.match(src('src/routes/status.routes.ts'), /customEmailProvider/);
+    assert.match(src('src/routes/status.routes.ts'), /transactionalEmail/);
     assert.equal(JSON.stringify(system).includes('BEGIN PRIVATE KEY'), false);
     assert.equal(JSON.stringify(system).includes('sk_live'), false);
 

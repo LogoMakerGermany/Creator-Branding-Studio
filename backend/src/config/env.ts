@@ -497,6 +497,11 @@ export function getEmailFrom(): string | undefined {
   return readEnv('EMAIL_FROM');
 }
 
+/** Send requires both API key and from-address. Never returns secret values. */
+export function isTransactionalEmailConfigured(): boolean {
+  return Boolean(getResendApiKey()?.trim() && getEmailFrom()?.trim());
+}
+
 export type FirebaseProjectConsistency = 'ok' | 'mismatch' | 'not_verified';
 
 /** Compares non-secret project IDs only. Never logs the values. */
@@ -509,6 +514,10 @@ export function getFirebaseProjectConsistency(): FirebaseProjectConsistency {
 
 export type EmailProviderStatusLabel = 'available' | 'unavailable';
 
+export function getTransactionalEmailStatus(): EmailProviderStatusLabel {
+  return isTransactionalEmailConfigured() ? 'available' : 'unavailable';
+}
+
 export function getFirebaseAuthEmailStatus(): EmailProviderStatusLabel {
   return isFirebaseAdminConfigured() || Boolean(getPublicFirebaseProjectId())
     ? 'available'
@@ -516,7 +525,7 @@ export function getFirebaseAuthEmailStatus(): EmailProviderStatusLabel {
 }
 
 export function getCustomEmailProviderStatus(): 'configured' | 'not_configured' {
-  return isResendConfigured() ? 'configured' : 'not_configured';
+  return isTransactionalEmailConfigured() ? 'configured' : 'not_configured';
 }
 
 // ─── Public client config (safe for browser) ────────────────────────────────

@@ -9,6 +9,7 @@ import {
   getFirebaseProjectConsistency,
   getFirebaseAuthEmailStatus,
   getCustomEmailProviderStatus,
+  getTransactionalEmailStatus,
   getFirebaseStorageBucket,
 } from '../config/env.js';
 import { listUsers, type UserProfile } from './user.service.js';
@@ -19,6 +20,7 @@ import { listAdminAuditForTarget } from './admin-audit.service.js';
 import { dsList, dsListWhere } from '../lib/data-store.js';
 import { getSystemSettings } from './system-settings.service.js';
 import { listInviteCodes } from './invite.service.js';
+import { inviteEmailDeliveryFromStore } from './email.service.js';
 import { getAdminAnalytics } from './admin-analytics.service.js';
 
 export const ADMIN_USER_PAGE_DEFAULT = 25;
@@ -270,18 +272,25 @@ export async function listAdminJobs(opts?: { status?: string; limit?: number }):
 
 export async function listAdminInvites() {
   const rows = await listInviteCodes();
-  return rows.slice(0, ADMIN_INVITE_LIST_MAX).map((invite) => ({
-    id: invite.id,
-    code: invite.code,
-    description: invite.description,
-    assignedEmail: invite.assignedEmail,
-    maximumUses: invite.maximumUses,
-    currentUses: invite.currentUses,
-    expiresAt: invite.expiresAt,
-    isActive: invite.isActive,
-    grantRole: invite.grantRole,
-    createdAt: invite.createdAt,
-  }));
+  const sliced = rows.slice(0, ADMIN_INVITE_LIST_MAX);
+  return Promise.all(
+    sliced.map(async (invite) => {
+      const email = await inviteEmailDeliveryFromStore(invite);
+      return {
+        id: invite.id,
+        code: invite.code,
+        description: invite.description,
+        assignedEmail: invite.assignedEmail,
+        maximumUses: invite.maximumUses,
+        currentUses: invite.currentUses,
+        expiresAt: invite.expiresAt,
+        isActive: invite.isActive,
+        grantRole: invite.grantRole,
+        createdAt: invite.createdAt,
+        email,
+      };
+    })
+  );
 }
 
 export function adminEnvironmentLabel(): 'production' | 'test' | 'development' {
@@ -315,6 +324,7 @@ export async function getAdminSystemStatus() {
       firebaseAuthEmail: getFirebaseAuthEmailStatus(),
       customProvider: 'resend',
       customProviderStatus: getCustomEmailProviderStatus(),
+      transactional: getTransactionalEmailStatus(),
     },
     devStore: isDevMode(),
     checkedAt: new Date().toISOString(),

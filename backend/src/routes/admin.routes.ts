@@ -9,6 +9,7 @@ import {
   createInviteCode,
   deactivateInviteCode,
   deleteInviteCode,
+  getInviteById,
 } from '../services/invite.service.js';
 import { getSystemSettings, updateSystemSettings } from '../services/system-settings.service.js';
 import { creditTestBalance } from '../services/ledger.service.js';
@@ -28,7 +29,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { writeAdminAudit, listAdminAudit } from '../services/admin-audit.service.js';
 import { recoverStaleJobs } from '../services/job-recovery.service.js';
 import { listPaymentClaims } from '../services/session-store.service.js';
-import { dispatchTransactionalEmail, inviteEmail } from '../services/email.service.js';
+import { deliverAssignedInviteEmail } from '../services/email.service.js';
 import {
   assertSafeAdminDisable,
   assertSafeAdminRoleChange,
@@ -104,13 +105,28 @@ adminRoutes.post(
       reason: invite.description,
       after: { inviteId: invite.id, grantRole: invite.grantRole, maximumUses: invite.maximumUses },
     });
-    if (invite.assignedEmail) {
-      void dispatchTransactionalEmail(
-        `invite:${invite.id}`,
-        inviteEmail(invite.assignedEmail, invite.code, invite.description)
-      ).catch(() => undefined);
+    const email = await deliverAssignedInviteEmail(invite, { created: true });
+    sendSuccess(res, { invite, email }, 201);
+  })
+);
+
+adminRoutes.post(
+  '/invites/:id/resend-email',
+  requirePermission(Permission.MANAGE_INVITES),
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const invite = await getInviteById(paramId(req.params.id));
+    if (!invite) throw new AppError(404, 'INVALID_INPUT', 'Einladungscode nicht gefunden');
+    if (!invite.assignedEmail) {
+      throw new AppError(400, 'EMAIL_NOT_APPLICABLE', 'Diese Einladung hat keine zugewiesene E-Mail-Adresse.');
     }
-    sendSuccess(res, { invite }, 201);
+    const email = await deliverAssignedInviteEmail(invite, { created: false });
+    await writeAdminAudit({
+      actorUserId: req.user!.uid,
+      action: 'invite_email_retry',
+      reason: 'resend',
+      after: { inviteId: invite.id, sent: email.sent, duplicate: email.duplicate },
+    });
+    sendSuccess(res, { invite: { id: invite.id }, email });
   })
 );
 

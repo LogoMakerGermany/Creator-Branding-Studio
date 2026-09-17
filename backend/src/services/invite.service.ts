@@ -28,6 +28,11 @@ export async function getInviteByCode(code: string): Promise<InviteCode | null> 
   return match ?? null;
 }
 
+export async function getInviteById(id: string): Promise<InviteCode | null> {
+  const row = await dsGet(COLLECTION, id);
+  return row ? (row as unknown as InviteCode) : null;
+}
+
 export async function createInviteCode(
   input: CreateInviteCodeInput,
   createdBy: string
