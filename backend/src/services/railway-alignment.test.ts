@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -39,6 +39,9 @@ describe('Railway production environment alignment', () => {
     assert.doesNotMatch(docker, /ENV VITE_/);
     assert.match(toml, /builder = "DOCKERFILE"/);
     assert.match(toml, /healthcheckPath = "\/health"/);
+    assert.doesNotMatch(toml, /startCommand/);
+    assert.doesNotMatch(toml, /buildCommand/);
+    assert.equal(existsSync(join(repoRoot, 'railway.json')), false);
     assert.match(repo('backend/src/middleware/static.ts'), /frontend\/dist/);
     assert.match(repo('backend/src/index.ts'), /attachStaticFrontend/);
   });

@@ -1,3 +1,12 @@
+# NEXTER Railway Config-as-Code for the existing production service only.
+# Official Railway docs (2026): railway.toml / railway.json remain valid for
+# services that already use them until 2026-12-01. After that cutoff, migrate
+# with CLI 5.x `railway config migrate` to .railway/railway.ts — not in this file.
+# Keep exactly one CaC file. Do not add railway.json beside this TOML.
+# No env values, no secrets. Production process is the image CMD only.
+# Do not add a Nixpacks/Railpack builder or a second process entrypoint.
+# Do not pin replica, region, disk mounts, or database fields.
+
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"

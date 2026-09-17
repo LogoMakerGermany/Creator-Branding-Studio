@@ -1,5 +1,7 @@
 # Production Deployment Guide
 
+Canonical Railway procedure (project, health, rollback, ENV **names**): [production-deployment.md](./production-deployment.md).
+
 ## Recommended architecture
 
 | Mode | Frontend | API | When to use |

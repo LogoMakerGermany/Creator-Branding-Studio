@@ -80,7 +80,7 @@ App theme personalization (custom studio chrome colors) is **not** a persistent 
 
 Operators should regularly check:
 
-- `GET /health` — liveness/readiness. Production returns 503 if Firebase/Stripe/image-AI are not ready.
+- `GET /health` — liveness/readiness. Production returns 503 only when core runtime/Firebase startup config is not ready. Payments OFF, missing ElevenLabs, missing Resend, or disabled image providers must **not** mark the container unhealthy.
 - `GET /api/v1/status` — environment, provider **configured** flags, kill switches, `devLogin`/`devCoinPurchase` (must be false in production).
 - Admin: failed / interrupted jobs, payment claims (`failed`), admin audit, recovery logs (stdout `[shutdown]`, job recovery counts).
 - Firestore: `billable_charges` stuck in `charged`, `coin_idempotency` duplicates.

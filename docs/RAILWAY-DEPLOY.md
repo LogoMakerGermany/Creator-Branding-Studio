@@ -1,4 +1,6 @@
-# Railway Deploy — UCBS (All-in-One)
+# Railway Deploy — NEXTER (All-in-One)
+
+Canonical production procedure: [production-deployment.md](./production-deployment.md). This page is the older step-by-step. Do not treat Stripe or provider keys as startup-required while payments and providers stay fail-closed.
 
 Schritt-für-Schritt für **Option A** aus [PRODUCTION.md](./PRODUCTION.md): ein Service, eine URL, Frontend + API zusammen.
 

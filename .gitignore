@@ -14,7 +14,10 @@ build/
 .env.*.local
 frontend/.env.production
 backend/.env.railway
+**/.env.railway
 *.pem
+*.p12
+*.key
 *firebase-adminsdk*.json
 **/serviceAccount*.json
 
@@ -43,8 +46,10 @@ npm-debug.log*
 # Testing
 coverage/
 
-# Railway
-.railway/
+# Railway local CLI artifacts (never commit tokens).
+# IaC source (.railway/railway.ts) is not used yet; keep it trackable if added later.
+.railway/config.json
+.railway/*.bak
 
 # Dev data store
 backend/.data/
