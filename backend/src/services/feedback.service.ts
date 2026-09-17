@@ -3,6 +3,18 @@ import { dsGet, dsList, dsListWhere, dsSet } from '../lib/data-store.js';
 import { ServiceError } from '../lib/errors.js';
 import { isSafeClientRequestId } from '../lib/observability.js';
 import { withDevLock } from '../lib/dev-mutex.js';
+import { firestoreDocId } from '../lib/firestore-payload.js';
+import {
+  MAX_FEEDBACK_SCREENSHOT_CHARS,
+  parseAndValidateFeedbackScreenshot,
+} from '../lib/upload-validation.js';
+import {
+  deleteOwnedStorageObject,
+  isOwnedStoragePath,
+  signOwnedStoragePath,
+  SIGNED_URL_TTL_MS,
+  uploadAssetFromBuffer,
+} from '../lib/firebase-storage.js';
 import { getProject } from './project.service.js';
 import { getJob } from './ai.service.js';
 import { getUserFile } from './file-cloud.service.js';
@@ -43,16 +55,16 @@ export interface TesterFeedback {
   requestId?: string;
   idempotencyKey?: string;
   screenshotDataUrl?: string;
+  screenshotStoragePath?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export type SafeFeedback = Omit<TesterFeedback, 'screenshotDataUrl'> & {
+export type SafeFeedback = Omit<TesterFeedback, 'screenshotDataUrl' | 'screenshotStoragePath'> & {
   hasScreenshot: boolean;
 };
 
 const COLLECTION = 'testerFeedback';
-const MAX_SCREENSHOT_CHARS = 2_000_000;
 export const FEEDBACK_SUBJECT_MAX = 120;
 export const FEEDBACK_MESSAGE_MAX = 2000;
 export const FEEDBACK_MESSAGE_MIN = 3;
@@ -68,18 +80,26 @@ const CONTEXT_ID_RE = /^[a-zA-Z0-9._-]{8,80}$/;
 const SIGNED_URL_HINT = /X-Goog-Signature|GoogleAccessId|X-Amz-Signature|https?:\/\//i;
 const TOKENISH = /Bearer\s+|authorization|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\./i;
 
+let feedbackScreenshotTestHooks: { failMetadata?: boolean; failStorage?: boolean } | null = null;
+
+export function setFeedbackScreenshotTestHooks(hooks: { failMetadata?: boolean; failStorage?: boolean } | null): void {
+  feedbackScreenshotTestHooks = hooks;
+}
+
 export function validateFeedbackScreenshot(dataUrl?: string): string | undefined {
   if (!dataUrl) return undefined;
   if (SIGNED_URL_HINT.test(dataUrl) && !dataUrl.startsWith('data:image/')) {
     throw new ServiceError(400, 'VALIDATION_ERROR', 'Screenshots nur als Bild-Data-URL, keine Download-URLs');
   }
-  if (!/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(dataUrl)) {
-    throw new ServiceError(400, 'VALIDATION_ERROR', 'Screenshot muss ein Bild (PNG/JPEG/WebP) als Data-URL sein');
-  }
-  if (dataUrl.length > MAX_SCREENSHOT_CHARS) {
+  if (dataUrl.length > MAX_FEEDBACK_SCREENSHOT_CHARS) {
     throw new ServiceError(400, 'VALIDATION_ERROR', 'Screenshot ist zu groß');
   }
+  parseAndValidateFeedbackScreenshot(dataUrl);
   return dataUrl;
+}
+
+function feedbackHasScreenshot(row: TesterFeedback): boolean {
+  return Boolean(row.screenshotStoragePath || row.screenshotDataUrl);
 }
 
 function asPlainText(value: string, max: number): string {
@@ -156,10 +176,10 @@ function resolveRequestId(value: unknown): string | undefined {
 }
 
 export function toSafeFeedback(row: TesterFeedback): SafeFeedback {
-  const { screenshotDataUrl: _shot, ...rest } = row;
+  const { screenshotDataUrl: _shot, screenshotStoragePath: _path, ...rest } = row;
   return {
     ...rest,
-    hasScreenshot: Boolean(row.screenshotDataUrl),
+    hasScreenshot: feedbackHasScreenshot(row),
   };
 }
 
@@ -229,7 +249,8 @@ function normalizeRow(raw: Record<string, unknown>): TesterFeedback {
     fileId: raw.fileId ? String(raw.fileId) : undefined,
     requestId: raw.requestId ? String(raw.requestId) : undefined,
     idempotencyKey: raw.idempotencyKey ? String(raw.idempotencyKey) : undefined,
-    screenshotDataUrl: typeof raw.screenshotDataUrl === 'string' ? raw.screenshotDataUrl : undefined,
+    screenshotDataUrl: undefined,
+    screenshotStoragePath: typeof raw.screenshotStoragePath === 'string' ? raw.screenshotStoragePath : undefined,
     createdAt: String(raw.createdAt ?? ''),
     updatedAt: String(raw.updatedAt ?? raw.createdAt ?? ''),
   };
@@ -307,8 +328,37 @@ export async function submitFeedback(
     }
 
     const now = new Date().toISOString();
+    const id = randomUUID();
+    firestoreDocId(id);
+    let screenshotStoragePath: string | undefined;
+    if (input.screenshotDataUrl) {
+      validateFeedbackScreenshot(input.screenshotDataUrl);
+      const parsed = parseAndValidateFeedbackScreenshot(input.screenshotDataUrl);
+      const ext = parsed.mimeType === 'image/jpeg' ? 'jpg' : parsed.mimeType === 'image/webp' ? 'webp' : 'png';
+      const fileName = `${randomUUID()}.${ext}`;
+      screenshotStoragePath = `users/${userId}/feedback/${id}/${fileName}`;
+      if (feedbackScreenshotTestHooks?.failStorage) {
+        throw new ServiceError(503, 'STORAGE_ERROR', 'Der Screenshot konnte nicht gespeichert werden');
+      }
+      try {
+        await uploadAssetFromBuffer(userId, parsed.buffer, {
+          folder: `feedback/${id}`,
+          fileName,
+          contentType: parsed.mimeType,
+          extension: ext,
+        });
+      } catch (err) {
+        if (isOwnedStoragePath(userId, screenshotStoragePath)) {
+          await deleteOwnedStorageObject(userId, screenshotStoragePath).catch(() => undefined);
+        }
+        throw err instanceof ServiceError
+          ? err
+          : new ServiceError(503, 'STORAGE_ERROR', 'Der Screenshot konnte nicht gespeichert werden');
+      }
+    }
+
     const row: TesterFeedback = {
-      id: randomUUID(),
+      id,
       userId,
       type,
       module,
@@ -322,11 +372,21 @@ export async function submitFeedback(
       ...(fileId ? { fileId } : {}),
       ...(requestId ? { requestId } : {}),
       ...(idempotencyKey ? { idempotencyKey } : {}),
-      screenshotDataUrl: validateFeedbackScreenshot(input.screenshotDataUrl),
+      ...(screenshotStoragePath ? { screenshotStoragePath } : {}),
       createdAt: now,
       updatedAt: now,
     };
-    await dsSet(COLLECTION, row.id, row as unknown as Record<string, unknown>);
+    try {
+      if (feedbackScreenshotTestHooks?.failMetadata) {
+        throw new ServiceError(503, 'STORAGE_ERROR', 'Die Anfrage konnte nicht gespeichert werden');
+      }
+      await dsSet(COLLECTION, firestoreDocId(row.id), row as unknown as Record<string, unknown>);
+    } catch (err) {
+      if (screenshotStoragePath && isOwnedStoragePath(userId, screenshotStoragePath)) {
+        await deleteOwnedStorageObject(userId, screenshotStoragePath).catch(() => undefined);
+      }
+      throw err;
+    }
     return row;
   });
 }
@@ -397,7 +457,7 @@ export async function listFeedbackPage(opts?: {
 }
 
 export async function getFeedbackById(id: string): Promise<TesterFeedback | null> {
-  const row = await dsGet(COLLECTION, id);
+  const row = await dsGet(COLLECTION, firestoreDocId(id));
   return row ? normalizeRow(row) : null;
 }
 
@@ -406,6 +466,29 @@ export function assertFeedbackReadable(row: TesterFeedback, requesterId: string,
   if (row.userId !== requesterId) {
     throw new ServiceError(404, 'NOT_FOUND', 'Feedback nicht gefunden');
   }
+}
+
+export async function issueFeedbackScreenshotUrl(
+  feedbackId: string,
+  requesterId: string,
+  isAdmin: boolean,
+  sign?: (path: string, ttlMs?: number) => Promise<string>
+): Promise<{ downloadUrl: string; expiresAt: string; expiresInMs: number }> {
+  const row = await getFeedbackById(feedbackId);
+  if (!row) {
+    throw new ServiceError(404, 'NOT_FOUND', 'Feedback nicht gefunden');
+  }
+  assertFeedbackReadable(row, requesterId, isAdmin);
+  const path = row.screenshotStoragePath;
+  if (!path || !isOwnedStoragePath(row.userId, path)) {
+    throw new ServiceError(404, 'NOT_FOUND', 'Anhang nicht gefunden');
+  }
+  const url = await signOwnedStoragePath(row.userId, path, sign);
+  return {
+    downloadUrl: url,
+    expiresAt: new Date(Date.now() + SIGNED_URL_TTL_MS).toISOString(),
+    expiresInMs: SIGNED_URL_TTL_MS,
+  };
 }
 
 export async function updateFeedbackStatus(id: string, status: FeedbackStatus): Promise<TesterFeedback> {
@@ -430,11 +513,16 @@ export async function redactFeedbackForAccountDelete(userId: string): Promise<vo
   for (const raw of rows) {
     if (!raw.id) continue;
     const row = normalizeRow(raw);
-    await dsSet(COLLECTION, row.id, {
+    const path = row.screenshotStoragePath;
+    if (path && isOwnedStoragePath(userId, path)) {
+      await deleteOwnedStorageObject(userId, path).catch(() => undefined);
+    }
+    await dsSet(COLLECTION, firestoreDocId(row.id), {
       ...row,
       subject: '[redacted]',
       message: '[redacted]',
       screenshotDataUrl: undefined,
+      screenshotStoragePath: undefined,
       updatedAt: now,
     } as unknown as Record<string, unknown>);
   }

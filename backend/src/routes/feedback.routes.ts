@@ -12,6 +12,7 @@ import {
   listOwnFeedback,
   parseFeedbackListParams,
   toSafeFeedback,
+  issueFeedbackScreenshotUrl,
   FEEDBACK_CATEGORIES,
   FEEDBACK_TYPES,
 } from '../services/feedback.service.js';
@@ -55,6 +56,18 @@ feedbackRoutes.get(
       offset: page.offset,
       hasMore: page.hasMore,
     });
+  })
+);
+
+feedbackRoutes.get(
+  '/:id/screenshot',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const issued = await issueFeedbackScreenshotUrl(
+      String(req.params.id),
+      req.user!.uid,
+      isAdminRole(req.user!.role as UserRole)
+    );
+    sendSuccess(res, issued);
   })
 );
 

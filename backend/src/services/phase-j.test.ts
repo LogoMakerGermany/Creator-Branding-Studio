@@ -386,7 +386,8 @@ describe('phase J — isolation + tester release gate', () => {
       screenshotDataUrl: PIXEL,
     });
     assert.throws(() => assertFeedbackReadable(fb, b.id, false));
-    assert.equal(await getFeedbackById(fb.id).then((r) => r?.screenshotDataUrl), PIXEL);
+    assert.equal(await getFeedbackById(fb.id).then((r) => r?.screenshotDataUrl), undefined);
+    assert.ok(await getFeedbackById(fb.id).then((r) => r?.screenshotStoragePath));
 
     const file = await saveUserFile(a.id, {
       name: 'secret.png',

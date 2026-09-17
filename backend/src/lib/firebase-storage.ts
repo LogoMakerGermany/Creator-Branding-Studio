@@ -152,10 +152,38 @@ export function extractStoragePathFromUrl(url: string): string | null {
 
 /** Only `users/{userId}/...` without `..` is a safe owned object. */
 export function isOwnedStoragePath(userId: string, storagePath: string): boolean {
+  if (typeof storagePath !== 'string' || typeof userId !== 'string' || !userId) return false;
+  if (
+    storagePath.startsWith('/') ||
+    storagePath.includes('\\') ||
+    storagePath.includes('\0') ||
+    storagePath.includes('://') ||
+    storagePath.includes('..') ||
+    /%2e/i.test(storagePath)
+  ) {
+    return false;
+  }
   const prefix = `users/${userId}/`;
   if (!storagePath.startsWith(prefix)) return false;
-  if (storagePath.includes('..') || storagePath.includes('\\') || storagePath.includes('\0')) return false;
+  const rest = storagePath.slice(prefix.length);
+  if (!rest || rest.split('/').some((part) => !part || part === '.' || part === '..')) return false;
   return true;
+}
+
+type StorageDeleteTestHooks = {
+  deletedPaths: string[];
+  failDelete?: boolean;
+  missingObject?: boolean;
+};
+
+let storageDeleteTestHooks: StorageDeleteTestHooks | null = null;
+
+export function setStorageDeleteTestHooks(hooks: { failDelete?: boolean; missingObject?: boolean } | null): void {
+  storageDeleteTestHooks = hooks ? { deletedPaths: [], failDelete: hooks.failDelete, missingObject: hooks.missingObject } : null;
+}
+
+export function getStorageDeletedPaths(): string[] {
+  return storageDeleteTestHooks?.deletedPaths ? [...storageDeleteTestHooks.deletedPaths] : [];
 }
 
 /**
@@ -174,10 +202,35 @@ export async function signOwnedStoragePath(
   return sign(storagePath, ttlMs);
 }
 
+export async function ownedStorageObjectAvailable(userId: string, storagePath: string): Promise<boolean> {
+  if (!isOwnedStoragePath(userId, storagePath)) return false;
+  if (storageDeleteTestHooks?.missingObject) return false;
+  if (isDevMode()) return true;
+  const storage = getStorage();
+  const [exists] = await storage.bucket().file(storagePath).exists();
+  return exists;
+}
+
 export async function deleteStorageObject(storagePath: string): Promise<void> {
+  if (storageDeleteTestHooks) {
+    storageDeleteTestHooks.deletedPaths.push(storagePath);
+    if (storageDeleteTestHooks.failDelete) {
+      throw new Error('STORAGE_DELETE_FAILED');
+    }
+  }
   if (isDevMode()) return;
   const storage = getStorage();
   await storage.bucket().file(storagePath).delete({ ignoreNotFound: true });
+}
+
+/**
+ * Delete exactly one owned object. Never a prefix. Foreign/malformed paths are skipped, not escaped.
+ */
+export async function deleteOwnedStorageObject(userId: string, storagePath: string): Promise<void> {
+  if (!isOwnedStoragePath(userId, storagePath)) {
+    throw new ServiceError(403, 'FORBIDDEN', 'Zugriff auf diesen Storage-Pfad ist nicht erlaubt');
+  }
+  await deleteStorageObject(storagePath);
 }
 
 function extensionFromContentType(contentType: string): string {

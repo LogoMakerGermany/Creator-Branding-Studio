@@ -23,6 +23,7 @@ import {
   updateFeedbackStatus,
   parseFeedbackListParams,
   toSafeFeedback,
+  issueFeedbackScreenshotUrl,
   FEEDBACK_STATUSES,
 } from '../services/feedback.service.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -397,6 +398,15 @@ adminRoutes.get(
       offset: page.offset,
       hasMore: page.hasMore,
     });
+  })
+);
+
+adminRoutes.get(
+  '/feedback/:id/screenshot',
+  requirePermission(Permission.VIEW_ADMIN),
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const issued = await issueFeedbackScreenshotUrl(paramId(req.params.id), req.user!.uid, true);
+    sendSuccess(res, issued);
   })
 );
 

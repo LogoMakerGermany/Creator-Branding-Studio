@@ -89,6 +89,67 @@ export function looksLikePathInjection(value: string): boolean {
   return /[\\/]|(\.\.)|[:;|&`$]|[\n\r]/.test(value);
 }
 
+export const MAX_FEEDBACK_SCREENSHOT_CHARS = 2_000_000;
+export const FEEDBACK_SCREENSHOT_MIME = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp']);
+
+export function sniffRasterImageMime(buffer: Buffer): 'image/png' | 'image/jpeg' | 'image/webp' | null {
+  if (buffer.length >= 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+    return 'image/png';
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  return null;
+}
+
+export function parseAndValidateFeedbackScreenshot(dataUrl: string): {
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
+  size: number;
+  buffer: Buffer;
+} {
+  const trimmed = dataUrl.trim();
+  const match = DATA_URL_PATTERN.exec(trimmed);
+  if (!match) {
+    throw new ServiceError(400, 'VALIDATION_ERROR', 'Screenshot muss ein Bild (PNG/JPEG/WebP) als Data-URL sein');
+  }
+  const declared = match[1].toLowerCase();
+  if (declared === 'image/svg+xml' || !FEEDBACK_SCREENSHOT_MIME.has(declared)) {
+    throw new ServiceError(400, 'VALIDATION_ERROR', 'Screenshot muss ein Bild (PNG/JPEG/WebP) als Data-URL sein');
+  }
+  const base64 = match[2].replace(/\s/g, '');
+  if (!base64) {
+    throw new ServiceError(400, 'VALIDATION_ERROR', 'Screenshot ist leer');
+  }
+  if (trimmed.length > MAX_FEEDBACK_SCREENSHOT_CHARS) {
+    throw new ServiceError(400, 'VALIDATION_ERROR', 'Screenshot ist zu groß');
+  }
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(base64, 'base64');
+  } catch {
+    throw new ServiceError(400, 'VALIDATION_ERROR', 'Ungültiger Screenshot');
+  }
+  if (!buffer.length) {
+    throw new ServiceError(400, 'VALIDATION_ERROR', 'Screenshot ist leer');
+  }
+  const sniffed = sniffRasterImageMime(buffer);
+  if (!sniffed) {
+    throw new ServiceError(400, 'VALIDATION_ERROR', 'Screenshot-Inhalt ist kein gültiges Bild');
+  }
+  const normalizedDeclared = declared === 'image/jpg' ? 'image/jpeg' : declared;
+  if (normalizedDeclared !== sniffed) {
+    throw new ServiceError(400, 'VALIDATION_ERROR', 'Screenshot-Inhalt ist kein gültiges Bild');
+  }
+  return { mimeType: sniffed, size: buffer.length, buffer };
+}
+
 export function parseAndValidateVideoDataUrl(
   dataUrl: string,
   options?: { fileName?: string }

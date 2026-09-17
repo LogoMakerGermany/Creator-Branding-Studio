@@ -16,18 +16,24 @@ import {
   uploadAssetFromBuffer,
   uploadAssetFromDataUrl,
   uploadAssetFromUrl,
+  ownedStorageObjectAvailable,
+  deleteOwnedStorageObject,
 } from '../lib/firebase-storage.js';
 import { audioExtensionForMime, MUSIC_STORAGE_ERROR_CODE, MUSIC_STORAGE_FAILED_MESSAGE } from '../lib/safe-provider-fetch.js';
+import { assertFiniteNumber, firestoreDocId } from '../lib/firestore-payload.js';
 
 const FILES_COLLECTION = 'files';
 export const FILE_LIST_DEFAULT_LIMIT = 50;
 export const FILE_LIST_MAX_LIMIT = 100;
 
-let saveGeneratedAssetTestHooks: { fail?: boolean } | null = null;
+let saveGeneratedAssetTestHooks: { fail?: boolean; failAfterUpload?: boolean } | null = null;
 
-export function setSaveGeneratedAssetTestHooks(hooks: { fail?: boolean } | null): void {
+export function setSaveGeneratedAssetTestHooks(hooks: { fail?: boolean; failAfterUpload?: boolean } | null): void {
   saveGeneratedAssetTestHooks = hooks;
 }
+
+export const FILE_DELETE_INCOMPLETE_MESSAGE = 'Die Datei konnte nicht vollständig gelöscht werden';
+export type FileDeletionState = 'active' | 'deleting' | 'deleted' | 'delete_failed';
 
 export type FileCategory = 'logo' | 'banner' | 'video' | 'project' | 'overlay' | 'sticker' | 'other';
 export type FileKindFilter = 'all' | 'image' | 'video' | 'audio' | 'other';
@@ -60,10 +66,23 @@ export interface UserFile {
   sourceAssetId?: string;
   version?: number;
   deletedAt?: string;
+  deletionState?: FileDeletionState;
   createdAt: string;
   expiresAt?: string;
   expiresInMs?: number;
   available?: boolean;
+}
+
+function fileIsInactive(file: UserFile): boolean {
+  return Boolean(file.deletedAt) || file.deletionState === 'deleting' || file.deletionState === 'deleted' || file.deletionState === 'delete_failed';
+}
+
+function assertFiniteFileSize(size: number): number {
+  assertFiniteNumber(size, 'NON_FINITE_NUMBER');
+  if (!Number.isInteger(size) || size < 0) {
+    throw new ServiceError(500, 'INTERNAL_ERROR', 'Ein interner Fehler ist aufgetreten');
+  }
+  return size;
 }
 
 function isOwnedFileRecord(file: Record<string, unknown> | null, userId: string): boolean {
@@ -115,7 +134,7 @@ async function filterOwnedFiles(
   }
   return files.filter((file) => {
     if (!isOwnedFileRecord(file as unknown as Record<string, unknown>, userId)) return false;
-    if (!opts?.includeDeleted && file.deletedAt) return false;
+    if (!opts?.includeDeleted && fileIsInactive(file)) return false;
     if (opts?.projectId) {
       const linked = file.projectId === opts.projectId || Boolean(assetFileIds?.has(file.id));
       if (!linked) return false;
@@ -172,9 +191,16 @@ export async function getFileBySourceJobId(userId: string, jobId: string): Promi
 }
 
 export async function getUserFile(id: string, userId: string): Promise<UserFile | null> {
-  const file = await dsGet(FILES_COLLECTION, id);
+  const file = await dsGet(FILES_COLLECTION, firestoreDocId(id));
   if (!isOwnedFileRecord(file, userId)) return null;
-  if ((file as { deletedAt?: string }).deletedAt) return null;
+  const owned = file as unknown as UserFile;
+  if (fileIsInactive(owned)) return null;
+  return owned;
+}
+
+async function getOwnedFileRecord(id: string, userId: string): Promise<UserFile | null> {
+  const file = await dsGet(FILES_COLLECTION, firestoreDocId(id));
+  if (!isOwnedFileRecord(file, userId)) return null;
   return file as unknown as UserFile;
 }
 
@@ -207,7 +233,7 @@ export async function mintDownloadUrlForOwnedFile(
   sign?: (path: string, ttlMs?: number) => Promise<string>
 ): Promise<{ url: string; expiresAt: string; expiresInMs: number } | null> {
   if (!isOwnedFileRecord(file as unknown as Record<string, unknown>, userId)) return null;
-  if (file.deletedAt) return null;
+  if (fileIsInactive(file)) return null;
 
   if (file.downloadUrl?.startsWith('data:')) {
     return { url: file.downloadUrl, ...downloadExpiry() };
@@ -215,6 +241,7 @@ export async function mintDownloadUrlForOwnedFile(
 
   const path = resolveOwnedStoragePath(userId, file);
   if (!path) return null;
+  if (!(await ownedStorageObjectAvailable(userId, path))) return null;
 
   const url = await signOwnedStoragePath(userId, path, sign);
   return { url, ...downloadExpiry() };
@@ -362,6 +389,7 @@ export async function saveUserFile(
   }
 
   const id = randomUUID();
+  firestoreDocId(id);
   const ext = validated.mimeType.split('/')[1]?.replace('svg+xml', 'svg') || 'bin';
   const fileName = sanitizeZipEntryName(`${id}.${ext}`, `${id}.bin`);
   const storagePath = `users/${userId}/${input.category}/${fileName}`;
@@ -375,7 +403,7 @@ export async function saveUserFile(
     userId,
     name: sanitizeFileDisplayName(input.name),
     mimeType: validated.mimeType,
-    size: validated.size,
+    size: assertFiniteFileSize(validated.size),
     category: input.category,
     downloadUrl,
     storagePath,
@@ -384,11 +412,26 @@ export async function saveUserFile(
     sourceJobId: input.sourceJobId,
     sourceAssetId: input.sourceAssetId,
     version: input.version,
+    deletionState: 'active',
     createdAt: new Date().toISOString(),
   };
 
-  await dsSet(FILES_COLLECTION, id, file as unknown as Record<string, unknown>);
+  await persistFileMetadata(file);
   return file;
+}
+
+async function persistFileMetadata(file: UserFile): Promise<void> {
+  try {
+    if (saveGeneratedAssetTestHooks?.failAfterUpload) {
+      throw new ServiceError(503, 'STORAGE_ERROR', 'Die Datei konnte nicht gespeichert werden');
+    }
+    await dsSet(FILES_COLLECTION, firestoreDocId(file.id), file as unknown as Record<string, unknown>);
+  } catch (err) {
+    if (file.storagePath && isOwnedStoragePath(file.userId, file.storagePath)) {
+      await deleteOwnedStorageObject(file.userId, file.storagePath).catch(() => undefined);
+    }
+    throw err;
+  }
 }
 
 function resolveOwnedStoragePath(userId: string, file: UserFile): string | null {
@@ -474,14 +517,50 @@ export async function updateUserFile(
 }
 
 export async function deleteUserFile(id: string, userId: string): Promise<boolean> {
-  const file = await getUserFile(id, userId);
+  const file = await getOwnedFileRecord(id, userId);
   if (!file) return false;
-  const refs = await findFileReferences(id, userId);
-  if (refs.length) {
-    throw new ServiceError(409, 'DELETE_BLOCKED', 'Datei wird noch referenziert und kann nicht gelöscht werden');
+  if (file.deletionState === 'deleted') return true;
+
+  if (!fileIsInactive(file) || file.deletionState === 'delete_failed' || file.deletionState === 'deleting') {
+    if (!file.deletedAt && file.deletionState !== 'delete_failed' && file.deletionState !== 'deleting') {
+      const refs = await findFileReferences(id, userId);
+      if (refs.length) {
+        throw new ServiceError(409, 'DELETE_BLOCKED', 'Datei wird noch referenziert und kann nicht gelöscht werden');
+      }
+    }
   }
-  const updated: UserFile = { ...file, deletedAt: new Date().toISOString() };
-  await dsSet(FILES_COLLECTION, id, updated as unknown as Record<string, unknown>);
+
+  const now = new Date().toISOString();
+  const deleting: UserFile = {
+    ...file,
+    deletedAt: file.deletedAt ?? now,
+    deletionState: 'deleting',
+  };
+  await dsSet(FILES_COLLECTION, firestoreDocId(id), deleting as unknown as Record<string, unknown>);
+
+  const path = resolveOwnedStoragePath(userId, file);
+  try {
+    if (path) {
+      await deleteOwnedStorageObject(userId, path);
+    }
+  } catch (err) {
+    const failed: UserFile = {
+      ...deleting,
+      deletionState: 'delete_failed',
+    };
+    await dsSet(FILES_COLLECTION, firestoreDocId(id), failed as unknown as Record<string, unknown>);
+    if (err instanceof ServiceError && err.code === 'FORBIDDEN') {
+      throw new ServiceError(503, 'DELETE_INCOMPLETE', FILE_DELETE_INCOMPLETE_MESSAGE);
+    }
+    throw new ServiceError(503, 'DELETE_INCOMPLETE', FILE_DELETE_INCOMPLETE_MESSAGE);
+  }
+
+  const finalized: UserFile = {
+    ...deleting,
+    deletionState: 'deleted',
+    deletedAt: deleting.deletedAt ?? now,
+  };
+  await dsSet(FILES_COLLECTION, firestoreDocId(id), finalized as unknown as Record<string, unknown>);
   return true;
 }
 
@@ -509,11 +588,13 @@ export async function saveGeneratedAsset(
             : 'other';
 
   const id = randomUUID();
+  firestoreDocId(id);
   const mimeType = imageUrl.startsWith('data:image/svg') ? 'image/svg+xml' : 'image/png';
   const ext = mimeType.split('/')[1]?.replace('svg+xml', 'svg') || 'png';
   const fileName = `${id}.${ext}`;
   const storagePath = `users/${userId}/${category}/${fileName}`;
   let downloadUrl = imageUrl;
+  let size = 0;
 
   if (!imageUrl.startsWith('data:')) {
     downloadUrl = await uploadAssetFromUrl(userId, imageUrl, { folder: category, fileName });
@@ -522,6 +603,10 @@ export async function saveGeneratedAsset(
       folder: category,
       fileName,
     });
+    const comma = imageUrl.indexOf(',');
+    if (comma >= 0) {
+      size = Buffer.from(imageUrl.slice(comma + 1), 'base64').length;
+    }
   }
 
   const file: UserFile = {
@@ -529,7 +614,7 @@ export async function saveGeneratedAsset(
     userId,
     name: extra?.name ? sanitizeFileDisplayName(extra.name) : `${module}-${Date.now()}.png`,
     mimeType,
-    size: imageUrl.startsWith('data:') ? Math.round((imageUrl.length * 3) / 4) : 0,
+    size: assertFiniteFileSize(size),
     category,
     downloadUrl,
     storagePath,
@@ -538,10 +623,11 @@ export async function saveGeneratedAsset(
     sourceJobId: extra?.sourceJobId,
     sourceAssetId: extra?.sourceAssetId,
     version: extra?.version ?? 1,
+    deletionState: 'active',
     createdAt: new Date().toISOString(),
   };
 
-  await dsSet(FILES_COLLECTION, id, file as unknown as Record<string, unknown>);
+  await persistFileMetadata(file);
   return file;
 }
 
@@ -563,6 +649,7 @@ export async function saveGeneratedAudioFile(
     await assertOwnedProject(userId, input.projectId);
   }
   const id = randomUUID();
+  firestoreDocId(id);
   const ext = audioExtensionForMime(input.mimeType);
   const fileName = sanitizeZipEntryName(`${id}.${ext}`, `${id}.bin`);
   const storagePath = `users/${userId}/other/${fileName}`;
@@ -583,7 +670,7 @@ export async function saveGeneratedAudioFile(
     userId,
     name: sanitizeFileDisplayName(input.name),
     mimeType: input.mimeType,
-    size: input.buffer.length,
+    size: assertFiniteFileSize(input.buffer.length),
     category: 'other',
     downloadUrl,
     storagePath,
@@ -591,12 +678,54 @@ export async function saveGeneratedAudioFile(
     projectId: input.projectId,
     sourceJobId: input.sourceJobId,
     version: input.version,
+    deletionState: 'active',
     createdAt: new Date().toISOString(),
   };
-  await dsSet(
-    FILES_COLLECTION,
-    id,
-    Object.fromEntries(Object.entries(file).filter(([, v]) => v !== undefined)) as Record<string, unknown>
-  );
+  try {
+    if (saveGeneratedAssetTestHooks?.failAfterUpload) {
+      throw new ServiceError(503, MUSIC_STORAGE_ERROR_CODE, MUSIC_STORAGE_FAILED_MESSAGE);
+    }
+    await dsSet(
+      FILES_COLLECTION,
+      firestoreDocId(id),
+      Object.fromEntries(Object.entries(file).filter(([, v]) => v !== undefined)) as Record<string, unknown>
+    );
+  } catch (err) {
+    if (isOwnedStoragePath(userId, storagePath)) {
+      await deleteOwnedStorageObject(userId, storagePath).catch(() => undefined);
+    }
+    throw err;
+  }
   return file;
+}
+
+export async function getUserStorageUsage(userId: string): Promise<{
+  uploadBytes: number;
+  generatedBytes: number;
+  totalBytes: number;
+  uploadCount: number;
+  generatedCount: number;
+}> {
+  const files = await listUserFiles(userId);
+  let uploadBytes = 0;
+  let generatedBytes = 0;
+  let uploadCount = 0;
+  let generatedCount = 0;
+  for (const file of files) {
+    const size = typeof file.size === 'number' && Number.isFinite(file.size) && file.size >= 0 ? file.size : 0;
+    if (file.source === 'generation') {
+      generatedBytes += size;
+      generatedCount += 1;
+    } else {
+      uploadBytes += size;
+      uploadCount += 1;
+    }
+  }
+  return {
+    uploadBytes,
+    generatedBytes,
+    totalBytes: uploadBytes + generatedBytes,
+    uploadCount,
+    generatedCount,
+  };
 }
