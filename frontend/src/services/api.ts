@@ -304,10 +304,10 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(body),
       }),
-    analyze: (colors: string[], styleHint?: string, imageDataUrl?: string) =>
+    analyze: (colors: string[], styleHint?: string, imageDataUrl?: string, rightsConfirmed?: true) =>
       request<{ analysis: DNAAnalysis }>('/api/v1/dna/analyze', {
         method: 'POST',
-        body: JSON.stringify({ colors, styleHint, imageDataUrl }),
+        body: JSON.stringify({ colors, styleHint, imageDataUrl, rightsConfirmed }),
       }),
     activate: (id: string) =>
       request<{ dna: CreatorDNA }>(`/api/v1/dna/${id}/activate`, { method: 'POST' }),
@@ -317,7 +317,7 @@ export const api = {
       request<{ dna: CreatorDNA }>(`/api/v1/dna/${id}/versions/${versionId}/restore`, {
         method: 'POST',
       }),
-    applyAnalysis: (id: string, body: { colors?: string[]; styleHint?: string; imageDataUrl?: string }) =>
+    applyAnalysis: (id: string, body: { colors?: string[]; styleHint?: string; imageDataUrl?: string; rightsConfirmed?: true }) =>
       request<{ dna: CreatorDNA; analysis: DNAAnalysis }>(`/api/v1/dna/${id}/apply-analysis`, {
         method: 'POST',
         body: JSON.stringify(body),
@@ -1163,6 +1163,37 @@ export const api = {
     },
     get: (id: string) => request<{ feedback: TesterFeedbackRow }>(`/api/v1/feedback/${id}`),
   },
+  contentRights: {
+    status: () =>
+      request<{
+        contentRightsAck: { version: string; acceptedAt: string } | null;
+        voiceCloneConsent: { version: string; acceptedAt: string; statement: 'own' | 'authorized' } | null;
+      }>('/api/v1/content-rights/status'),
+    acknowledge: () =>
+      request<{ contentRightsAck: { version: string; acceptedAt: string } }>('/api/v1/content-rights/acknowledge', {
+        method: 'POST',
+        body: JSON.stringify({ accepted: true as const }),
+      }),
+    voiceCloneConsent: (statement: 'own' | 'authorized') =>
+      request<{ voiceCloneConsent: { version: string; acceptedAt: string; statement: 'own' | 'authorized' } }>(
+        '/api/v1/content-rights/voice-clone-consent',
+        { method: 'POST', body: JSON.stringify({ accepted: true as const, statement }) }
+      ),
+    submitReport: (body: {
+      category: 'COPYRIGHT' | 'TRADEMARK' | 'PERSONALITY_RIGHTS' | 'VOICE_IDENTITY' | 'OTHER';
+      description: string;
+      reporterContact?: string;
+      projectId?: string;
+      fileId?: string;
+      jobId?: string;
+    }) =>
+      request<{ report: ContentRightsReportRow }>('/api/v1/content-rights/reports', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    listReports: () => request<{ reports: ContentRightsReportRow[] }>('/api/v1/content-rights/reports'),
+    getReport: (id: string) => request<{ report: ContentRightsReportRow }>(`/api/v1/content-rights/reports/${id}`),
+  },
   legal: {
     page: (slug: 'impressum' | 'datenschutz' | 'agb' | 'widerruf' | 'cookies') =>
       request<{
@@ -1337,6 +1368,19 @@ export const api = {
         `/api/v1/admin/users/${userId}/tester-grant`,
         { method: 'POST', body: JSON.stringify({ reason, confirm }) }
       ),
+    contentRightsReports: () =>
+      request<{ reports: ContentRightsReportRow[] }>('/api/v1/admin/content-rights-reports'),
+    getContentRightsReport: (id: string) =>
+      request<{ report: ContentRightsReportRow }>(`/api/v1/admin/content-rights-reports/${id}`),
+    updateContentRightsReport: (id: string, status: string, adminNotes?: string) =>
+      request<{ report: ContentRightsReportRow }>(`/api/v1/admin/content-rights-reports/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status, adminNotes }),
+      }),
+    takedownContentRightsReport: (id: string) =>
+      request<{ report: ContentRightsReportRow }>(`/api/v1/admin/content-rights-reports/${id}/takedown`, {
+        method: 'POST',
+      }),
   },
   team: {
     list: () => request<{ teams: Team[] }>('/api/v1/team'),
@@ -1724,6 +1768,8 @@ export interface UserProfile {
   emailVerified?: boolean;
   signInProvider?: string | null;
   needsEmailVerification?: boolean;
+  contentRightsAck?: { version: string; acceptedAt: string };
+  voiceCloneConsent?: { version: string; acceptedAt: string; statement: 'own' | 'authorized' };
 }
 
 export interface CreateDnaBody {
@@ -2126,6 +2172,20 @@ export interface TextStudioJob {
   error?: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface ContentRightsReportRow {
+  id: string;
+  reporterUserId?: string;
+  category: string;
+  description: string;
+  projectId?: string;
+  fileId?: string;
+  jobId?: string;
+  createdAt: string;
+  status: string;
+  adminNotes?: string;
+  takedownFileId?: string;
 }
 
 export interface AdminAnalytics {

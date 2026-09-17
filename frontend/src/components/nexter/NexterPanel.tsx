@@ -12,6 +12,8 @@ import {
   nexterTtsStatusLabel,
   shouldAutoNavigateNexterStudio,
   shouldAutoSpeakCompletedNexterReply,
+  CONTENT_RIGHTS_ACK_STATEMENT,
+  CONTENT_RIGHTS_ACK_VERSION,
   type NexterMicState,
   type NexterTtsState,
 } from '@ucbs/shared';
@@ -51,6 +53,7 @@ export function NexterPanel({
   const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rightsChecked, setRightsChecked] = useState(false);
   const [closedQuotes, setClosedQuotes] = useState<Set<string>>(() => new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const sendRef = useRef<(text: string) => Promise<void>>(async () => undefined);
@@ -345,6 +348,16 @@ export function NexterPanel({
       setOrbState('generating');
       setError(null);
       try {
+        const hasAck = user?.contentRightsAck?.version === CONTENT_RIGHTS_ACK_VERSION;
+        if (!hasAck) {
+          if (!rightsChecked) {
+            setError('Bitte bestätige, dass du die erforderlichen Rechte an den bereitgestellten Inhalten besitzt.');
+            setLoading(false);
+            return;
+          }
+          await api.contentRights.acknowledge();
+          await refreshUser();
+        }
         const res = await api.nexter.confirmQuote(quoteId);
         closeQuote(quoteId);
         setMessages(res.session.messages);
@@ -564,6 +577,21 @@ export function NexterPanel({
         )}
         <div ref={bottomRef} />
       </div>
+
+      {user?.contentRightsAck?.version !== CONTENT_RIGHTS_ACK_VERSION && (
+        <label className="flex items-start gap-2 border-t border-white/5 px-3 pt-3 text-[11px] text-zinc-400">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={rightsChecked}
+            onChange={(e) => setRightsChecked(e.target.checked)}
+          />
+          <span>
+            {CONTENT_RIGHTS_ACK_STATEMENT} NEXTER ersetzt keine Rechtsberatung und garantiert keine
+            Urheberrechts- oder Markenfreiheit.
+          </span>
+        </label>
+      )}
 
       <form onSubmit={handleSubmit} className="border-t border-white/5 p-3">
         <div className="flex items-end gap-2">

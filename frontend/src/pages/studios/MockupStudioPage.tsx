@@ -324,6 +324,10 @@ export function MockupStudioPage() {
               ) : (
                 <p>Lokales Composite · 0 Coins · {PRODUCT_LABEL[category]} · {config.scalePercent}%</p>
               )}
+              <p className="mt-2 text-amber-200/90" data-testid="mockup-merch-rights">
+                Merch und Mockups: Du musst die notwendigen Rechte für eine kommerzielle Nutzung selbst sicherstellen.
+                NEXTER garantiert nicht automatisch Marken- oder Urheberrechtsfreiheit.
+              </p>
               {mode === 'lifestyle' && remainder < 0 && (
                 <p className="mt-1 text-amber-300" data-testid="mockup-insufficient-coins">
                   Zu wenig Coins — Job startet nicht.

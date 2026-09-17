@@ -385,6 +385,38 @@ function termsBlocks(): LegalBlock[] {
       type: 'p',
       text: 'Generierte Ergebnisse hängen von Prompts, Referenzen, Creator DNA und ggf. Drittanbietern ab. Es wird nicht pauschal zugesichert, dass Nutzerinnen und Nutzer automatisch weltweit alle exklusiven Urheberrechte an jedem KI-Ergebnis besitzen. Rechtefragen bleiben provider- und rechtsabhängig und sind später juristisch zu klären.',
     },
+    {
+      type: 'h2',
+      text: 'Content Rights — technischer Entwurf (LEGAL REVIEW REQUIRED)',
+    },
+    {
+      type: 'note',
+      text: 'DRAFT / REVIEW REQUIRED. Keine anwaltliche Prüfung. Keine DMCA-Pflichtbehauptung. Keine Garantie für Urheber-, Marken- oder kommerzielle Nutzungsfreiheit. NEXTER ersetzt keine individuelle Rechtsberatung.',
+    },
+    {
+      type: 'p',
+      text: 'TODO — User Content Rights: Nutzende müssen die erforderlichen Rechte bzw. Erlaubnisse für Uploads (Fotos, Logos, Grafiken, Musik, Audio, Video, Fonts, Templates, Brand Assets, Personenbilder, Stimmen) besitzen. Ein Upload überträgt kein Eigentum an NEXTER. Betriebliche Nutzungsbefugnisse (Speicherung, Verarbeitung, KI-Verarbeitung, Generierung, Bereitstellung) sind später in den finalen AGB juristisch zu beschreiben.',
+    },
+    {
+      type: 'p',
+      text: 'TODO — Copyright/Trademark Complaints: Meldungen zu Urheberrecht, Markenrecht, Persönlichkeits-/Bildnisrechten und Stimmen-/Identitätsrechten laufen über den technischen Meldeprozess (Support / Content-Rights-Reports). Juristische Detailausgestaltung: LEGAL REVIEW REQUIRED.',
+    },
+    {
+      type: 'p',
+      text: 'TODO — AI Generated Content: KI-generierte Ergebnisse sind nicht automatisch frei nutzbar. Es wird nicht zugesichert, dass Nutzende automatisch alle Rechte besitzen oder dass „KI-generiert“ kommerzielle Nutzung erlaubt.',
+    },
+    {
+      type: 'p',
+      text: 'TODO — Voice Consent: Katalog-TTS ist von Voice-Cloning zu trennen. Voice-Cloning einer realen Stimme ist derzeit nicht aktiv und darf nicht als erlaubt gelten, nur weil eine Stimme öffentlich, prominent oder als Clip vorhanden ist.',
+    },
+    {
+      type: 'p',
+      text: 'TODO — Commercial Use: Export, Download oder Merch-Mockup bedeuten keine Rechteklärung. Keine Aussage „Copyright Free“, „Trademark safe“ oder garantierte kommerzielle Nutzungsrechte, soweit nicht für den konkreten Inhalt, Input, Provider und die konkrete Lizenz nachweisbar.',
+    },
+    {
+      type: 'p',
+      text: 'TODO — Provider Terms: Nutzungsbedingungen von OpenAI, Replicate, Runway, ElevenLabs und weiteren im Repo tatsächlich verwendeten Providern sind providerseitig zu prüfen. Kommerzielle Nutzungsrechte: LEGAL/PROVIDER REVIEW REQUIRED.',
+    },
     { type: 'h2', text: 'Coins' },
     {
       type: 'p',

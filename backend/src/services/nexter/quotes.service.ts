@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   NEXTER_QUOTE_TTL_MS,
   STREAMSET_PACK_ITEMS,
+  attachRightsSafetyToPayload,
+  classifyContentRightsRisk,
   coinCostForStreamsetSelection,
   type NexterQuote,
   type NexterQuoteKind,
@@ -26,12 +28,8 @@ import { generateVoiceTrack } from '../voice.service.js';
 import { generateContentPackage, type TextQuotePayload } from '../text.service.js';
 import { executeQuotedChangeRequest } from '../change-request.service.js';
 import { executeQuotedCaptions } from '../media.service.js';
-import {
-  coinCostForKind,
-  evaluateGenerationGate,
-  QUOTE_KIND_CATEGORY,
-  recordOwnedByUser,
-} from './tools.service.js';
+import { coinCostForKind, evaluateGenerationGate, QUOTE_KIND_CATEGORY, recordOwnedByUser } from './tools.service.js';
+import { assertCurrentContentRightsAck } from '../content-rights.service.js';
 import { quoteLockKey, withDevLock } from '../../lib/dev-mutex.js';
 
 const COLLECTION = 'nexterQuotes';
@@ -79,9 +77,9 @@ export async function createQuote(
   if (typeof projectId === 'string' && projectId.trim()) {
     quote.projectId = projectId.trim();
   }
-  if (resolvedPayload !== undefined) {
-    quote.payload = omitUndefinedFields(resolvedPayload);
-  }
+  const classified = classifyContentRightsRisk('', resolvedPayload ?? payload ?? undefined);
+  resolvedPayload = attachRightsSafetyToPayload(resolvedPayload ?? payload ?? {}, classified);
+  quote.payload = omitUndefinedFields(resolvedPayload);
   await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
   return quote;
 }
@@ -1538,6 +1536,7 @@ async function confirmQuoteUnlocked(userId: string, quoteId: string): Promise<{
 }> {
   const quote = await getQuote(userId, quoteId);
   if (!quote) throw new ServiceError(404, 'QUOTE_NOT_FOUND', 'Angebot nicht gefunden');
+  await assertCurrentContentRightsAck(userId);
 
   if (quote.kind === 'streamset') {
     return confirmStreamsetQuote(userId, quoteId);

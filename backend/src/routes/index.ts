@@ -55,6 +55,7 @@ import { textRoutes } from './text.routes.js';
 import { socialStudioRoutes } from './social-studio.routes.js';
 import { feedbackRoutes } from './feedback.routes.js';
 import { legalRoutes } from './legal.routes.js';
+import { contentRightsRoutes } from './content-rights.routes.js';
 import { authenticate } from '../middleware/auth.js';
 import { blockLegacyV1 } from '../middleware/v1-legacy.js';
 
@@ -85,6 +86,7 @@ apiRouter.use('/streamset', streamsetRoutes);
 apiRouter.use('/text', textRoutes);
 apiRouter.use('/social-studio', socialStudioRoutes);
 apiRouter.use('/feedback', feedbackRoutes);
+apiRouter.use('/content-rights', contentRightsRoutes);
 apiRouter.use('/legal', legalRoutes);
 
 apiRouter.use('/auth/oauth', oauthRoutes);

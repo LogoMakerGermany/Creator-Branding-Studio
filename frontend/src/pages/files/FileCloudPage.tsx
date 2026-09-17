@@ -391,7 +391,7 @@ export function FileCloudPage() {
     <div>
       <PageHeader
         title="Datei Cloud"
-        description="Zentrale Übersicht eigener Creator-Dateien. Downloads laufen über File-ID, Ownership und zeitlich begrenzte Signed URLs — keine öffentlichen Storage-Pfade."
+        description="Zentrale Übersicht eigener Creator-Dateien. Downloads laufen über File-ID, Ownership und zeitlich begrenzte Signed URLs — keine öffentlichen Storage-Pfade. Download bedeutet keine Rechteklärung und keine Garantie urheber- oder markenrechtlicher Unbedenklichkeit."
         badge={<Badge variant="brand">NEXTER</Badge>}
         backTo="/projects"
         backLabel="Projekte"

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Button, Input } from '@/components/ui';
-import { api, ApiError, getLastApiRequestId, type TesterFeedbackRow } from '@/services/api';
+import { api, ApiError, getLastApiRequestId, type TesterFeedbackRow, type ContentRightsReportRow } from '@/services/api';
 
 const TYPES = [
   { id: 'support', label: 'Support' },
@@ -71,6 +71,13 @@ export function SupportPage() {
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<TesterFeedbackRow | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [rightsCategory, setRightsCategory] = useState<'COPYRIGHT' | 'TRADEMARK' | 'PERSONALITY_RIGHTS' | 'VOICE_IDENTITY' | 'OTHER'>('COPYRIGHT');
+  const [rightsDescription, setRightsDescription] = useState('');
+  const [rightsFileId, setRightsFileId] = useState('');
+  const [rightsSending, setRightsSending] = useState(false);
+  const [rightsError, setRightsError] = useState<string | null>(null);
+  const [rightsOk, setRightsOk] = useState<string | null>(null);
+  const [rightsHistory, setRightsHistory] = useState<ContentRightsReportRow[]>([]);
 
   const prefill = useMemo(
     () => ({
@@ -127,6 +134,10 @@ export function SupportPage() {
       .list({ limit: 20, sort: 'newest' })
       .then((r) => setFiles((r.files ?? []).map((f) => ({ id: f.id, name: f.name }))))
       .catch(() => undefined);
+    api.contentRights
+      .listReports()
+      .then((r) => setRightsHistory(r.reports ?? []))
+      .catch(() => undefined);
   }, [loadHistory]);
 
   async function submit(event: FormEvent) {
@@ -157,6 +168,29 @@ export function SupportPage() {
       setSendError(err instanceof ApiError ? err.message : 'Senden fehlgeschlagen.');
     } finally {
       setSending(false);
+    }
+  }
+
+  async function submitRightsReport(event: FormEvent) {
+    event.preventDefault();
+    if (rightsSending) return;
+    setRightsSending(true);
+    setRightsError(null);
+    setRightsOk(null);
+    try {
+      await api.contentRights.submitReport({
+        category: rightsCategory,
+        description: rightsDescription.trim(),
+        fileId: rightsFileId.trim() || undefined,
+      });
+      setRightsDescription('');
+      setRightsOk('Meldung gesendet. Keine automatische Löschung — ein Admin prüft den Vorgang.');
+      const listed = await api.contentRights.listReports();
+      setRightsHistory(listed.reports ?? []);
+    } catch (err) {
+      setRightsError(err instanceof ApiError ? err.message : 'Meldung fehlgeschlagen.');
+    } finally {
+      setRightsSending(false);
     }
   }
 
@@ -331,6 +365,86 @@ export function SupportPage() {
             )}
           </div>
         </form>
+      </section>
+
+      <section aria-labelledby="rights-form" className="rounded-2xl border border-white/10 p-4 sm:p-6">
+        <h2 id="rights-form" className="font-semibold text-white">
+          Rechte melden
+        </h2>
+        <p className="mt-1 text-xs text-zinc-500">
+          Urheberrecht, Marke, Persönlichkeitsrechte oder Stimme/Identität. Keine Rechtsberatung. Ein Report löscht
+          Inhalte nicht automatisch.
+        </p>
+        <form className="mt-4 space-y-4" onSubmit={(event) => void submitRightsReport(event)}>
+          <label className="block text-sm font-medium text-zinc-300" htmlFor="rights-category">
+            Kategorie
+            <select
+              id="rights-category"
+              className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-surface-900 px-3 py-2 text-sm text-white"
+              value={rightsCategory}
+              onChange={(e) =>
+                setRightsCategory(
+                  e.target.value as 'COPYRIGHT' | 'TRADEMARK' | 'PERSONALITY_RIGHTS' | 'VOICE_IDENTITY' | 'OTHER'
+                )
+              }
+            >
+              <option value="COPYRIGHT">Urheberrecht</option>
+              <option value="TRADEMARK">Marke</option>
+              <option value="PERSONALITY_RIGHTS">Persönlichkeits-/Bildnisrechte</option>
+              <option value="VOICE_IDENTITY">Stimme / Identität</option>
+              <option value="OTHER">Sonstiges</option>
+            </select>
+          </label>
+          <label className="block text-sm font-medium text-zinc-300" htmlFor="rights-file">
+            Datei (optional, eigene File-Cloud)
+            <select
+              id="rights-file"
+              className="mt-1 min-h-11 w-full rounded-lg border border-zinc-700 bg-surface-900 px-3 py-2 text-sm text-white"
+              value={rightsFileId}
+              onChange={(e) => setRightsFileId(e.target.value)}
+            >
+              <option value="">Keine Datei</option>
+              {files.map((file) => (
+                <option key={file.id} value={file.id}>
+                  {file.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm font-medium text-zinc-300" htmlFor="rights-desc">
+            Beschreibung
+            <textarea
+              id="rights-desc"
+              required
+              minLength={8}
+              maxLength={4000}
+              rows={4}
+              className="mt-1 w-full rounded-lg border border-zinc-700 bg-surface-900 px-3 py-2 text-sm text-white"
+              value={rightsDescription}
+              onChange={(e) => setRightsDescription(e.target.value)}
+            />
+          </label>
+          <Button type="submit" className="min-h-11" loading={rightsSending} disabled={rightsSending}>
+            Rechte-Meldung senden
+          </Button>
+          <div aria-live="polite">
+            {rightsOk && <p className="text-sm text-emerald-300">{rightsOk}</p>}
+            {rightsError && (
+              <p className="text-sm text-red-300" role="alert">
+                {rightsError}
+              </p>
+            )}
+          </div>
+        </form>
+        {rightsHistory.length > 0 && (
+          <ul className="mt-4 space-y-2 text-xs text-zinc-400">
+            {rightsHistory.map((row) => (
+              <li key={row.id}>
+                {row.createdAt} · {row.category} · {row.status}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section aria-labelledby="support-history" className="rounded-2xl border border-white/10 p-4 sm:p-6">

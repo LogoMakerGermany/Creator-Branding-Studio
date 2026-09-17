@@ -6,6 +6,7 @@ import {
   type AdminSystemStatus,
   type AdminUserSummary,
   type TesterFeedbackRow,
+  type ContentRightsReportRow,
 } from '@/services/api';
 import { Button, Input } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
@@ -78,6 +79,9 @@ export function AdminPage() {
   const [fbCategory, setFbCategory] = useState('');
   const [selectedFeedback, setSelectedFeedback] = useState<TesterFeedbackRow | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [rightsReports, setRightsReports] = useState<ContentRightsReportRow[]>([]);
+  const [rightsReportError, setRightsReportError] = useState<string | null>(null);
+  const [selectedRightsReport, setSelectedRightsReport] = useState<ContentRightsReportRow | null>(null);
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [payments, setPayments] = useState<{ stripe: PaymentClaim[]; paypal: PaymentClaim[] }>({
     stripe: [],
@@ -196,6 +200,16 @@ export function AdminPage() {
     }
   }
 
+  async function loadRightsReports() {
+    try {
+      const r = await api.admin.contentRightsReports();
+      setRightsReports(r.reports ?? []);
+      setRightsReportError(null);
+    } catch (err) {
+      setRightsReportError(err instanceof Error ? err.message : 'Rights-Reports nicht ladbar');
+    }
+  }
+
   async function loadSecondary() {
     try {
       const [au, p] = await Promise.all([api.admin.audit(), api.admin.payments()]);
@@ -225,6 +239,8 @@ export function AdminPage() {
     void loadJobs();
     void loadInvites();
     void loadSecondary();
+    void loadFeedback(0, false);
+    void loadRightsReports();
   }, []);
 
   const paymentsEnabled = system?.payments.enabled === true;
@@ -975,6 +991,82 @@ export function AdminPage() {
               {selectedFeedback.fileId && <li>Datei: {selectedFeedback.fileId}</li>}
               {selectedFeedback.route && <li>Route: {selectedFeedback.route}</li>}
             </ul>
+          </div>
+        )}
+      </section>
+
+      <section aria-labelledby="admin-rights-reports">
+        <h2 id="admin-rights-reports" className="mb-2 font-semibold text-white">
+          Content-Rights-Meldungen
+        </h2>
+        <p className="mb-3 text-xs text-zinc-500">
+          Keine automatische Löschung. Takedown nutzt den bestehenden File-Delete-Pfad. Keine KI-Rechtsentscheidung.
+        </p>
+        <Button className="mb-3 min-h-11" type="button" onClick={() => void loadRightsReports()}>
+          Aktualisieren
+        </Button>
+        {rightsReportError && <SectionError message={rightsReportError} />}
+        {rightsReports.length === 0 && !rightsReportError && (
+          <p className="text-xs text-zinc-500">Keine Rights-Reports.</p>
+        )}
+        <ul className="space-y-2">
+          {rightsReports.map((row) => (
+            <li key={row.id} className="rounded-xl border border-white/10 p-3">
+              <button
+                type="button"
+                className="w-full text-left text-sm text-white"
+                onClick={() =>
+                  void api.admin
+                    .getContentRightsReport(row.id)
+                    .then((r) => setSelectedRightsReport(r.report))
+                    .catch(() => setSelectedRightsReport(row))
+                }
+              >
+                {row.createdAt} · {row.category} · {row.status}
+                {row.fileId ? ` · Datei ${row.fileId.slice(0, 8)}` : ''}
+              </button>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {['REVIEWING', 'ACTIONED', 'REJECTED', 'CLOSED'].map((status) => (
+                  <Button
+                    key={status}
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      void api.admin.updateContentRightsReport(row.id, status).then((r) => {
+                        setRightsReports((rows) => rows.map((item) => (item.id === row.id ? r.report : item)));
+                        setSelectedRightsReport((cur) => (cur?.id === row.id ? r.report : cur));
+                      })
+                    }
+                  >
+                    {status}
+                  </Button>
+                ))}
+                {row.fileId && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() =>
+                      void api.admin.takedownContentRightsReport(row.id).then((r) => {
+                        setRightsReports((rows) => rows.map((item) => (item.id === row.id ? r.report : item)));
+                        setSelectedRightsReport((cur) => (cur?.id === row.id ? r.report : cur));
+                      })
+                    }
+                  >
+                    Takedown
+                  </Button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+        {selectedRightsReport && (
+          <div className="mt-4 rounded-xl border border-white/10 p-3 text-sm text-zinc-300">
+            <p className="font-medium text-white">{selectedRightsReport.category}</p>
+            <p className="mt-2 whitespace-pre-wrap">{selectedRightsReport.description}</p>
+            {selectedRightsReport.adminNotes && (
+              <p className="mt-2 text-xs text-zinc-500">Intern: {selectedRightsReport.adminNotes}</p>
+            )}
           </div>
         )}
       </section>

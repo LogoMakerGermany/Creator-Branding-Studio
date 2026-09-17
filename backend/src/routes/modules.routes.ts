@@ -30,6 +30,7 @@ import { sanitizeZipEntryName } from '../lib/zip-store.js';
 import { getProject } from '../services/project.service.js';
 import { attachAssetToProject } from '../services/project-assets.service.js';
 import { ServiceError } from '../lib/errors.js';
+import { recordContentRightsAck } from '../services/content-rights.service.js';
 
 function createFileCloudRoutes() {
   const router = Router();
@@ -131,6 +132,7 @@ function createFileCloudRoutes() {
     asyncHandler(async (req: AuthenticatedRequest, res) => {
       const body = uploadSchema.parse(req.body);
       const userId = req.user!.uid;
+      await recordContentRightsAck(userId);
 
       if ((await listUserFiles(userId)).length >= MAX_FILES_PER_USER) {
         throw new AppError(413, 'QUOTA_EXCEEDED', `Maximal ${MAX_FILES_PER_USER} Dateien pro Nutzer`);

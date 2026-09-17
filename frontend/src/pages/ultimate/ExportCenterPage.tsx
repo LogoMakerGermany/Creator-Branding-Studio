@@ -118,6 +118,10 @@ export function ExportCenterPage() {
           </Button>
         </div>
       </div>
+      <p className="text-xs text-zinc-500">
+        Export und Download sind keine Rechteklärung. NEXTER gibt keine Garantie für Urheber-, Marken- oder
+        kommerzielle Nutzungsfreiheit. Keine individuelle Rechtsberatung.
+      </p>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 

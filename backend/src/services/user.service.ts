@@ -4,8 +4,11 @@ import {
   resolveNexterPreferences,
   defaultNexterPreferences,
   isNexterLanguage,
+  CONTENT_RIGHTS_ACK_VERSION,
   type NexterPreferences,
   type LegalAcceptanceRecord,
+  type ContentRightsAckRecord,
+  type VoiceCloneConsentRecord,
 } from '@ucbs/shared';
 import { getDefaultFreeCoins } from '../config/env.js';
 import { devStore, isDevMode } from '../lib/dev-store.js';
@@ -31,6 +34,8 @@ export interface UserProfile {
   inviteCodeId?: string;
   disabled?: boolean;
   legalAcceptance?: LegalAcceptanceRecord;
+  contentRightsAck?: ContentRightsAckRecord;
+  voiceCloneConsent?: VoiceCloneConsentRecord;
   createdAt: string;
   updatedAt: string;
 }
@@ -106,6 +111,15 @@ function normalizeUserProfile(uid: string, data: Record<string, unknown>): UserP
   } as UserProfile;
 }
 
+function applyTestContentRightsAck(user: UserProfile, options: CreateUserOptions): void {
+  if (process.env.NODE_TEST === '1' && isDevMode() && !options.skipContentRightsAck) {
+    user.contentRightsAck = {
+      version: CONTENT_RIGHTS_ACK_VERSION,
+      acceptedAt: user.createdAt,
+    };
+  }
+}
+
 function createDefaultUser(
   uid: string,
   email: string | undefined,
@@ -136,6 +150,8 @@ export interface CreateUserOptions {
   role?: UserRole;
   inviteCodeId?: string;
   legalAcceptance?: LegalAcceptanceRecord;
+  /** Tests only: skip NODE_TEST default rights ack so Block R can prove the gate. */
+  skipContentRightsAck?: boolean;
 }
 
 export async function getOrCreateUser(
@@ -177,6 +193,7 @@ async function createOrLoadUserDev(
   if (options.legalAcceptance) {
     user.legalAcceptance = options.legalAcceptance;
   }
+  applyTestContentRightsAck(user, options);
   const stored = omitUndefinedFields({
     ...(user as unknown as Record<string, unknown>),
     email: user.email.trim() ? user.email : undefined,

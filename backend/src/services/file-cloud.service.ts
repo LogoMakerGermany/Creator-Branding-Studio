@@ -68,6 +68,8 @@ export interface UserFile {
   version?: number;
   deletedAt?: string;
   deletionState?: FileDeletionState;
+  /** Admin rights takedown. Blocks new signed URLs. Not a legal determination. */
+  rightsTakedownAt?: string;
   createdAt: string;
   expiresAt?: string;
   expiresInMs?: number;
@@ -75,7 +77,13 @@ export interface UserFile {
 }
 
 function fileIsInactive(file: UserFile): boolean {
-  return Boolean(file.deletedAt) || file.deletionState === 'deleting' || file.deletionState === 'deleted' || file.deletionState === 'delete_failed';
+  return (
+    Boolean(file.deletedAt) ||
+    Boolean(file.rightsTakedownAt) ||
+    file.deletionState === 'deleting' ||
+    file.deletionState === 'deleted' ||
+    file.deletionState === 'delete_failed'
+  );
 }
 
 function assertFiniteFileSize(size: number): number {
@@ -203,6 +211,23 @@ async function getOwnedFileRecord(id: string, userId: string): Promise<UserFile 
   const file = await dsGet(FILES_COLLECTION, firestoreDocId(id));
   if (!isOwnedFileRecord(file, userId)) return null;
   return file as unknown as UserFile;
+}
+
+export async function getFileRecordById(id: string): Promise<UserFile | null> {
+  const file = await dsGet(FILES_COLLECTION, firestoreDocId(id));
+  if (!file) return null;
+  return file as unknown as UserFile;
+}
+
+export async function applyRightsTakedownFlag(id: string, ownerUserId: string): Promise<UserFile | null> {
+  const file = await getOwnedFileRecord(id, ownerUserId);
+  if (!file) return null;
+  const updated: UserFile = {
+    ...file,
+    rightsTakedownAt: file.rightsTakedownAt ?? new Date().toISOString(),
+  };
+  await dsSet(FILES_COLLECTION, firestoreDocId(id), updated as unknown as Record<string, unknown>);
+  return updated;
 }
 
 export async function getRecentUserFiles(userId: string, opts?: { category?: FileCategory; limit?: number }): Promise<UserFile[]> {

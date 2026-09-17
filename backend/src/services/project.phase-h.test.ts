@@ -39,6 +39,9 @@ import { buildNexterContext } from './nexter/context.service.js';
 import { coinCostForKind } from './nexter/tools.service.js';
 import { ServiceError } from '../lib/errors.js';
 
+process.env.NODE_TEST = '1';
+process.env.DEV_AUTH_BYPASS = 'true';
+
 const dir = dirname(fileURLToPath(import.meta.url));
 const PIXEL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';

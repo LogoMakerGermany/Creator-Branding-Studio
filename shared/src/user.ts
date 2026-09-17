@@ -1,6 +1,7 @@
 import type { UserRole } from './roles';
 import type { NexterPreferences } from './nexter-preferences';
 import type { LegalAcceptanceRecord } from './legal';
+import type { ContentRightsAckRecord, VoiceCloneConsentRecord } from './content-rights';
 
 export type AuthProvider =
   | 'google'
@@ -28,6 +29,10 @@ export interface UserProfile {
   nexterPreferences?: NexterPreferences;
   /** Acknowledged legal text versions. Draft acknowledgements are not a final legal review. */
   legalAcceptance?: LegalAcceptanceRecord;
+  /** Versioned content-rights acknowledgement. Not a license grant and not legal advice. */
+  contentRightsAck?: ContentRightsAckRecord;
+  /** Voice-clone consent. Catalog TTS does not use this field. */
+  voiceCloneConsent?: VoiceCloneConsentRecord;
   createdAt: string;
   updatedAt: string;
 }

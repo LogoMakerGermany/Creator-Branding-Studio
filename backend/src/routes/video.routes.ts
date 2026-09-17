@@ -22,6 +22,7 @@ import {
   saveVideoRenderToProject,
   saveVideoOutputToFiles,
 } from '../services/media.service.js';
+import { recordContentRightsAck } from '../services/content-rights.service.js';
 
 export const videoRoutes = Router();
 videoRoutes.use(authenticate, requirePermission(Permission.USE_VIDEO_STUDIO));
@@ -283,6 +284,7 @@ videoRoutes.post(
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     rejectClientPaths(req.body);
     const body = sourceSchema.parse(req.body);
+    await recordContentRightsAck(req.user!.uid);
     const project = await attachVideoSource(
       String(req.params.id),
       req.user!.uid,

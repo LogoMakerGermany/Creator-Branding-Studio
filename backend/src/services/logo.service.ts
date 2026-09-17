@@ -403,10 +403,12 @@ export async function generateLogoAsset(
   const activeDna = dna ?? ephemeralLogoDna(userId, config);
   const studioOptions = applyLockedDnaToGeneration(activeDna, logoConfigToGenerationOptions(config));
   const quoteId = typeof raw.quoteId === 'string' ? raw.quoteId : undefined;
-  const prompt = buildLogoPrompt(activeDna, {
+  const rightsSafe =
+    typeof raw.rightsSafePrompt === 'string' && raw.rightsSafePrompt.trim() ? raw.rightsSafePrompt.trim() : '';
+  const prompt = `${buildLogoPrompt(activeDna, {
     ...studioOptions,
     customPromptOverride: config.prompt || studioOptions.customPromptOverride,
-  }).slice(0, MAX_LOGO_PROMPT_CHARS + 800);
+  })}${rightsSafe ? `\n${rightsSafe}` : ''}`.slice(0, MAX_LOGO_PROMPT_CHARS + 800);
 
   assertImageProviderReadyForStudio('logo');
 

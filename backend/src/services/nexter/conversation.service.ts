@@ -54,6 +54,7 @@ import {
   parseVideoClosureCommand,
   isValidCaption,
   defaultEditPlan,
+  classifyContentRightsRisk,
   type NexterChatMessage,
   type NexterQuoteKind,
   type NexterSession,
@@ -2189,6 +2190,10 @@ export async function nexterChat(
   });
   if (quoteCost != null && intentAllowsQuote(conversationIntent.intent)) {
     reply = `${insufficientCoinsPrefix(ctx.coinBalance, quoteCost)}${reply}`;
+  }
+  const rights = classifyContentRightsRisk(message);
+  if (rights.category !== 'NORMAL' && rights.userFacingNote) {
+    reply = `${rights.userFacingNote}\n\n${reply}`;
   }
 
   session.messages.push({

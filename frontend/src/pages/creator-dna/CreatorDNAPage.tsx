@@ -86,6 +86,7 @@ export function CreatorDNAPage() {
   const [analysis, setAnalysis] = useState<Awaited<ReturnType<typeof api.dna.analyze>>['analysis'] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [editing, setEditing] = useState(false);
   const [locks, setLocks] = useState<LockState>(EMPTY_LOCKS);
   const [versions, setVersions] = useState<DNAVersion[]>([]);
@@ -244,6 +245,10 @@ export function CreatorDNAPage() {
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!rightsConfirmed) {
+      setError('Bitte Rechte am hochgeladenen Bild bestätigen.');
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -257,12 +262,13 @@ export function CreatorDNAPage() {
           colors: extracted,
           styleHint: style,
           imageDataUrl: dataUrl,
+          rightsConfirmed: true,
         });
         setAnalysis(result);
         await refreshUser();
         void dna;
       } else {
-        const { analysis: result } = await api.dna.analyze(extracted, style, dataUrl);
+        const { analysis: result } = await api.dna.analyze(extracted, style, dataUrl, true);
         setAnalysis(result);
         if (!locks.style && result.detectedStyle) setStyle(result.detectedStyle as StyleDirection);
         if (!locks.colors && result.colorPalette?.length) {
@@ -453,12 +459,25 @@ export function CreatorDNAPage() {
           <p className="mt-2 text-sm text-zinc-400">
             Logo, Profilbild oder Banner — Farben und Stil werden analysiert. Gesperrte Merkmale bleiben unverändert.
           </p>
+          <label className="mt-3 flex items-start gap-2 text-xs text-zinc-400">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={rightsConfirmed}
+              onChange={(e) => setRightsConfirmed(e.target.checked)}
+            />
+            <span>
+              Ich bestätige, dass ich die erforderlichen Rechte am hochgeladenen Bild besitze. Ein öffentliches Foto
+              ist nicht automatisch frei verwendbar. User-Fonts (custom) ebenfalls nur mit Lizenz.
+            </span>
+          </label>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
           <Button
             className="mt-4 w-full gap-2"
             variant="secondary"
             onClick={() => fileRef.current?.click()}
             loading={loading}
+            disabled={!rightsConfirmed}
           >
             <Upload className="h-4 w-4" />
             Bild auswählen

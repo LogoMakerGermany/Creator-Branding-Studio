@@ -96,6 +96,12 @@ service cloud.firestore {
 
     }
 
+    match /content_rights_reports/{reportId} {
+
+      allow read, write: if false;
+
+    }
+
     match /{document=**} {
 
       allow read, write: if false;

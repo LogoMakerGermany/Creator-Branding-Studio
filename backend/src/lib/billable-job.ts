@@ -11,6 +11,7 @@ import { isAcceptingWork } from './runtime.js';
 import { assertGenerationsKillSwitch } from './provider-gate.js';
 import { ServiceError } from './errors.js';
 import type { CoinSpendCategory } from '@ucbs/shared';
+import { assertCurrentContentRightsAck } from '../services/content-rights.service.js';
 
 async function assertChargeAllowed(userId: string): Promise<void> {
   if (!isAcceptingWork()) {
@@ -25,6 +26,14 @@ async function assertChargeAllowed(userId: string): Promise<void> {
     throw err;
   }
   await assertBillableJobCapacity(userId);
+  try {
+    await assertCurrentContentRightsAck(userId);
+  } catch (err) {
+    if (err instanceof ServiceError) {
+      throw new AppError(err.statusCode, err.code, err.message);
+    }
+    throw err;
+  }
 }
 
 export interface BillableJob {

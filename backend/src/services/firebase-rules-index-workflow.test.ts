@@ -85,6 +85,7 @@ describe('Firebase rules & index deploy preparation', () => {
       'processedStripeSessions',
       'processedPayPalOrders',
       'marketplace_items',
+      'content_rights_reports',
     ]) {
       writesBlocked(collectionBlock(rules, collection));
     }

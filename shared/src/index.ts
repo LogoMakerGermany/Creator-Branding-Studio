@@ -6,6 +6,7 @@ export * from './branding';
 export * from './roles';
 export * from './user';
 export * from './legal';
+export * from './content-rights';
 export * from './nexter-preferences';
 export * from './registration';
 export * from './pricing';

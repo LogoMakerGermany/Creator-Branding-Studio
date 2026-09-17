@@ -16,6 +16,7 @@ import {
   voiceSupportsLanguage,
   type CreatorDNA,
   type VoiceConfig,
+  isVoiceCloneRequest,
 } from '@ucbs/shared';
 import { withCoinCharge } from '../lib/billable-job.js';
 import { ServiceError } from '../lib/errors.js';
@@ -26,6 +27,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { dsGet, dsSet } from '../lib/data-store.js';
 import { withDevLock } from '../lib/dev-mutex.js';
 import { resolveDnaForRequest } from './dna.service.js';
+import { assertVoiceCloneConsent } from './content-rights.service.js';
 import {
   issueFileDownloadUrl,
   listUserFiles,
@@ -256,6 +258,25 @@ export async function generateVoiceTrack(
     }
   } else {
     plan = await resolvePlan(userId, payload);
+  }
+
+  const cloneRequested = isVoiceCloneRequest(
+    typeof payload?.request === 'string'
+      ? payload.request
+      : typeof payload?.message === 'string'
+        ? payload.message
+        : typeof payload?.text === 'string'
+          ? payload.text
+          : '',
+    payload
+  );
+  if (cloneRequested) {
+    await assertVoiceCloneConsent(userId);
+    throw new ServiceError(
+      400,
+      'VOICE_CLONE_NOT_AVAILABLE',
+      'Voice-Cloning ist nicht aktiv. Verfügbar ist nur Katalog-TTS. Öffentliche Clips oder Prominenz ersetzen keine Einwilligung.'
+    );
   }
 
   const quoteId = typeof payload?.quoteId === 'string' ? payload.quoteId : undefined;

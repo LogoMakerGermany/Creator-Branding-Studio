@@ -223,7 +223,11 @@ export async function generateMusicTrack(
   }
 
   const quoteId = typeof payload?.quoteId === 'string' ? payload.quoteId : undefined;
-  const prompt = plan.prompt;
+  const rightsSafe =
+    typeof payload?.rightsSafePrompt === 'string' && payload.rightsSafePrompt.trim()
+      ? `\n${String(payload.rightsSafePrompt).trim()}`
+      : '';
+  const prompt = `${plan.prompt}${rightsSafe}`;
 
   if (!musicTestHooks) {
     requireMusicProvider();

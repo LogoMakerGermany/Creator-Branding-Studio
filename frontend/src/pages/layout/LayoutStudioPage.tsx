@@ -113,6 +113,7 @@ export function LayoutStudioPage() {
   const [canvasH, setCanvasH] = useState(1080);
   const [background, setBackground] = useState<{ mode: 'transparent' | 'solid'; color?: string }>({ mode: 'transparent' });
   const [projectId, setProjectId] = useState<string>('');
+  const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [brandProjects, setBrandProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [cloudFiles, setCloudFiles] = useState<Array<{ id: string; name: string; category: string; available?: boolean; sourceJobId?: string }>>([]);
   const [assetsLoading, setAssetsLoading] = useState(false);
@@ -383,6 +384,10 @@ export function LayoutStudioPage() {
   async function handleImageUpload(file: File, targetId?: string) {
     const id = targetId ?? primarySelectedId;
     if (!id) return;
+    if (!rightsConfirmed) {
+      setError('Bitte Rechte am hochgeladenen Bild bestätigen.');
+      return;
+    }
     if (file.size > 5 * 1024 * 1024) {
       setError('Bild max. 5 MB');
       return;
@@ -712,6 +717,19 @@ export function LayoutStudioPage() {
           <StudioErrorBanner message={error} />
         </div>
       )}
+
+      <label className="flex items-start gap-2 text-sm text-zinc-400">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={rightsConfirmed}
+          onChange={(e) => setRightsConfirmed(e.target.checked)}
+        />
+        <span>
+          Ich bestätige, dass ich die erforderlichen Rechte am hochgeladenen Layout-Bild besitze. NEXTER prüft
+          Urheber- und Markenrechte nicht automatisch.
+        </span>
+      </label>
 
       <input
         ref={fileInputRef}

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { Permission, UserRole } from '@ucbs/shared';
+import { Permission, UserRole, CONTENT_RIGHTS_REPORT_STATUSES } from '@ucbs/shared';
 import { authenticate } from '../middleware/auth.js';
 import { requirePermission, requireRole } from '../middleware/rbac.js';
 import { asyncHandler, sendSuccess } from '../middleware/errorHandler.js';
@@ -26,6 +26,13 @@ import {
   issueFeedbackScreenshotUrl,
   FEEDBACK_STATUSES,
 } from '../services/feedback.service.js';
+import {
+  listContentRightsReportsForAdmin,
+  getContentRightsReport,
+  updateContentRightsReportStatus,
+  adminTakedownReportedFile,
+  toAdminRightsReport,
+} from '../services/content-rights.service.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { writeAdminAudit, listAdminAudit } from '../services/admin-audit.service.js';
 import { recoverStaleJobs } from '../services/job-recovery.service.js';
@@ -481,5 +488,65 @@ adminRoutes.post(
       after: { ...result },
     });
     sendSuccess(res, { recovery: result });
+  })
+);
+
+adminRoutes.get(
+  '/content-rights-reports',
+  requirePermission(Permission.VIEW_ADMIN),
+  asyncHandler(async (_req, res) => {
+    sendSuccess(res, { reports: await listContentRightsReportsForAdmin(100) });
+  })
+);
+
+adminRoutes.get(
+  '/content-rights-reports/:id',
+  requirePermission(Permission.VIEW_ADMIN),
+  asyncHandler(async (req, res) => {
+    const row = await getContentRightsReport(paramId(req.params.id));
+    if (!row) throw new AppError(404, 'NOT_FOUND', 'Meldung nicht gefunden');
+    sendSuccess(res, { report: toAdminRightsReport(row) });
+  })
+);
+
+adminRoutes.patch(
+  '/content-rights-reports/:id',
+  requirePermission(Permission.VIEW_ADMIN),
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const body = z
+      .object({
+        status: z.enum(CONTENT_RIGHTS_REPORT_STATUSES),
+        adminNotes: z.string().max(2000).optional(),
+      })
+      .parse(req.body);
+    const id = paramId(req.params.id);
+    const before = await getContentRightsReport(id);
+    const row = await updateContentRightsReportStatus(id, body.status, body.adminNotes);
+    await writeAdminAudit({
+      actorUserId: req.user!.uid,
+      action: 'content_rights_status',
+      targetUserId: row.reporterUserId,
+      reason: `status:${body.status}`,
+      before: { id, status: before?.status ?? null },
+      after: { id, status: row.status },
+    });
+    sendSuccess(res, { report: toAdminRightsReport(row) });
+  })
+);
+
+adminRoutes.post(
+  '/content-rights-reports/:id/takedown',
+  requirePermission(Permission.VIEW_ADMIN),
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const id = paramId(req.params.id);
+    const row = await adminTakedownReportedFile(req.user!.uid, id);
+    await writeAdminAudit({
+      actorUserId: req.user!.uid,
+      action: 'content_rights_takedown',
+      targetUserId: row.reporterUserId,
+      reason: `file:${row.takedownFileId ?? ''}`,
+      after: { id: row.id, status: row.status, takedownFileId: row.takedownFileId ?? null },
+    });
+    sendSuccess(res, { report: toAdminRightsReport(row) });
   })
 );

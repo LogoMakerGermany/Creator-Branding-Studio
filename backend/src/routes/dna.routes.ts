@@ -19,6 +19,7 @@ import {
   applyAnalysisToDna,
   resolveDnaForRequest,
 } from '../services/dna.service.js';
+import { recordContentRightsAck, assertCurrentContentRightsAck } from '../services/content-rights.service.js';
 
 export const dnaRoutes = Router();
 
@@ -275,6 +276,7 @@ const analyzeSchema = z.object({
   colors: z.array(z.string()).optional(),
   styleHint: z.string().optional(),
   imageDataUrl: z.string().optional(),
+  rightsConfirmed: z.literal(true).optional(),
 });
 
 dnaRoutes.post(
@@ -284,6 +286,10 @@ dnaRoutes.post(
     const body = analyzeSchema.parse(req.body);
     if (!body.imageDataUrl && (!body.colors || body.colors.length === 0)) {
       throw new AppError(400, 'INVALID_INPUT', 'Farben oder imageDataUrl erforderlich');
+    }
+    if (body.imageDataUrl) {
+      if (body.rightsConfirmed === true) await recordContentRightsAck(req.user!.uid);
+      else await assertCurrentContentRightsAck(req.user!.uid);
     }
     const analysis = await analyzeAssets(
       body.colors ?? [],
@@ -320,6 +326,10 @@ dnaRoutes.post(
     const body = analyzeSchema.parse(req.body);
     if (!body.imageDataUrl && (!body.colors || body.colors.length === 0)) {
       throw new AppError(400, 'INVALID_INPUT', 'Farben oder imageDataUrl erforderlich');
+    }
+    if (body.imageDataUrl) {
+      if (body.rightsConfirmed === true) await recordContentRightsAck(req.user!.uid);
+      else await assertCurrentContentRightsAck(req.user!.uid);
     }
     const analysis = await analyzeAssets(
       body.colors ?? [],
