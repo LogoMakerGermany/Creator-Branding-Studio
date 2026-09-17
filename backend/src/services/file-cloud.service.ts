@@ -21,6 +21,7 @@ import {
 } from '../lib/firebase-storage.js';
 import { audioExtensionForMime, MUSIC_STORAGE_ERROR_CODE, MUSIC_STORAGE_FAILED_MESSAGE } from '../lib/safe-provider-fetch.js';
 import { assertFiniteNumber, firestoreDocId } from '../lib/firestore-payload.js';
+import { fileLockKey, withDevLock } from '../lib/dev-mutex.js';
 
 const FILES_COLLECTION = 'files';
 export const FILE_LIST_DEFAULT_LIMIT = 50;
@@ -517,6 +518,10 @@ export async function updateUserFile(
 }
 
 export async function deleteUserFile(id: string, userId: string): Promise<boolean> {
+  return withDevLock(fileLockKey(firestoreDocId(id)), () => deleteUserFileLocked(id, userId));
+}
+
+async function deleteUserFileLocked(id: string, userId: string): Promise<boolean> {
   const file = await getOwnedFileRecord(id, userId);
   if (!file) return false;
   if (file.deletionState === 'deleted') return true;

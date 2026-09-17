@@ -51,6 +51,10 @@ export function quoteLockKey(quoteId: string) {
   return `quote:${quoteId}`;
 }
 
+export function fileLockKey(fileId: string) {
+  return `file:${fileId}`;
+}
+
 export function streamsetRetryLockKey(batchId: string, assetKey: string) {
   return `streamset-retry:${batchId}:${assetKey}`;
 }

@@ -33,7 +33,6 @@ import {
   recordOwnedByUser,
 } from './tools.service.js';
 import { quoteLockKey, withDevLock } from '../../lib/dev-mutex.js';
-import { isDevMode } from '../../config/env.js';
 
 const COLLECTION = 'nexterQuotes';
 
@@ -340,10 +339,7 @@ export async function confirmStreamsetQuote(userId: string, quoteId: string): Pr
     }
   };
 
-  if (isDevMode()) {
-    return withDevLock(quoteLockKey(quoteId), run);
-  }
-  return run();
+  return withDevLock(quoteLockKey(quoteId), run);
 }
 
 async function confirmAnimationQuote(
@@ -434,10 +430,7 @@ async function confirmAnimationQuote(
     }
   };
 
-  if (isDevMode()) {
-    return withDevLock(quoteLockKey(quoteId), run);
-  }
-  return run();
+  return withDevLock(quoteLockKey(quoteId), run);
 }
 
 async function confirmAiVideoQuote(
@@ -528,10 +521,7 @@ async function confirmAiVideoQuote(
     }
   };
 
-  if (isDevMode()) {
-    return withDevLock(quoteLockKey(quoteId), run);
-  }
-  return run();
+  return withDevLock(quoteLockKey(quoteId), run);
 }
 
 async function confirmMusicQuote(
@@ -622,10 +612,7 @@ async function confirmMusicQuote(
     }
   };
 
-  if (isDevMode()) {
-    return withDevLock(quoteLockKey(quoteId), run);
-  }
-  return run();
+  return withDevLock(quoteLockKey(quoteId), run);
 }
 
 async function confirmVoiceQuote(
@@ -716,10 +703,7 @@ async function confirmVoiceQuote(
     }
   };
 
-  if (isDevMode()) {
-    return withDevLock(quoteLockKey(quoteId), run);
-  }
-  return run();
+  return withDevLock(quoteLockKey(quoteId), run);
 }
 
 async function confirmLogoQuote(
@@ -847,10 +831,7 @@ async function confirmLogoQuote(
     }
   };
 
-  if (isDevMode()) {
-    return withDevLock(quoteLockKey(quoteId), run);
-  }
-  return run();
+  return withDevLock(quoteLockKey(quoteId), run);
 }
 
 async function confirmBannerQuote(
@@ -979,10 +960,7 @@ async function confirmBannerQuote(
     }
   };
 
-  if (isDevMode()) {
-    return withDevLock(quoteLockKey(quoteId), run);
-  }
-  return run();
+  return withDevLock(quoteLockKey(quoteId), run);
 }
 
 async function confirmFacecamQuote(
@@ -1105,10 +1083,7 @@ async function confirmFacecamQuote(
     }
   };
 
-  if (isDevMode()) {
-    return withDevLock(quoteLockKey(quoteId), run);
-  }
-  return run();
+  return withDevLock(quoteLockKey(quoteId), run);
 }
 
 async function confirmOverlayQuote(
@@ -1231,10 +1206,7 @@ async function confirmOverlayQuote(
     }
   };
 
-  if (isDevMode()) {
-    return withDevLock(quoteLockKey(quoteId), run);
-  }
-  return run();
+  return withDevLock(quoteLockKey(quoteId), run);
 }
 
 async function confirmStickerQuote(
@@ -1358,10 +1330,7 @@ async function confirmStickerQuote(
     }
   };
 
-  if (isDevMode()) {
-    return withDevLock(quoteLockKey(quoteId), run);
-  }
-  return run();
+  return withDevLock(quoteLockKey(quoteId), run);
 }
 
 async function confirmMockupQuote(
@@ -1454,10 +1423,7 @@ async function confirmMockupQuote(
     }
   };
 
-  if (isDevMode()) {
-    return withDevLock(quoteLockKey(quoteId), run);
-  }
-  return run();
+  return withDevLock(quoteLockKey(quoteId), run);
 }
 
 async function confirmTextQuote(
@@ -1546,13 +1512,22 @@ async function confirmTextQuote(
     }
   };
 
-  if (isDevMode()) {
-    return withDevLock(quoteLockKey(quoteId), run);
-  }
-  return run();
+  return withDevLock(quoteLockKey(quoteId), run);
 }
 
 export async function confirmQuote(userId: string, quoteId: string): Promise<{
+  quote: NexterQuote;
+  coinsSpent: number;
+  newBalance: number;
+  jobIds: string[];
+  refundedCoins?: number;
+  batchStatus?: string;
+  jobs?: GenerationJob[];
+}> {
+  return withDevLock(quoteLockKey(quoteId), () => confirmQuoteUnlocked(userId, quoteId));
+}
+
+async function confirmQuoteUnlocked(userId: string, quoteId: string): Promise<{
   quote: NexterQuote;
   coinsSpent: number;
   newBalance: number;

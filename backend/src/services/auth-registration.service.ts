@@ -1,7 +1,6 @@
 import { UserRole, LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from '@ucbs/shared';
 import type { LegalAcceptanceInput, LegalAcceptanceRecord } from '@ucbs/shared';
 import { AppError } from '../middleware/errorHandler.js';
-import { isDevMode } from '../config/env.js';
 import { userLockKey, withDevLock } from '../lib/dev-mutex.js';
 import { getOrCreateUser, getUserById, type UserProfile } from './user.service.js';
 import { getRegistrationMode } from './system-settings.service.js';
@@ -34,11 +33,7 @@ export interface SyncAppUserResult {
  * New app users are gated by REGISTRATION_MODE (fail-safe: not public → invite required).
  */
 export async function syncAuthenticatedAppUser(input: SyncAppUserInput): Promise<SyncAppUserResult> {
-  const run = () => syncAuthenticatedAppUserLocked(input);
-  if (isDevMode()) {
-    return withDevLock(userLockKey(input.uid), run);
-  }
-  return run();
+  return withDevLock(userLockKey(input.uid), () => syncAuthenticatedAppUserLocked(input));
 }
 
 async function syncAuthenticatedAppUserLocked(input: SyncAppUserInput): Promise<SyncAppUserResult> {

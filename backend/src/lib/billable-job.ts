@@ -70,6 +70,9 @@ export async function withCoinCharge<T extends BillableJob>(
   if (!coinResult.success) {
     throw new AppError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
   }
+  if (coinResult.duplicate) {
+    throw new AppError(409, 'CHARGE_IDEMPOTENT', 'Diese Abbuchung wurde bereits ausgeführt.');
+  }
 
   const charge = await getBillableCharge(chargeId);
   if (!charge) {
@@ -127,6 +130,9 @@ export async function withCoinChargePack<T extends BillableJob>(
   });
   if (!coinResult.success) {
     throw new AppError(402, 'INSUFFICIENT_COINS', 'Nicht genügend Coins');
+  }
+  if (coinResult.duplicate) {
+    throw new AppError(409, 'CHARGE_IDEMPOTENT', 'Diese Abbuchung wurde bereits ausgeführt.');
   }
 
   const charge = await getBillableCharge(chargeId);

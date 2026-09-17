@@ -152,3 +152,50 @@ GET https://nexter-creator-studio-production.up.railway.app/nexter
 ```
 
 Expect: health `ok`; status `environment=production`, Firebase Admin on, Firestore production, `devLogin=false`, `paymentsEnabled=false`, `registration.mode=invite_only`. Deep links return the SPA shell (HTTP 200), not a platform 404.
+
+---
+
+## Block L — concurrency, locks, emulator
+
+Isolated E2E lives in `backend/src/services/nexter-live-e2e.test.ts` plus the existing node:test suite (`tsx --test --test-concurrency=1`). No Cypress/Vitest. Tests write only the per-process Dev Store (`ucbs-dev-store-${pid}`). `dsSet` / `dsDelete` / coin Firestore mutations abort when `NODE_TEST` is set and `isDevMode()` is false (including `FIREBASE_PROJECT_ID=nexter-creator-studio`).
+
+`firebase.json` has no emulator stanza. **FIRESTORE EMULATOR CONCURRENCY: NOT RUN – ENVIRONMENT LIMITATION.** Do not claim real Firestore transaction races were executed.
+
+### Process-local locks (not multi-replica)
+
+- `withDevLock` (`backend/src/lib/dev-mutex.ts`) — in-process mutex, now always used for quote confirm, user sync, file delete, chat budget, email dispatch.
+- `liveNexterChatInFlight` — in-memory `Set` in `conversation.service.ts` (live OpenAI path only).
+- `express-rate-limit` `apiLimiter` / `authLimiter` / `uploadLimiter` — per Node process.
+
+### Datastore / transaction based (multi-instance safe)
+
+- Coin debit / refund / welcome idempotency: Firestore `runTransaction` in production; Dev Store mutex in tests.
+- Invite `maxUses` consume: Firestore `runTransaction` in production.
+- Quote confirm uniqueness on one replica: process lock + quote `processing`/`confirmed` replay. Across replicas this is **PARTIAL** until a Firestore compare-and-set exists. Current Railway **REPLICAS = 1**.
+- NEXTER chat 40/60min budget: persisted `nexter_chat_usage` but the increment lock is process-local. **PARTIAL** at replicas > 1.
+- Rate limiters: **process-local**. Not launch-P0 at 1 replica. Do not add Redis in this block.
+
+**MULTI-INSTANCE SAFETY:** PARTIAL (replicas=1; economic debit/refund/invite/welcome are transactional; quote double-click and chat/API rate limits are process-local).
+
+### Signed URL vs delete
+
+A signed download URL minted **before** delete may remain reachable until TTL (`SIGNED_URL_TTL_MS`). After the file is `deleted`, **new** signed URLs are not issued. That is existing semantics, not a revocation guarantee.
+
+### Creator DNA races
+
+Parallel `upsertDna` is last-write-wins. No version lock.
+
+### Production auth E2E
+
+Automated login for `larsegal23@googlemail.com` is **MANUAL / NOT RUN** without an existing session. Operators may use this read-only checklist (no quote confirm, no generation, no coin purchase):
+
+1. Login
+2. Dashboard
+3. Open NEXTER
+4. Creator DNA visible
+5. Open Logo Studio
+6. Coins visible
+7. Open Files / Projects
+8. Open Settings
+9. Logout
+

@@ -4,6 +4,7 @@ import { getStripePriceId, isDevMode } from '../config/env.js';
 import { assertFiniteNumber, firestoreDocId, omitUndefinedFields } from '../lib/firestore-payload.js';
 import { devStore } from '../lib/dev-store.js';
 import { coinsLockKey, withDevLock } from '../lib/dev-mutex.js';
+import { assertNoProductionWritesFromTests } from '../lib/production-write-guard.js';
 import { getUserById, updateCoinBalance } from './user.service.js';
 import { randomUUID } from 'node:crypto';
 
@@ -245,6 +246,7 @@ async function applyMutationFirestore(input: {
   options?: CoinTxOptions;
 }): Promise<CoinMutationResult> {
   const { getFirestore } = await import('../config/firebase.js');
+  assertNoProductionWritesFromTests();
   const db = getFirestore();
   const userRef = db.collection('users').doc(firestoreDocId(input.userId));
   const txId = randomUUID();
@@ -560,6 +562,7 @@ export async function writeWelcomeLedgerOnly(params: {
   }
 
   const { getFirestore } = await import('../config/firebase.js');
+  assertNoProductionWritesFromTests();
   const db = getFirestore();
   const idempRef = db.collection(IDEMP_COLLECTION).doc(coinDocId(key));
   const txRef = db.collection(TX_COLLECTION).doc(firestoreDocId(tx.id));

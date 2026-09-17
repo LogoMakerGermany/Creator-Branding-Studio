@@ -206,6 +206,8 @@ export async function redeemInviteCode(
   }
 
   const { getFirestore } = await import('../config/firebase.js');
+  const { assertNoProductionWritesFromTests } = await import('../lib/production-write-guard.js');
+  assertNoProductionWritesFromTests();
   const db = getFirestore();
   const ref = db.collection(COLLECTION).doc(firestoreDocId(invite.id));
   return db.runTransaction(async (t) => {

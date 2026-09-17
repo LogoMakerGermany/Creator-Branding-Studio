@@ -1,6 +1,7 @@
 import { devStore, isDevMode } from './dev-store.js';
 import { getFirestore } from '../config/firebase.js';
 import { firestoreDocId, omitUndefinedFields } from './firestore-payload.js';
+import { assertNoProductionWritesFromTests } from './production-write-guard.js';
 import type { Query } from 'firebase-admin/firestore';
 
 type ListOptions = {
@@ -30,6 +31,7 @@ export async function dsSet(
   id: string,
   data: Record<string, unknown>
 ): Promise<void> {
+  assertNoProductionWritesFromTests();
   const docId = firestoreDocId(id);
   const payload = omitUndefinedFields({ ...data, id: docId });
   if (isDevMode()) {
@@ -42,6 +44,7 @@ export async function dsSet(
 }
 
 export async function dsDelete(collection: string, id: string): Promise<void> {
+  assertNoProductionWritesFromTests();
   const docId = firestoreDocId(id);
   if (isDevMode()) {
     devStore.deleteFromCollection(collection, docId);
