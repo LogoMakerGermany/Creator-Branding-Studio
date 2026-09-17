@@ -40,7 +40,7 @@ export function PwaInstallBanner() {
             Installieren
           </Button>
         ) : (
-          <Link to="/mobile-app">
+          <Link to="/settings">
             <Button size="sm" variant="outline">
               Anleitung
             </Button>

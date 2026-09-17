@@ -12,8 +12,6 @@ const SEARCH_ITEMS = [
   ...PRIMARY_NAV.map((n) => ({ title: n.label, path: n.path })),
   ...BRANDING_MODULES.map((m) => ({ title: m.title, path: m.path })),
   ...AI_CREATOR_MODULES.map((m) => ({ title: m.title, path: m.path })),
-  { title: 'Ultimate Creator', path: '/ultimate-creator' },
-  { title: 'Ultimate Pack (Legacy)', path: '/export-center' },
 ];
 
 export function TopBar() {
@@ -90,7 +88,7 @@ export function TopBar() {
               const id = e.target.value;
               if (!id) return;
               setActiveProjectId(id);
-              navigate(`/export-center?project=${id}`);
+              navigate(`/projects/${id}`);
             }}
             className="max-w-[140px] truncate rounded-lg border border-white/10 bg-[var(--ucbs-card)] px-2 py-1.5 text-xs text-zinc-300 focus:outline-none lg:max-w-[180px]"
             aria-label="Aktives Projekt"

@@ -9,27 +9,17 @@ import { OAuthCompletePage } from '@/pages/auth/OAuthCompletePage';
 import { VerifyEmailPage } from '@/pages/auth/VerifyEmailPage';
 import { CreatorDNAPage } from '@/pages/creator-dna/CreatorDNAPage';
 import { LogoStudioPage, BannerStudioPage, FacecamStudioPage, OverlayStudioPage, StickerStudioPage } from '@/pages/studios';
-import { BrandingGeneratorPage } from '@/pages/branding/BrandingGeneratorPage';
-import { AIImagePage } from '@/pages/ai/AIImagePage';
 import { LayoutStudioPage } from '@/pages/layout/LayoutStudioPage';
 import { ChangeRequestPage } from '@/pages/change-request/ChangeRequestPage';
-import { TeamDNAPage } from '@/pages/team/TeamDNAPage';
 import { VideoStudioPage } from '@/pages/video/VideoStudioPage';
 import { IntroOutroPage } from '@/pages/intro-outro/IntroOutroPage';
-import { VTuberStudioPage } from '@/pages/vtuber/VTuberStudioPage';
 import { AIVideoPage } from '@/pages/ai/AIVideoPage';
 import { AIVoicePage } from '@/pages/ai/AIVoicePage';
 import { AIMusicPage } from '@/pages/ai/AIMusicPage';
-import { MarketplacePage } from '@/pages/marketplace/MarketplacePage';
 import { ContentCalendarPage } from '@/pages/calendar/ContentCalendarPage';
-import { TeamChatPage } from '@/pages/chat/TeamChatPage';
-import { MobileAppPage } from '@/pages/mobile/MobileAppPage';
 import { FileCloudPage } from '@/pages/files/FileCloudPage';
-import { ModulePage } from '@/pages/modules/ModulePage';
 import { CoinsPage } from '@/pages/coins/CoinsPage';
 import { PromptStudioPage } from '@/pages/prompt-studio/PromptStudioPage';
-import { UltimateCreatorPage, ExportCenterPage } from '@/pages/ultimate';
-import { MagikAssistantSettingsPage } from '@/pages/settings/MagikAssistantSettingsPage';
 import { NexterPage } from '@/pages/nexter/NexterPage';
 import { MockupStudioPage } from '@/pages/studios/MockupStudioPage';
 import { StreamsetStudioPage } from '@/pages/studios/StreamsetStudioPage';
@@ -42,9 +32,11 @@ import { AdminPage } from '@/pages/admin/AdminPage';
 import { LegalPage } from '@/pages/legal/LegalPage';
 import { OnboardingPage } from '@/pages/onboarding/OnboardingPage';
 import { NexterSetupPage } from '@/pages/onboarding/NexterSetupPage';
+import { NotFoundPage } from '@/pages/system/NotFoundPage';
+import { LegacyUnavailablePage } from '@/pages/system/LegacyUnavailablePage';
 import { NexterStudioLayout } from '@/components/nexter';
-import { CREATOR_MODULES } from '@ucbs/shared';
 import { Skeleton } from '@/v2/components/Skeleton';
+import { LEGACY_REDIRECTS, LEGACY_UNAVAILABLE_PATHS } from '@/routes/legacy-surfaces';
 
 const DashboardV2Page = lazy(() => import('@/v2/pages/DashboardV2Page').then((m) => ({ default: m.DashboardV2Page })));
 const ProjectsHubPage = lazy(() => import('@/v2/pages/ProjectsHubPage').then((m) => ({ default: m.ProjectsHubPage })));
@@ -69,81 +61,14 @@ function withNexter(page: ReactNode, hint: string) {
   return <NexterStudioLayout hint={hint}>{page}</NexterStudioLayout>;
 }
 
-const IMPLEMENTED_PATHS = new Set([
-  '/creator-dna',
-  '/logo-studio',
-  '/banner-studio',
-  '/facecam-studio',
-  '/overlay-studio',
-  '/sticker-studio',
-  '/branding-generator',
-  '/ai-image',
-  '/layout-studio',
-  '/change-request',
-  '/ai-assistant',
-  '/team-dna',
-  '/video-studio',
-  '/intro-outro',
-  '/vtuber-studio',
-  '/ai-video',
-  '/ai-voice',
-  '/ai-music',
+const PROTECTED_UNAVAILABLE = new Set([
   '/marketplace',
-  '/social-media',
-  '/content-calendar',
   '/team-chat',
-  '/mobile-app',
-  '/file-cloud',
-  '/settings/magik-assistant',
-  '/prompt-studio',
-  '/nexter',
-  '/mockup-studio',
-  '/streamset-studio',
-  '/animation-studio',
-  '/shorts-studio',
-  '/social-studio',
-  '/text-studio',
-  '/templates',
-  '/admin',
+  '/team-dna',
+  '/teams',
 ]);
 
-const IMPLEMENTED_ROUTES: Record<string, ReactNode> = {
-  '/creator-dna': withNexter(<CreatorDNAPage />, 'Creator DNA'),
-  '/logo-studio': <LogoStudioPage />,
-  '/banner-studio': <BannerStudioPage />,
-  '/facecam-studio': <FacecamStudioPage />,
-  '/overlay-studio': <OverlayStudioPage />,
-  '/sticker-studio': <StickerStudioPage />,
-  '/branding-generator': <BrandingGeneratorPage />,
-  '/ai-image': <AIImagePage />,
-  '/layout-studio': <LayoutStudioPage />,
-  '/change-request': <ChangeRequestPage />,
-  '/ai-assistant': <Navigate to="/nexter" replace />,
-  '/prompt-studio': <PromptStudioPage />,
-  '/nexter': <NexterPage />,
-  '/mockup-studio': <MockupStudioPage />,
-  '/streamset-studio': <StreamsetStudioPage />,
-  '/animation-studio': <AnimationStudioPage />,
-  '/shorts-studio': <ShortsStudioPage />,
-  '/social-studio': <SocialStudioPage />,
-  '/social-media': <SocialStudioPage />,
-  '/text-studio': <TextStudioPage />,
-  '/templates': <TemplatesPage />,
-  '/admin': <AdminRoute><AdminPage /></AdminRoute>,
-  '/team-dna': <TeamDNAPage />,
-  '/video-studio': <VideoStudioPage />,
-  '/intro-outro': <IntroOutroPage />,
-  '/vtuber-studio': <VTuberStudioPage />,
-  '/ai-video': <AIVideoPage />,
-  '/ai-voice': <AIVoicePage />,
-  '/ai-music': <AIMusicPage />,
-  '/marketplace': <MarketplacePage />,
-  '/content-calendar': <ContentCalendarPage />,
-  '/team-chat': <TeamChatPage />,
-  '/mobile-app': <MobileAppPage />,
-  '/file-cloud': <FileCloudPage />,
-  '/settings/magik-assistant': <MagikAssistantSettingsPage />,
-};
+const PUBLIC_UNAVAILABLE = LEGACY_UNAVAILABLE_PATHS.filter((path) => !PROTECTED_UNAVAILABLE.has(path));
 
 export function AppRoutes() {
   return (
@@ -197,26 +122,28 @@ export function AppRoutes() {
         }
       >
         <Route path="/dashboard" element={<Lazy><DashboardV2Page /></Lazy>} />
-        <Route path="/branding-studio" element={<Navigate to="/logo-studio" replace />} />
-        <Route path="/ai-creator" element={<Navigate to="/nexter" replace />} />
-        <Route path="/teams" element={<Navigate to="/dashboard" replace />} />
         <Route path="/projects" element={<Lazy><ProjectsHubPage /></Lazy>} />
         <Route path="/projects/:projectId" element={<Lazy><ProjectDetailPage /></Lazy>} />
         <Route path="/settings" element={<Lazy><SettingsHubPage /></Lazy>} />
         <Route path="/support" element={<Lazy><SupportPage /></Lazy>} />
-        <Route path="/ultimate-creator" element={<UltimateCreatorPage />} />
-        <Route path="/export-center" element={<ExportCenterPage />} />
-        <Route path="/settings/magik-assistant" element={<Navigate to="/settings" replace />} />
-        <Route path="/marketplace" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/social-media" element={<Navigate to="/social-studio" replace />} />
-        <Route path="/team-chat" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/team-dna" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/vtuber-studio" element={<Navigate to="/animation-studio" replace />} />
-        <Route path="/mobile-app" element={<Navigate to="/settings" replace />} />
-        <Route path="/content-calendar" element={<ContentCalendarPage />} />
         <Route path="/coins" element={<CoinsPage />} />
         <Route path="/nexter" element={<NexterPage />} />
-        <Route path="/ai-assistant" element={<Navigate to="/nexter" replace />} />
+        <Route path="/creator-dna" element={withNexter(<CreatorDNAPage />, 'Creator DNA')} />
+        <Route path="/logo-studio" element={<LogoStudioPage />} />
+        <Route path="/banner-studio" element={<BannerStudioPage />} />
+        <Route path="/facecam-studio" element={<FacecamStudioPage />} />
+        <Route path="/overlay-studio" element={<OverlayStudioPage />} />
+        <Route path="/sticker-studio" element={<StickerStudioPage />} />
+        <Route path="/layout-studio" element={<LayoutStudioPage />} />
+        <Route path="/change-request" element={<ChangeRequestPage />} />
+        <Route path="/prompt-studio" element={<PromptStudioPage />} />
+        <Route path="/video-studio" element={<VideoStudioPage />} />
+        <Route path="/intro-outro" element={<IntroOutroPage />} />
+        <Route path="/ai-video" element={<AIVideoPage />} />
+        <Route path="/ai-voice" element={<AIVoicePage />} />
+        <Route path="/ai-music" element={<AIMusicPage />} />
+        <Route path="/content-calendar" element={<ContentCalendarPage />} />
+        <Route path="/file-cloud" element={<FileCloudPage />} />
         <Route path="/mockup-studio" element={<MockupStudioPage />} />
         <Route path="/streamset-studio" element={<StreamsetStudioPage />} />
         <Route path="/animation-studio" element={<AnimationStudioPage />} />
@@ -225,28 +152,22 @@ export function AppRoutes() {
         <Route path="/text-studio" element={<TextStudioPage />} />
         <Route path="/templates" element={<TemplatesPage />} />
         <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
-        {CREATOR_MODULES.filter((m) => m.id !== 'dashboard' && m.id !== 'coins').map((mod) => (
-          <Route
-            key={mod.id}
-            path={mod.path}
-            element={
-              IMPLEMENTED_PATHS.has(mod.path)
-                ? IMPLEMENTED_ROUTES[mod.path]
-                : <ModulePage />
-            }
-          />
+
+        {Object.entries(LEGACY_REDIRECTS).map(([from, to]) => (
+          <Route key={from} path={from} element={<Navigate to={to} replace />} />
+        ))}
+        {[...PROTECTED_UNAVAILABLE].map((path) => (
+          <Route key={path} path={path} element={<LegacyUnavailablePage />} />
         ))}
       </Route>
 
-      <Route path="/agency-dna" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/agency-management" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/client-portal" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/white-label" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/live-streaming" element={<Navigate to="/dashboard" replace />} />
+      {PUBLIC_UNAVAILABLE.map((path) => (
+        <Route key={path} path={path} element={<LegacyUnavailablePage />} />
+      ))}
 
       <Route path="/legal/:slug" element={<LegalPage />} />
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }
