@@ -3,6 +3,7 @@ import { isDevMode } from '../config/env.js';
 import { dsGet, dsSet, dsList, dsListWhere } from '../lib/data-store.js';
 import { ServiceError } from '../lib/errors.js';
 import { listTeamsForUser } from './team.service.js';
+import { PRODUCT_NAME } from '@ucbs/shared';
 
 const CHANNELS_COLLECTION = 'chatChannels';
 const MESSAGES_COLLECTION = 'chatMessages';
@@ -48,7 +49,7 @@ export async function getOrCreateDefaultChannel(userId: string, userName: string
       id: randomUUID(),
       channelId: channel.id,
       userId: 'system',
-      userName: 'UCBS Bot',
+      userName: `${PRODUCT_NAME} Bot`,
       content: `Willkommen im Team Chat, ${userName}! Hier könnt ihr Aufgaben und Updates besprechen.`,
       createdAt: now,
     };

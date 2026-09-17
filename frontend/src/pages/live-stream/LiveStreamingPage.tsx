@@ -102,7 +102,7 @@ export function LiveStreamingPage() {
       <PageHeader
         title="Live Streaming Tools"
         description="RTMP-Setup, Overlays, Alerts und Multistream-Steuerung für Twitch, YouTube & Co."
-        badge={<Badge variant="brand">UCBS</Badge>}
+        badge={<Badge variant="brand">NEXTER</Badge>}
         actions={
           current?.status === 'live' ? (
             <Badge variant="brand" className="animate-pulse">● LIVE</Badge>

@@ -231,7 +231,7 @@ export function AdminPage() {
 
   return (
     <div className="space-y-8 pb-16">
-      <h1 className="font-display text-3xl font-bold text-white">Admin</h1>
+      <h1 className="font-display text-3xl font-bold text-white">NEXTER Admin</h1>
 
       <section aria-labelledby="admin-system">
         <h2 id="admin-system" className="mb-2 font-semibold text-white">

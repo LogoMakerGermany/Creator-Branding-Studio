@@ -62,7 +62,7 @@ export function AIAssistantPage() {
       <PageHeader
         title="KI Creator Assistent"
         description="Persönlicher Assistent für Branding, Strategie und Design-Beratung"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        badge={<Badge variant="brand">NEXTER</Badge>}
         actions={
           <Button variant="ghost" size="sm" onClick={handleClear}>
             <Trash2 className="h-4 w-4" /> Chat leeren

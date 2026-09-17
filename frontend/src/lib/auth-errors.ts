@@ -120,7 +120,7 @@ export function formatAuthError(err: unknown): string {
       mapped = 'Anmeldung beim Anbieter fehlgeschlagen. Bitte erneut versuchen.';
       break;
     case 'INVITE_REQUIRED':
-      mapped = message || 'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich';
+      mapped = message || 'Einladungscode erforderlich — NEXTER ist derzeit nur mit Einladung zugänglich';
       break;
     case 'INVITE_INVALID':
       mapped = message || 'Ungültiger oder inaktiver Einladungscode';

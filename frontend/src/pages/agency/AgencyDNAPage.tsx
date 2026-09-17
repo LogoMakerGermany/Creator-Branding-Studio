@@ -67,7 +67,7 @@ export function AgencyDNAPage() {
       <PageHeader
         title="Agentur DNA"
         description="Agentur-spezifische Markenidentität, Vorlagen und Team-Branding"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        badge={<Badge variant="brand">NEXTER</Badge>}
         actions={
           <Button onClick={() => setShowCreate(true)} className="gap-2">
             <Plus className="h-4 w-4" /> Agentur erstellen

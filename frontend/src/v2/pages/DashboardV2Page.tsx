@@ -179,7 +179,7 @@ export function DashboardV2Page() {
               {greetingPrefix()}, {greetingName}.
             </h1>
             <p className="mt-2 max-w-xl text-zinc-400">
-              Deine eigenen Projekte, Dateien und geplante Inhalte — ohne Demo-Daten.
+              Deine eigenen Projekte, Dateien und geplante Inhalte in NEXTER — ohne Demo-Daten.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
               <button

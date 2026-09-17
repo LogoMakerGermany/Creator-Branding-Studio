@@ -81,7 +81,7 @@ export function PromptStudioPage() {
       <PageHeader
         title="Prompt Studio"
         description="DNA-basierte Prompts für ChatGPT, Flux, Runway, Midjourney, Imagen und Gemini"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        badge={<Badge variant="brand">NEXTER</Badge>}
       />
 
       {!activeDna && <DnaRequiredBanner />}

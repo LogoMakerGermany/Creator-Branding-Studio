@@ -70,7 +70,7 @@ export function TeamDNAPage() {
       <PageHeader
         title="Team & Clan DNA"
         description="Gemeinsame Markenidentität für Teams, Clans und Esports-Gruppen"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        badge={<Badge variant="brand">NEXTER</Badge>}
         actions={
           <Button onClick={() => setShowCreate(true)} className="gap-2">
             <Plus className="h-4 w-4" /> Team erstellen

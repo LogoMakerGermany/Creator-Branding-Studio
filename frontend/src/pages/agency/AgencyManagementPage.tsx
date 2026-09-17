@@ -96,7 +96,7 @@ export function AgencyManagementPage() {
       <PageHeader
         title="Agenturverwaltung"
         description="Mitarbeiter, Kunden, Projekte und Aufträge verwalten"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        badge={<Badge variant="brand">NEXTER</Badge>}
         actions={
           agency ? (
             <div className="flex gap-2">

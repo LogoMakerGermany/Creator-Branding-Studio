@@ -11,6 +11,7 @@ import {
 import { COIN_PACKAGES } from './coins.service.js';
 import { getPackageById } from './payment-credit.service.js';
 import { assertNewPaymentsAllowed } from '../lib/payments-gate.js';
+import { PRODUCT_NAME } from '@ucbs/shared';
 
 export { isPayPalConfigured, getPayPalMode, isPayPalLiveMode };
 
@@ -106,7 +107,7 @@ export async function createPayPalOrder(
         },
       ],
       application_context: {
-        brand_name: 'UCBS',
+        brand_name: PRODUCT_NAME,
         locale: 'de-DE',
         landing_page: 'NO_PREFERENCE',
         user_action: 'PAY_NOW',

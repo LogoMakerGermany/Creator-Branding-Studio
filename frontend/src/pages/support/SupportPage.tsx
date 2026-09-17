@@ -175,7 +175,7 @@ export function SupportPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-8">
       <header>
-        <h1 className="font-display text-3xl font-bold text-white">Support & Feedback</h1>
+        <h1 className="font-display text-3xl font-bold text-white">NEXTER Support & Feedback</h1>
         <p className="mt-2 max-w-2xl text-sm text-zinc-400">
           Melde technische Probleme, sende Feedback oder einen Feature-Wunsch. Support kostet keine Coins. Es gibt
           kein zugesichertes Antwortfenster und keine E-Mail-Benachrichtigung.

@@ -680,7 +680,7 @@ export function LayoutStudioPage() {
     <StudioShell
       title="Layout Studio"
       description="Eigene Assets zu einem Stream-Layout zusammensetzen — Position, Größe, Ebenen. Keine Bild-KI."
-      badge={<Badge variant="brand">UCBS</Badge>}
+      badge={<Badge variant="brand">NEXTER</Badge>}
       actions={
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" size="sm" onClick={undo} disabled={!canUndo} title="Rückgängig (Strg+Z)" aria-label="Rückgängig">

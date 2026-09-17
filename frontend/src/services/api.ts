@@ -174,7 +174,7 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
       INTERNAL_ERROR: 'Ein interner Fehler ist aufgetreten. Bitte später erneut versuchen.',
       EMAIL_NOT_APPLICABLE: 'Diese Einladung hat keine zugewiesene E-Mail-Adresse.',
       EXPORT_FAILED: 'Export fehlgeschlagen. Bitte erneut versuchen.',
-      INVITE_REQUIRED: 'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich',
+      INVITE_REQUIRED: 'Einladungscode erforderlich — NEXTER ist derzeit nur mit Einladung zugänglich',
       INVITE_INVALID: 'Ungültiger oder inaktiver Einladungscode',
       INVITE_EXPIRED: 'Einladungscode ist abgelaufen',
       INVITE_EXHAUSTED: 'Einladungscode wurde bereits zu oft verwendet',

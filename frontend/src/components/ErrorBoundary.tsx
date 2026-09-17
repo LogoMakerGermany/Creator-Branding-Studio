@@ -24,7 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-surface-950 p-6 text-center">
-        <h1 className="font-display text-2xl font-bold text-white">Etwas ist schiefgelaufen</h1>
+        <h1 className="font-display text-2xl font-bold text-white">Etwas ist schiefgelaufen — NEXTER</h1>
         <p className="max-w-md text-sm text-zinc-400" role="alert">
           Die Oberfläche konnte nicht geladen werden. Es werden keine technischen Details angezeigt. Bitte neu laden
           oder zur Startseite zurück.

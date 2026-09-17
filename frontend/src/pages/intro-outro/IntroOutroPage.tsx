@@ -89,7 +89,7 @@ export function IntroOutroPage() {
     <StudioShell
       title="Intro & Outro Studio"
       description="Animierte Intros und Outros (25 Coins). Starting Soon / Ending als Bild (12) oder Animation (25)."
-      badge={<Badge variant="brand">UCBS</Badge>}
+      badge={<Badge variant="brand">NEXTER</Badge>}
       actions={<Badge variant="default">{formatCoins(coinCost)}</Badge>}
     >
       <div className="space-y-4">

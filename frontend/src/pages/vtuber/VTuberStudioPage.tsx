@@ -70,7 +70,7 @@ export function VTuberStudioPage() {
     <StudioShell
       title="Avatar & Mascot Studio"
       description="KI-generierte VTuber-Charaktere, Avatare und Emotes — PNG-Export"
-      badge={<Badge variant="brand">UCBS</Badge>}
+      badge={<Badge variant="brand">NEXTER</Badge>}
       actions={<Badge variant="default">{formatCoins(5)} / {formatCoins(50)} Paket</Badge>}
     >
       <VtuberPipeline />

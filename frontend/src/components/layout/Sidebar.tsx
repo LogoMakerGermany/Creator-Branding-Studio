@@ -26,8 +26,8 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
         </div>
         {(!collapsed || mobileOpen) && (
           <div className="min-w-0 flex-1">
-            <p className="truncate font-display text-sm font-bold text-zinc-100">UCBS</p>
-            <p className="truncate text-[10px] text-zinc-500">Branding Studio</p>
+            <p className="truncate font-display text-sm font-bold text-zinc-100">NEXTER</p>
+            <p className="truncate text-[10px] text-zinc-500">Creator Studio</p>
           </div>
         )}
         <button

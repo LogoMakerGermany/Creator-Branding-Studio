@@ -45,7 +45,7 @@ function mapOAuthQueryError(code: string): { code: string; message: string } {
     case 'invite_required':
       return {
         code: 'INVITE_REQUIRED',
-        message: 'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich',
+        message: 'Einladungscode erforderlich — NEXTER ist derzeit nur mit Einladung zugänglich',
       };
     case 'invite_invalid':
       return { code: 'INVITE_INVALID', message: 'Ungültiger oder inaktiver Einladungscode' };
@@ -136,7 +136,7 @@ export function OAuthCompletePage() {
 
   return (
     <GlassCard accent="cyan" hover={false} className="!p-8">
-      <CardTitle className="text-white">Anmeldung wird abgeschlossen</CardTitle>
+      <CardTitle className="text-white">NEXTER-Anmeldung wird abgeschlossen</CardTitle>
       <CardDescription>
         {error || 'Einen Moment — wir verbinden dein Konto.'}
       </CardDescription>

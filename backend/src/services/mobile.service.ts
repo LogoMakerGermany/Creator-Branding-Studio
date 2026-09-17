@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { dsGet, dsSet, dsList } from '../lib/data-store.js';
 import { getActiveDna } from './dna.service.js';
 import { getPrimaryFrontendUrl } from '../config/env.js';
+import { PRODUCT_FULL_NAME, PRODUCT_NAME } from '@ucbs/shared';
 
 const CONFIG_COLLECTION = 'mobileAppConfig';
 const DEVICES_COLLECTION = 'mobileDevices';
@@ -44,8 +45,8 @@ export async function getMobileConfig(userId: string): Promise<MobileAppConfig> 
     pushEnabled: false,
     androidEnabled: false,
     iosEnabled: false,
-    appName: dna ? `${dna.name} Studio` : 'UCBS Creator',
-    shortName: 'UCBS',
+    appName: dna ? `${dna.name} Studio` : PRODUCT_FULL_NAME,
+    shortName: PRODUCT_NAME,
     themeColor: primary,
     splashColor: secondary,
     installUrl: getPrimaryFrontendUrl(),
@@ -58,7 +59,7 @@ export async function getMobileConfig(userId: string): Promise<MobileAppConfig> 
 
 export async function updateMobileConfig(userId: string, data: Partial<MobileAppConfig>): Promise<MobileAppConfig> {
   const current = await dsGet(CONFIG_COLLECTION, userId) as unknown as MobileAppConfig | null;
-  const base = current ?? { userId, pwaEnabled: true, pushEnabled: false, androidEnabled: false, iosEnabled: false, appName: 'UCBS', shortName: 'UCBS', themeColor: '#7C3AED', splashColor: '#1E1B4B', installUrl: getPrimaryFrontendUrl(), updatedAt: new Date().toISOString() };
+  const base = current ?? { userId, pwaEnabled: true, pushEnabled: false, androidEnabled: false, iosEnabled: false, appName: PRODUCT_FULL_NAME, shortName: PRODUCT_NAME, themeColor: '#7C3AED', splashColor: '#1E1B4B', installUrl: getPrimaryFrontendUrl(), updatedAt: new Date().toISOString() };
   const updated = { ...base, ...data, userId, updatedAt: new Date().toISOString() };
   await dsSet(CONFIG_COLLECTION, userId, updated as unknown as Record<string, unknown>);
   return updated as MobileAppConfig;
@@ -91,7 +92,7 @@ export function getPwaManifest(_userId: string, config: MobileAppConfig) {
   return {
     name: config.appName,
     short_name: config.shortName,
-    description: 'Ultimate Creator Branding Studio — KI-Web-App für Creator',
+    description: 'NEXTER Creator Studio — KI-Web-App für Creator',
     start_url: '/dashboard',
     scope: '/',
     display: 'standalone',

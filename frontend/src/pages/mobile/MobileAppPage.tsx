@@ -88,7 +88,7 @@ export function MobileAppPage() {
     <div>
       <PageHeader
         title="Web App"
-        description="UCBS läuft als reine Web-App im Browser. Optional als PWA auf Desktop oder Handy installieren."
+        description="NEXTER läuft als reine Web-App im Browser. Optional als PWA auf Desktop oder Handy installieren."
         badge={<Badge variant="brand">PWA</Badge>}
       />
 
@@ -109,7 +109,7 @@ export function MobileAppPage() {
       </div>
 
       <div className="mb-6 grid gap-6 lg:grid-cols-[1fr_280px]">
-        <NeonCard accent="cyan" title="So nutzt du UCBS">
+        <NeonCard accent="cyan" title="So nutzt du NEXTER">
           <ol className="list-inside list-decimal space-y-2 text-sm text-zinc-300">
             <li>Im Browser öffnen und anmelden — fertig.</li>
             <li>

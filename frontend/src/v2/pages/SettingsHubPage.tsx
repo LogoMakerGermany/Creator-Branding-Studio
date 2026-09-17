@@ -456,7 +456,7 @@ export function SettingsHubPage() {
     <div className="space-y-8 pb-28">
       <HubPageLayout
         title="Einstellungen"
-        description="Profil, Nexter, Erscheinungsbild und Konto — dieselben Prefs wie im Onboarding."
+        description="Profil, NEXTER, Erscheinungsbild und Konto — dieselben Prefs wie im Onboarding."
         modules={SETTINGS_LINKS}
       >
         <nav aria-label="Einstellungsbereiche" className="flex flex-wrap gap-2">

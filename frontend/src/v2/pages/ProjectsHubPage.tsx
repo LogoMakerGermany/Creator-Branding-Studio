@@ -268,7 +268,7 @@ export function ProjectsHubPage() {
 
       <NeonCard accent="cyan" title="ZIP-Import">
         <p className="mt-2 text-sm text-zinc-400">
-          Exportiertes UCBS-Projekt wiederherstellen: Manifest prüfen, Creator-DNA importieren, Assets
+          Exportiertes NEXTER-Projekt wiederherstellen: Manifest prüfen, Creator-DNA importieren, Assets
           hochladen und Projekt neu anlegen.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-3">

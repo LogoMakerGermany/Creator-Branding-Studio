@@ -23,6 +23,7 @@ import {
   defaultVoiceSettings,
   type MusicProviderId,
   type VoiceSettings,
+  PRODUCT_NAME,
 } from '@ucbs/shared';
 
 const UNOFFICIAL_SUNO_DISABLED_MESSAGE =
@@ -239,7 +240,7 @@ async function generateMusicWithSuno(
     },
     body: JSON.stringify({
       prompt,
-      title: options?.title || 'UCBS Track',
+      title: options?.title || `${PRODUCT_NAME} Track`,
       duration: options?.duration || 120,
     }),
   });

@@ -47,7 +47,7 @@ export function WhiteLabelPage() {
       <PageHeader
         title="White Label"
         description="Eigene Domain, Farben und Plattform-Branding konfigurieren"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        badge={<Badge variant="brand">NEXTER</Badge>}
       />
 
       {error && <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-red-300">{error}</div>}
@@ -111,7 +111,7 @@ export function WhiteLabelPage() {
                 <img src={config.logoUrl} alt="Logo" className="mx-auto h-16 object-contain" />
               ) : (
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-xl bg-white/10 text-2xl font-bold text-white">
-                  {(config.platformName ?? 'UCBS').slice(0, 2).toUpperCase()}
+                  {(config.platformName ?? 'NEXTER').slice(0, 2).toUpperCase()}
                 </div>
               )}
               <h3 className="mt-4 text-xl font-bold text-white">{preview?.platformName ?? config.platformName}</h3>

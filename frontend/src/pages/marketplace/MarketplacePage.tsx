@@ -168,7 +168,7 @@ export function MarketplacePage() {
       <PageHeader
         title="Marketplace"
         description="Templates, Logos, Overlays und Sounds kaufen & verkaufen"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        badge={<Badge variant="brand">NEXTER</Badge>}
         actions={<Badge variant="default">{formatCoins(user?.coinBalance ?? 0)} Coins</Badge>}
       />
 

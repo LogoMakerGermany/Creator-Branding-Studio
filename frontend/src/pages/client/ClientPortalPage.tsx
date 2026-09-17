@@ -47,7 +47,7 @@ export function ClientPortalPage() {
       <PageHeader
         title="Kundenportal"
         description="Projekte verfolgen, Feedback geben und Aufträge einsehen"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        badge={<Badge variant="brand">NEXTER</Badge>}
       />
 
       {error && <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-red-300">{error}</div>}

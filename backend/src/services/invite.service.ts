@@ -92,7 +92,7 @@ export interface RedeemInviteResult {
 }
 
 export const INVITE_REQUIRED_MESSAGE =
-  'Einladungscode erforderlich — die Plattform ist derzeit nur mit Einladung zugänglich';
+  'Einladungscode erforderlich — NEXTER ist derzeit nur mit Einladung zugänglich';
 export const INVITE_INVALID_MESSAGE = 'Ungültiger oder inaktiver Einladungscode';
 export const INVITE_EXPIRED_MESSAGE = 'Einladungscode ist abgelaufen';
 export const INVITE_EXHAUSTED_MESSAGE = 'Einladungscode wurde bereits zu oft verwendet';

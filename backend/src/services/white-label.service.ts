@@ -1,5 +1,6 @@
 import { dsGet, dsSet } from '../lib/data-store.js';
 import { listAgenciesForUser, getAgency } from './agency.service.js';
+import { PRODUCT_FULL_NAME } from '@ucbs/shared';
 
 export interface WhiteLabelConfig {
   enabled: boolean;
@@ -23,7 +24,7 @@ export async function getWhiteLabelConfig(userId: string): Promise<WhiteLabelCon
 
   return agencyConfig ?? {
     enabled: false,
-    platformName: 'Ultimate Creator Branding Studio',
+    platformName: PRODUCT_FULL_NAME,
     primaryColor: '#7C3AED',
     secondaryColor: '#1E1B4B',
   };
@@ -56,7 +57,7 @@ export function previewWhiteLabel(config: WhiteLabelConfig) {
       '--brand-primary': config.primaryColor ?? '#7C3AED',
       '--brand-secondary': config.secondaryColor ?? '#1E1B4B',
     },
-    platformName: config.platformName ?? 'Ultimate Creator Branding Studio',
+    platformName: config.platformName ?? PRODUCT_FULL_NAME,
     customDomain: config.customDomain ?? null,
   };
 }

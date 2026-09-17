@@ -208,7 +208,7 @@ export function LoginPage() {
   return (
     <GlassCard accent="cyan" hover={false} className="!p-8">
       <CardTitle className="text-white">
-        {showReset ? 'Passwort zurücksetzen' : isRegister ? 'Konto erstellen' : 'Willkommen zurück'}
+        {showReset ? 'Passwort zurücksetzen' : isRegister ? 'Konto bei NEXTER erstellen' : 'Willkommen zurück bei NEXTER'}
       </CardTitle>
       <CardDescription>
         {backendOnline === false

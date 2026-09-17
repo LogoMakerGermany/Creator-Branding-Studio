@@ -2,6 +2,7 @@
 // ULTIMATE CREATOR BRANDING STUDIO – Shared Types
 // =============================================================================
 
+export * from './branding';
 export * from './roles';
 export * from './user';
 export * from './legal';

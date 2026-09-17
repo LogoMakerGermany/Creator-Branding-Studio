@@ -47,7 +47,7 @@ export function TeamChatPage() {
       <PageHeader
         title="Team Chat"
         description="Interne Kommunikation für Teams und Clans"
-        badge={<Badge variant="brand">UCBS</Badge>}
+        badge={<Badge variant="brand">NEXTER</Badge>}
       />
 
       {error && <StudioErrorBanner message={error} />}
