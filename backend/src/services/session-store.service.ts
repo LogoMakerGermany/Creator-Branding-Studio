@@ -1,6 +1,6 @@
 import { isDevMode } from '../config/env.js';
 import { devStore } from '../lib/dev-store.js';
-import { omitUndefinedFields } from '../lib/firestore-payload.js';
+import { firestoreDocId, omitUndefinedFields } from '../lib/firestore-payload.js';
 import { paymentLockKey, withDevLock } from '../lib/dev-mutex.js';
 
 const COLLECTION = 'processedStripeSessions';
@@ -48,7 +48,7 @@ async function readClaim(
     return row as unknown as PaymentClaim;
   }
   const { getFirestore } = await import('../config/firebase.js');
-  const snap = await getFirestore().collection(collectionName(provider)).doc(paymentId).get();
+  const snap = await getFirestore().collection(collectionName(provider)).doc(firestoreDocId(paymentId)).get();
   if (!snap.exists) return null;
   return { id: snap.id, ...snap.data() } as PaymentClaim;
 }
@@ -64,7 +64,7 @@ async function writeClaim(claim: PaymentClaim): Promise<void> {
     return;
   }
   const { getFirestore } = await import('../config/firebase.js');
-  await getFirestore().collection(collectionName(claim.provider)).doc(claim.id).set(row, { merge: true });
+  await getFirestore().collection(collectionName(claim.provider)).doc(firestoreDocId(claim.id)).set(row, { merge: true });
 }
 
 export async function getPaymentClaim(
@@ -119,7 +119,7 @@ export async function beginPaymentCredit(
 
   const { getFirestore } = await import('../config/firebase.js');
   const db = getFirestore();
-  const ref = db.collection(collectionName(provider)).doc(paymentId);
+  const ref = db.collection(collectionName(provider)).doc(firestoreDocId(paymentId));
   return db.runTransaction(async (t) => {
     const snap = await t.get(ref);
     const now = new Date().toISOString();
@@ -227,7 +227,7 @@ export async function claimStripeSession(
 
   const { getFirestore } = await import('../config/firebase.js');
   const db = getFirestore();
-  const ref = db.collection(COLLECTION).doc(sessionId);
+  const ref = db.collection(COLLECTION).doc(firestoreDocId(sessionId));
   const now = new Date().toISOString();
 
   try {
@@ -289,7 +289,7 @@ export async function claimPayPalOrder(
 
   const { getFirestore } = await import('../config/firebase.js');
   const db = getFirestore();
-  const ref = db.collection(PAYPAL_COLLECTION).doc(orderId);
+  const ref = db.collection(PAYPAL_COLLECTION).doc(firestoreDocId(orderId));
   const now = new Date().toISOString();
   try {
     await ref.create(

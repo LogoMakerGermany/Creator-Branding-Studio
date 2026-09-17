@@ -1,6 +1,6 @@
 import { devStore, isDevMode } from './dev-store.js';
 import { getFirestore } from '../config/firebase.js';
-import { omitUndefinedFields } from './firestore-payload.js';
+import { firestoreDocId, omitUndefinedFields } from './firestore-payload.js';
 import type { Query } from 'firebase-admin/firestore';
 
 type ListOptions = {
@@ -14,12 +14,13 @@ export async function dsGet(
   collection: string,
   id: string
 ): Promise<Record<string, unknown> | null> {
+  const docId = firestoreDocId(id);
   if (isDevMode()) {
-    return devStore.getFromCollection(collection, id);
+    return devStore.getFromCollection(collection, docId);
   }
 
   const db = getFirestore();
-  const doc = await db.collection(collection).doc(id).get();
+  const doc = await db.collection(collection).doc(docId).get();
   if (!doc.exists) return null;
   return { id: doc.id, ...doc.data() };
 }
@@ -29,24 +30,26 @@ export async function dsSet(
   id: string,
   data: Record<string, unknown>
 ): Promise<void> {
-  const payload = omitUndefinedFields({ ...data, id });
+  const docId = firestoreDocId(id);
+  const payload = omitUndefinedFields({ ...data, id: docId });
   if (isDevMode()) {
-    devStore.saveToCollection(collection, id, payload);
+    devStore.saveToCollection(collection, docId, payload);
     return;
   }
 
   const db = getFirestore();
-  await db.collection(collection).doc(id).set(payload, { merge: true });
+  await db.collection(collection).doc(docId).set(payload, { merge: true });
 }
 
 export async function dsDelete(collection: string, id: string): Promise<void> {
+  const docId = firestoreDocId(id);
   if (isDevMode()) {
-    devStore.deleteFromCollection(collection, id);
+    devStore.deleteFromCollection(collection, docId);
     return;
   }
 
   const db = getFirestore();
-  await db.collection(collection).doc(id).delete();
+  await db.collection(collection).doc(docId).delete();
 }
 
 export async function dsList(

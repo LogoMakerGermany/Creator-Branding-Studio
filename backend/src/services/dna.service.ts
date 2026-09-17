@@ -13,7 +13,7 @@ import type {
 import { DNA_PLATFORMS, applyDnaLocks, mergeAnalysisIntoDna, pickDnaForRequest } from '@ucbs/shared';
 import { devStore, isDevMode } from '../lib/dev-store.js';
 import { getFirestore } from '../config/firebase.js';
-import { omitUndefinedFields } from '../lib/firestore-payload.js';
+import { firestoreDocId, omitUndefinedFields } from '../lib/firestore-payload.js';
 import { randomUUID } from 'node:crypto';
 import { analyzeCreatorAssets } from './dna-analysis.service.js';
 import { getCharacterDna, saveCharacterDna } from './creator-dna-engine/ccd-storage.service.js';
@@ -99,7 +99,7 @@ export async function getDnaById(id: string, userId: string): Promise<CreatorDNA
   }
 
   const db = getFirestore();
-  const doc = await db.collection('creator_dna').doc(id).get();
+  const doc = await db.collection('creator_dna').doc(firestoreDocId(id)).get();
   if (!doc.exists || doc.data()?.userId !== userId) return null;
   return hydrateDnaCharacter(normalizeDna({ id: doc.id, ...doc.data() } as CreatorDNA));
 }
@@ -377,7 +377,7 @@ async function saveVersionSnapshot(dna: CreatorDNA, changeDescription?: string):
   }
 
   const db = getFirestore();
-  await db.collection('dna_versions').doc(version.id).set(omitUndefinedFields(version));
+  await db.collection('dna_versions').doc(firestoreDocId(version.id)).set(omitUndefinedFields(version));
 }
 
 async function persistDnaDocument(dna: CreatorDNA, userId: string): Promise<void> {
@@ -397,13 +397,16 @@ async function persistDnaDocument(dna: CreatorDNA, userId: string): Promise<void
   const batch = db.batch();
   for (const d of all) {
     if (d.id !== dna.id) {
-      batch.update(db.collection('creator_dna').doc(d.id), {
-        isActive: false,
-        updatedAt: dna.updatedAt,
-      });
+      batch.update(
+        db.collection('creator_dna').doc(firestoreDocId(d.id)),
+        omitUndefinedFields({
+          isActive: false,
+          updatedAt: dna.updatedAt,
+        })
+      );
     }
   }
-  batch.set(db.collection('creator_dna').doc(dna.id), omitUndefinedFields(dna));
+  batch.set(db.collection('creator_dna').doc(firestoreDocId(dna.id)), omitUndefinedFields(dna));
   await batch.commit();
 }
 
@@ -438,13 +441,16 @@ export async function upsertDna(input: DnaWriteInput): Promise<CreatorDNA> {
   const batch = db.batch();
   for (const d of all) {
     if (d.type === 'creator' || !d.type) {
-      batch.update(db.collection('creator_dna').doc(d.id), {
-        isActive: false,
-        updatedAt: dna.updatedAt,
-      });
+      batch.update(
+        db.collection('creator_dna').doc(firestoreDocId(d.id)),
+        omitUndefinedFields({
+          isActive: false,
+          updatedAt: dna.updatedAt,
+        })
+      );
     }
   }
-  batch.set(db.collection('creator_dna').doc(id), omitUndefinedFields(dna));
+  batch.set(db.collection('creator_dna').doc(firestoreDocId(id)), omitUndefinedFields(dna));
   await batch.commit();
   await saveVersionSnapshot(dna, 'DNA erstellt');
   await syncCharacterSidecar(dna);
@@ -465,7 +471,7 @@ export async function createLinkedDna(
   }
 
   const db = getFirestore();
-  await db.collection('creator_dna').doc(id).set(omitUndefinedFields(dna));
+  await db.collection('creator_dna').doc(firestoreDocId(id)).set(omitUndefinedFields(dna));
   return dna;
 }
 
@@ -602,10 +608,13 @@ export async function activateDna(id: string, userId: string): Promise<CreatorDN
   const batch = db.batch();
   const now = new Date().toISOString();
   for (const d of all) {
-    batch.update(db.collection('creator_dna').doc(d.id), {
-      isActive: d.id === id,
-      updatedAt: now,
-    });
+    batch.update(
+      db.collection('creator_dna').doc(firestoreDocId(d.id)),
+      omitUndefinedFields({
+        isActive: d.id === id,
+        updatedAt: now,
+      })
+    );
   }
   await batch.commit();
   return { ...dna, isActive: true };

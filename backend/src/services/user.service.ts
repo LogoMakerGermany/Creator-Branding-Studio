@@ -10,7 +10,7 @@ import {
 import { getDefaultFreeCoins } from '../config/env.js';
 import { devStore, isDevMode } from '../lib/dev-store.js';
 import { getFirestore } from '../config/firebase.js';
-import { omitUndefinedFields } from '../lib/firestore-payload.js';
+import { assertFiniteNumber, firestoreDocId, FirestoreWriteGuardError, omitUndefinedFields } from '../lib/firestore-payload.js';
 import { ServiceError } from '../lib/errors.js';
 import { userLockKey, withDevLock } from '../lib/dev-mutex.js';
 
@@ -64,11 +64,17 @@ function cleanDisplayNameOrFallback(name: string | undefined, email?: string): s
  */
 function normalizeCoinBalance(raw: Record<string, unknown>): number {
   const fromBalance = raw.coinBalance;
+  if (typeof fromBalance === 'number' && !Number.isFinite(fromBalance)) {
+    throw new FirestoreWriteGuardError('NON_FINITE_BALANCE');
+  }
   if (typeof fromBalance === 'number' && Number.isFinite(fromBalance)) {
     return Math.max(0, Math.floor(fromBalance));
   }
 
   const legacyCoins = raw.coins;
+  if (typeof legacyCoins === 'number' && !Number.isFinite(legacyCoins)) {
+    throw new FirestoreWriteGuardError('NON_FINITE_BALANCE');
+  }
   if (typeof legacyCoins === 'number' && Number.isFinite(legacyCoins)) {
     return Math.max(0, Math.floor(legacyCoins));
   }
@@ -138,16 +144,17 @@ export async function getOrCreateUser(
   displayName?: string,
   authProviderOrOptions?: string | CreateUserOptions
 ): Promise<UserProfile> {
+  const userId = firestoreDocId(uid);
   const options: CreateUserOptions =
     typeof authProviderOrOptions === 'string'
       ? { authProvider: authProviderOrOptions }
       : authProviderOrOptions || {};
 
   if (isDevMode()) {
-    return withDevLock(userLockKey(uid), async () => createOrLoadUserDev(uid, email, displayName, options));
+    return withDevLock(userLockKey(userId), async () => createOrLoadUserDev(userId, email, displayName, options));
   }
 
-  return createOrLoadUserFirestore(uid, email, displayName, options);
+  return createOrLoadUserFirestore(userId, email, displayName, options);
 }
 
 async function createOrLoadUserDev(
@@ -195,14 +202,17 @@ async function createOrLoadUserFirestore(
   options: CreateUserOptions
 ): Promise<UserProfile> {
   const db = getFirestore();
-  const ref = db.collection('users').doc(uid);
+  const ref = db.collection('users').doc(firestoreDocId(uid));
   const { profile, created } = await db.runTransaction(async (t) => {
     const doc = await t.get(ref);
     if (doc.exists) {
       const user = normalizeUserProfile(uid, doc.data() as Record<string, unknown>);
       if (options.authProvider && !user.authProviders.includes(options.authProvider)) {
         const authProviders = [...user.authProviders, options.authProvider];
-        t.update(ref, { authProviders, updatedAt: new Date().toISOString() });
+        t.update(
+          ref,
+          omitUndefinedFields({ authProviders, updatedAt: new Date().toISOString() })
+        );
         user.authProviders = authProviders;
       }
       return { profile: user, created: false };
@@ -240,24 +250,26 @@ async function createOrLoadUserFirestore(
 }
 
 export async function userExists(uid: string): Promise<boolean> {
+  const userId = firestoreDocId(uid);
   if (isDevMode()) {
-    return Boolean(devStore.getUser(uid));
+    return Boolean(devStore.getUser(userId));
   }
   const db = getFirestore();
-  const doc = await db.collection('users').doc(uid).get();
+  const doc = await db.collection('users').doc(userId).get();
   return doc.exists;
 }
 
 export async function getUserById(uid: string): Promise<UserProfile | null> {
+  const userId = firestoreDocId(uid);
   if (isDevMode()) {
-    const user = devStore.getUser(uid);
-    return user ? normalizeUserProfile(uid, user) : null;
+    const user = devStore.getUser(userId);
+    return user ? normalizeUserProfile(userId, user) : null;
   }
 
   const db = getFirestore();
-  const doc = await db.collection('users').doc(uid).get();
+  const doc = await db.collection('users').doc(userId).get();
   if (!doc.exists) return null;
-  return normalizeUserProfile(uid, doc.data() as Record<string, unknown>);
+  return normalizeUserProfile(userId, doc.data() as Record<string, unknown>);
 }
 
 export async function updateOwnProfile(
@@ -298,27 +310,30 @@ export async function updateUser(
   uid: string,
   updates: Partial<UserProfile>
 ): Promise<UserProfile> {
+  const userId = firestoreDocId(uid);
   const now = new Date().toISOString();
   const payload = omitUndefinedFields({ ...updates, updatedAt: now } as Record<string, unknown>);
 
   if (isDevMode()) {
-    const existing = await getUserById(uid);
+    const existing = await getUserById(userId);
     if (!existing) throw new Error('User not found');
     const updated = { ...existing, ...payload };
-    devStore.saveUser(uid, updated as unknown as Record<string, unknown>);
-    return normalizeUserProfile(uid, updated as unknown as Record<string, unknown>);
+    devStore.saveUser(userId, updated as unknown as Record<string, unknown>);
+    return normalizeUserProfile(userId, updated as unknown as Record<string, unknown>);
   }
 
   const db = getFirestore();
-  await db.collection('users').doc(uid).update(payload);
-  return (await getUserById(uid))!;
+  await db.collection('users').doc(userId).update(payload);
+  return (await getUserById(userId))!;
 }
 
 export async function updateCoinBalance(uid: string, newBalance: number): Promise<void> {
+  const userId = firestoreDocId(uid);
+  assertFiniteNumber(newBalance, 'NON_FINITE_BALANCE');
   if (isDevMode()) {
-    const user = await getUserById(uid);
+    const user = await getUserById(userId);
     if (!user) throw new Error('User not found');
-    devStore.saveUser(uid, {
+    devStore.saveUser(userId, {
       ...user,
       coinBalance: newBalance,
       updatedAt: new Date().toISOString(),
@@ -327,10 +342,12 @@ export async function updateCoinBalance(uid: string, newBalance: number): Promis
   }
 
   const db = getFirestore();
-  await db.collection('users').doc(uid).update({
-    coinBalance: newBalance,
-    updatedAt: new Date().toISOString(),
-  });
+  await db.collection('users').doc(userId).update(
+    omitUndefinedFields({
+      coinBalance: newBalance,
+      updatedAt: new Date().toISOString(),
+    })
+  );
 }
 
 export async function setUserRole(uid: string, role: UserRole): Promise<UserProfile> {

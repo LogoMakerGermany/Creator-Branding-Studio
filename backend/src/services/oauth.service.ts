@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { AppError } from '../middleware/errorHandler.js';
 import { dsGet, dsSet, dsDelete, dsListWhere } from '../lib/data-store.js';
+import { firestoreDocId } from '../lib/firestore-payload.js';
 import { isProduction } from '../config/env.js';
 import {
   getDiscordOAuthCredentials,
@@ -130,7 +131,7 @@ function pkceChallenge(verifier: string): string {
 }
 
 function identityId(provider: BridgeOAuthProvider, providerUserId: string): string {
-  return `${provider}:${providerUserId}`;
+  return firestoreDocId(`${provider}:${providerUserId}`);
 }
 
 function assertSafePublicOrigin(origin: string): string {

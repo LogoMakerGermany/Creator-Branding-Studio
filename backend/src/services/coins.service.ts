@@ -1,7 +1,7 @@
 import { CoinSpendCategory, COIN_COSTS, COIN_PACKAGE_DEFINITIONS } from '@ucbs/shared';
 import type { CoinSourceType, CoinTransaction, CoinTransactionType } from '@ucbs/shared';
 import { getStripePriceId, isDevMode } from '../config/env.js';
-import { omitUndefinedFields } from '../lib/firestore-payload.js';
+import { assertFiniteNumber, firestoreDocId, omitUndefinedFields } from '../lib/firestore-payload.js';
 import { devStore } from '../lib/dev-store.js';
 import { coinsLockKey, withDevLock } from '../lib/dev-mutex.js';
 import { getUserById, updateCoinBalance } from './user.service.js';
@@ -50,8 +50,13 @@ export interface CoinMutationResult {
   transactionId?: string;
 }
 
-function sanitizeDocId(key: string): string {
-  return key.replace(/[/#[\]]/g, '_').slice(0, 700);
+function coinDocId(key: string): string {
+  return firestoreDocId(key);
+}
+
+function requireFiniteBalance(value: unknown): number {
+  assertFiniteNumber(value, 'NON_FINITE_BALANCE');
+  return value;
 }
 
 function buildTransaction(params: {
@@ -98,30 +103,33 @@ function buildTransaction(params: {
   return tx;
 }
 
+function readIdempotencyNumbers(row: Record<string, unknown>): {
+  transactionId: string;
+  newBalance: number;
+  previousBalance: number;
+  amount: number;
+} {
+  return {
+    transactionId: String(row.transactionId),
+    newBalance: requireFiniteBalance(row.newBalance ?? 0),
+    previousBalance: requireFiniteBalance(row.previousBalance ?? 0),
+    amount: requireFiniteBalance(row.amount ?? 0),
+  };
+}
+
 async function readIdempotency(
   key: string
 ): Promise<{ transactionId: string; newBalance: number; previousBalance: number; amount: number } | null> {
-  const id = sanitizeDocId(key);
+  const id = coinDocId(key);
   if (isDevMode()) {
     const row = devStore.getFromCollection(IDEMP_COLLECTION, id);
     if (!row?.transactionId) return null;
-    return {
-      transactionId: String(row.transactionId),
-      newBalance: Number(row.newBalance ?? 0),
-      previousBalance: Number(row.previousBalance ?? 0),
-      amount: Number(row.amount ?? 0),
-    };
+    return readIdempotencyNumbers(row);
   }
   const { getFirestore } = await import('../config/firebase.js');
   const snap = await getFirestore().collection(IDEMP_COLLECTION).doc(id).get();
   if (!snap.exists) return null;
-  const data = snap.data()!;
-  return {
-    transactionId: String(data.transactionId),
-    newBalance: Number(data.newBalance ?? 0),
-    previousBalance: Number(data.previousBalance ?? 0),
-    amount: Number(data.amount ?? 0),
-  };
+  return readIdempotencyNumbers(snap.data() as Record<string, unknown>);
 }
 
 function duplicateResult(
@@ -163,7 +171,7 @@ async function applyMutationDev(input: {
 
     const user = await getUserById(input.userId);
     if (!user) throw new Error('User not found');
-    const previousBalance = user.coinBalance ?? 0;
+    const previousBalance = requireFiniteBalance(user.coinBalance ?? 0);
     if (input.delta < 0 && previousBalance < Math.abs(input.delta)) {
       return {
         success: false,
@@ -175,6 +183,7 @@ async function applyMutationDev(input: {
     }
 
     const newBalance = previousBalance + input.delta;
+    assertFiniteNumber(newBalance, 'NON_FINITE_BALANCE');
     await updateCoinBalance(input.userId, newBalance);
     const tx = buildTransaction({
       id: randomUUID(),
@@ -186,11 +195,11 @@ async function applyMutationDev(input: {
       description: input.description,
       options: input.options,
     });
-    const txRecord = tx as unknown as Record<string, unknown>;
+    const txRecord = omitUndefinedFields(tx as unknown as Record<string, unknown>);
     devStore.addTransaction(txRecord);
-    devStore.saveToCollection(TX_COLLECTION, tx.id, txRecord);
+    devStore.saveToCollection(TX_COLLECTION, firestoreDocId(tx.id), txRecord);
     if (input.options?.idempotencyKey) {
-      devStore.saveToCollection(IDEMP_COLLECTION, sanitizeDocId(input.options.idempotencyKey), {
+      devStore.saveToCollection(IDEMP_COLLECTION, coinDocId(input.options.idempotencyKey), {
         transactionId: tx.id,
         userId: input.userId,
         newBalance,
@@ -202,6 +211,7 @@ async function applyMutationDev(input: {
     if (input.options?.persistCharge && input.delta < 0) {
       const now = tx.createdAt;
       const pc = input.options.persistCharge;
+      firestoreDocId(pc.id);
       devStore.saveToCollection('billable_charges', pc.id, omitUndefinedFields({
         id: pc.id,
         userId: input.userId,
@@ -236,11 +246,11 @@ async function applyMutationFirestore(input: {
 }): Promise<CoinMutationResult> {
   const { getFirestore } = await import('../config/firebase.js');
   const db = getFirestore();
-  const userRef = db.collection('users').doc(input.userId);
+  const userRef = db.collection('users').doc(firestoreDocId(input.userId));
   const txId = randomUUID();
-  const txRef = db.collection(TX_COLLECTION).doc(txId);
+  const txRef = db.collection(TX_COLLECTION).doc(firestoreDocId(txId));
   const idempRef = input.options?.idempotencyKey
-    ? db.collection(IDEMP_COLLECTION).doc(sanitizeDocId(input.options.idempotencyKey))
+    ? db.collection(IDEMP_COLLECTION).doc(coinDocId(input.options.idempotencyKey))
     : null;
 
   return db.runTransaction(async (transaction) => {
@@ -251,17 +261,14 @@ async function applyMutationFirestore(input: {
         return {
           success: true,
           duplicate: true,
-          newBalance: Number(data.newBalance ?? 0),
-          previousBalance: Number(data.previousBalance ?? 0),
-          amount: Number(data.amount ?? 0),
-          transactionId: String(data.transactionId),
+          ...readIdempotencyNumbers(data as Record<string, unknown>),
         };
       }
     }
 
     const snap = await transaction.get(userRef);
     if (!snap.exists) throw new Error('User not found');
-    const previousBalance = Number(snap.data()?.coinBalance ?? 0);
+    const previousBalance = requireFiniteBalance(snap.data()?.coinBalance ?? 0);
     if (input.delta < 0 && previousBalance < Math.abs(input.delta)) {
       return {
         success: false,
@@ -273,8 +280,12 @@ async function applyMutationFirestore(input: {
     }
 
     const newBalance = previousBalance + input.delta;
+    assertFiniteNumber(newBalance, 'NON_FINITE_BALANCE');
     const now = new Date().toISOString();
-    transaction.update(userRef, { coinBalance: newBalance, updatedAt: now });
+    transaction.update(
+      userRef,
+      omitUndefinedFields({ coinBalance: newBalance, updatedAt: now })
+    );
     const tx = buildTransaction({
       id: txId,
       userId: input.userId,
@@ -301,7 +312,7 @@ async function applyMutationFirestore(input: {
     }
     if (input.options?.persistCharge && input.delta < 0) {
       const pc = input.options.persistCharge;
-      const chargeRef = db.collection('billable_charges').doc(pc.id);
+      const chargeRef = db.collection('billable_charges').doc(firestoreDocId(pc.id));
       transaction.set(
         chargeRef,
         omitUndefinedFields({
@@ -337,7 +348,8 @@ export async function applyCoinMutation(input: {
   description: string;
   options?: CoinTxOptions;
 }): Promise<CoinMutationResult> {
-  if (!Number.isInteger(input.delta) || input.delta === 0) {
+  firestoreDocId(input.userId);
+  if (!Number.isInteger(input.delta) || !Number.isFinite(input.delta) || input.delta === 0) {
     throw new Error('Delta must be a non-zero integer');
   }
   if (isDevMode()) {
@@ -348,7 +360,8 @@ export async function applyCoinMutation(input: {
 
 export async function getCoinBalance(userId: string): Promise<number> {
   const user = await getUserById(userId);
-  return user?.coinBalance ?? 0;
+  if (!user) return 0;
+  return requireFiniteBalance(user.coinBalance ?? 0);
 }
 
 export async function deductCoins(
@@ -387,7 +400,7 @@ export async function deductAmount(
   description: string,
   options?: CoinTxOptions
 ): Promise<{ success: boolean; newBalance: number; cost: number; transactionId?: string; duplicate?: boolean }> {
-  if (amount <= 0) {
+  if (!Number.isInteger(amount) || !Number.isFinite(amount) || amount <= 0) {
     throw new Error('Amount must be positive');
   }
   const result = await applyCoinMutation({
@@ -436,7 +449,7 @@ export async function addCoinsResult(
   type: 'purchase' | 'bonus' | 'refund' = 'purchase',
   options?: AddCoinsOptions
 ): Promise<CoinMutationResult> {
-  if (amount <= 0) {
+  if (!Number.isInteger(amount) || !Number.isFinite(amount) || amount <= 0) {
     throw new Error('Amount must be positive');
   }
   return applyCoinMutation({
@@ -464,7 +477,7 @@ export async function refundOnce(params: {
   quoteId?: string;
   idempotencyKey?: string;
 }): Promise<CoinMutationResult> {
-  if (params.amount <= 0) {
+  if (!Number.isInteger(params.amount) || !Number.isFinite(params.amount) || params.amount <= 0) {
     throw new Error('Refund amount must be positive');
   }
   return applyCoinMutation({
@@ -488,7 +501,8 @@ export async function recordWelcomeGrant(params: {
   amount: number;
   createdAt: string;
 }): Promise<void> {
-  if (params.amount <= 0) return;
+  firestoreDocId(params.userId);
+  if (!Number.isInteger(params.amount) || !Number.isFinite(params.amount) || params.amount <= 0) return;
   await applyCoinMutation({
     userId: params.userId,
     delta: params.amount,
@@ -508,7 +522,8 @@ export async function writeWelcomeLedgerOnly(params: {
   amount: number;
   createdAt: string;
 }): Promise<void> {
-  if (params.amount <= 0) return;
+  firestoreDocId(params.userId);
+  if (!Number.isInteger(params.amount) || !Number.isFinite(params.amount) || params.amount <= 0) return;
   const key = `welcome:${params.userId}`;
   const existing = await readIdempotency(key);
   if (existing) return;
@@ -529,25 +544,25 @@ export async function writeWelcomeLedgerOnly(params: {
     await withDevLock(coinsLockKey(params.userId), async () => {
       const again = await readIdempotency(key);
       if (again) return;
-      const rec = tx as unknown as Record<string, unknown>;
+      const rec = omitUndefinedFields(tx as unknown as Record<string, unknown>);
       devStore.addTransaction(rec);
-      devStore.saveToCollection(TX_COLLECTION, tx.id, rec);
-      devStore.saveToCollection(IDEMP_COLLECTION, sanitizeDocId(key), {
+      devStore.saveToCollection(TX_COLLECTION, firestoreDocId(tx.id), rec);
+      devStore.saveToCollection(IDEMP_COLLECTION, coinDocId(key), omitUndefinedFields({
         transactionId: tx.id,
         userId: params.userId,
         newBalance: params.amount,
         previousBalance: 0,
         amount: params.amount,
         createdAt: params.createdAt,
-      });
+      }));
     });
     return;
   }
 
   const { getFirestore } = await import('../config/firebase.js');
   const db = getFirestore();
-  const idempRef = db.collection(IDEMP_COLLECTION).doc(sanitizeDocId(key));
-  const txRef = db.collection(TX_COLLECTION).doc(tx.id);
+  const idempRef = db.collection(IDEMP_COLLECTION).doc(coinDocId(key));
+  const txRef = db.collection(TX_COLLECTION).doc(firestoreDocId(tx.id));
   await db.runTransaction(async (t) => {
     const snap = await t.get(idempRef);
     if (snap.exists) return;
@@ -574,7 +589,7 @@ export async function getTransactionById(id: string): Promise<CoinTransaction | 
     return fromList ?? null;
   }
   const { getFirestore } = await import('../config/firebase.js');
-  const snap = await getFirestore().collection(TX_COLLECTION).doc(id).get();
+  const snap = await getFirestore().collection(TX_COLLECTION).doc(firestoreDocId(id)).get();
   if (!snap.exists) return null;
   return { id: snap.id, ...snap.data() } as CoinTransaction;
 }

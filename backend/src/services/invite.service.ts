@@ -1,7 +1,7 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import type { CreateInviteCodeInput, InviteCode } from '@ucbs/shared';
 import { dsDelete, dsGet, dsList, dsSet } from '../lib/data-store.js';
-import { omitUndefinedFields } from '../lib/firestore-payload.js';
+import { firestoreDocId, omitUndefinedFields } from '../lib/firestore-payload.js';
 import { ServiceError } from '../lib/errors.js';
 import { isDevMode } from '../config/env.js';
 import { inviteLockKey, withDevLock } from '../lib/dev-mutex.js';
@@ -44,12 +44,20 @@ export async function createInviteCode(
     throw new ServiceError(409, 'INVALID_INPUT', 'Einladungscode existiert bereits');
   }
 
+  let maximumUses = 1;
+  if (input.maximumUses !== undefined) {
+    if (!Number.isInteger(input.maximumUses) || !Number.isFinite(input.maximumUses) || input.maximumUses <= 0) {
+      throw new ServiceError(400, 'INVALID_INPUT', 'Ungültige Nutzungsanzahl');
+    }
+    maximumUses = input.maximumUses;
+  }
+
   const invite: InviteCode = {
     id: randomUUID(),
     code,
     description: input.description.trim(),
     assignedEmail: input.assignedEmail?.trim().toLowerCase() || undefined,
-    maximumUses: input.maximumUses && input.maximumUses > 0 ? input.maximumUses : 1,
+    maximumUses,
     currentUses: 0,
     expiresAt: input.expiresAt,
     isActive: true,
@@ -106,6 +114,15 @@ function assertInviteUsable(current: InviteCode): void {
   if (!current.isActive) denyInvite('INVITE_INVALID', INVITE_INVALID_MESSAGE);
   if (current.expiresAt && new Date(current.expiresAt).getTime() < Date.now()) {
     denyInvite('INVITE_EXPIRED', INVITE_EXPIRED_MESSAGE);
+  }
+  if (
+    !Number.isInteger(current.currentUses) ||
+    !Number.isFinite(current.currentUses) ||
+    !Number.isInteger(current.maximumUses) ||
+    !Number.isFinite(current.maximumUses) ||
+    current.maximumUses <= 0
+  ) {
+    denyInvite('INVITE_INVALID', INVITE_INVALID_MESSAGE);
   }
   if (current.currentUses >= current.maximumUses) {
     denyInvite('INVITE_EXHAUSTED', INVITE_EXHAUSTED_MESSAGE);
@@ -190,7 +207,7 @@ export async function redeemInviteCode(
 
   const { getFirestore } = await import('../config/firebase.js');
   const db = getFirestore();
-  const ref = db.collection(COLLECTION).doc(invite.id);
+  const ref = db.collection(COLLECTION).doc(firestoreDocId(invite.id));
   return db.runTransaction(async (t) => {
     const snap = await t.get(ref);
     if (!snap.exists) denyInvite('INVITE_INVALID', INVITE_INVALID_MESSAGE);

@@ -5,7 +5,7 @@ import type {
 } from '@ucbs/shared';
 import { createHash, randomUUID } from 'node:crypto';
 import { dsGet, dsListWhere, dsSet } from '../lib/data-store.js';
-import { omitUndefinedFields } from '../lib/firestore-payload.js';
+import { assertFiniteNumber, firestoreDocId, omitUndefinedFields } from '../lib/firestore-payload.js';
 import { ServiceError } from '../lib/errors.js';
 import { isDevMode } from '../config/env.js';
 import { getFirestore } from '../config/firebase.js';
@@ -105,9 +105,10 @@ function nextPromotionalCents(balance: UserBalance, input: AppendLedgerInput): n
 export async function appendLedgerEntry(
   input: AppendLedgerInput
 ): Promise<{ entry: BalanceLedgerEntry; balance: UserBalance; duplicate: boolean }> {
-  if (!Number.isInteger(input.amountCents)) {
+  if (!Number.isInteger(input.amountCents) || !Number.isFinite(input.amountCents)) {
     throw new ServiceError(400, 'INVALID_INPUT', 'Betrag muss ganzzahlig in Cent sein');
   }
+  firestoreDocId(input.userId);
 
   const idempId = idempotencyDocId(input.userId, input.idempotencyKey);
 
@@ -120,6 +121,8 @@ export async function appendLedgerEntry(
     }
 
     const balance = await getBalanceDoc(input.userId);
+    assertFiniteNumber(balance.balanceCents, 'NON_FINITE_BALANCE');
+    assertFiniteNumber(balance.promotionalCents ?? 0, 'NON_FINITE_BALANCE');
     if (input.amountCents < 0 && balance.balanceCents < Math.abs(input.amountCents)) {
       throw new ServiceError(402, 'INSUFFICIENT_BALANCE', 'Nicht genügend Guthaben');
     }
@@ -146,17 +149,19 @@ export async function appendLedgerEntry(
   }
 
   const db = getFirestore();
-  const idempRef = db.collection(IDEMPOTENCY_COLLECTION).doc(idempId);
-  const balanceRef = db.collection(BALANCE_COLLECTION).doc(input.userId);
+  const idempRef = db.collection(IDEMPOTENCY_COLLECTION).doc(firestoreDocId(idempId));
+  const balanceRef = db.collection(BALANCE_COLLECTION).doc(firestoreDocId(input.userId));
   const entryId = randomUUID();
-  const entryRef = db.collection(LEDGER_COLLECTION).doc(entryId);
+  const entryRef = db.collection(LEDGER_COLLECTION).doc(firestoreDocId(entryId));
 
   try {
     const result = await db.runTransaction(async (tx) => {
       const idempSnap = await tx.get(idempRef);
       if (idempSnap.exists) {
         const existingEntryId = idempSnap.data()?.entryId as string;
-        const existingEntrySnap = await tx.get(db.collection(LEDGER_COLLECTION).doc(existingEntryId));
+        const existingEntrySnap = await tx.get(
+          db.collection(LEDGER_COLLECTION).doc(firestoreDocId(existingEntryId))
+        );
         const balSnap = await tx.get(balanceRef);
         const balance = balSnap.exists
           ? (balSnap.data() as UserBalance)
@@ -182,6 +187,8 @@ export async function appendLedgerEntry(
             promotionalCents: 0,
             updatedAt: new Date().toISOString(),
           };
+      assertFiniteNumber(balance.balanceCents, 'NON_FINITE_BALANCE');
+      assertFiniteNumber(balance.promotionalCents ?? 0, 'NON_FINITE_BALANCE');
 
       if (input.amountCents < 0 && balance.balanceCents < Math.abs(input.amountCents)) {
         throw new ServiceError(402, 'INSUFFICIENT_BALANCE', 'Nicht genügend Guthaben');

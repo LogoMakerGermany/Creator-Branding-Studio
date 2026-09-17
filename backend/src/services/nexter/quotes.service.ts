@@ -54,14 +54,19 @@ export async function createQuote(
 ): Promise<NexterQuote> {
   const now = Date.now();
   let resolvedPayload = payload;
-  let resolvedCost =
-    typeof coinCost === 'number' && Number.isFinite(coinCost) ? Math.max(0, Math.floor(coinCost)) : coinCostForKind(kind);
+  if (coinCost !== undefined && (typeof coinCost !== 'number' || !Number.isFinite(coinCost) || !Number.isInteger(coinCost) || coinCost < 0)) {
+    throw new ServiceError(400, 'INVALID_INPUT', 'Die Anfrage ist ungültig');
+  }
+  let resolvedCost: number;
   if (kind === 'streamset') {
     const selectedKeys = selectedKeysFromPayload(payload) ?? STREAMSET_PACK_ITEMS.map((item) => item.key);
     resolvedPayload = { ...(payload ?? {}), selectedKeys };
-    if (!(typeof coinCost === 'number' && Number.isFinite(coinCost))) {
-      resolvedCost = coinCostForStreamsetSelection(selectedKeys).total;
-    }
+    resolvedCost = coinCost === undefined ? coinCostForStreamsetSelection(selectedKeys).total : coinCost;
+  } else {
+    resolvedCost = coinCost === undefined ? coinCostForKind(kind) : coinCost;
+  }
+  if (!Number.isInteger(resolvedCost) || !Number.isFinite(resolvedCost) || resolvedCost < 0) {
+    throw new ServiceError(400, 'INVALID_INPUT', 'Die Anfrage ist ungültig');
   }
   const quote: NexterQuote = {
     id: randomUUID(),
