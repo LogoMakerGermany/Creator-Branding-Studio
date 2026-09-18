@@ -94,10 +94,13 @@ export async function withCoinCharge<T extends BillableJob>(
   } catch (err) {
     await refundBillableChargeOnce(charge, `${description} — Rückerstattung (Abbruch)`);
     if (err instanceof AppError) throw err;
+    if (err instanceof ServiceError) {
+      throw new AppError(err.statusCode, err.code, err.message);
+    }
     throw new AppError(
       503,
       'AI_GENERATION_FAILED',
-      `${err instanceof Error ? err.message : description} — Coins wurden erstattet`
+      `${description} fehlgeschlagen — Coins wurden erstattet`
     );
   }
 

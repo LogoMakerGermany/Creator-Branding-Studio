@@ -16,6 +16,7 @@ import {
   isTtsGenerationEnabled,
 } from '../config/env.js';
 import { ServiceError } from './errors.js';
+import { MUSIC_PROVIDER_FAILED_MESSAGE } from './safe-provider-fetch.js';
 import {
   MUSIC_PROVIDERS,
   checkMusicDuration,
@@ -28,6 +29,33 @@ import {
 
 const UNOFFICIAL_SUNO_DISABLED_MESSAGE =
   'Der inoffizielle Suno-Endpunkt ist deaktiviert. Es ist kein offizieller Suno-Endpunkt konfiguriert. Musik läuft über MusicGen, wenn REPLICATE_API_TOKEN gesetzt ist.';
+
+export const ELEVENLABS_TTS_TIMEOUT_MS = 30_000;
+export const PROVIDER_POLL_TIMEOUT_MS = 20_000;
+export const RUNWAY_HTTP_TIMEOUT_MS = 30_000;
+export const REPLICATE_MUSIC_CREATE_TIMEOUT_MS = 130_000;
+export const REPLICATE_VIDEO_CREATE_TIMEOUT_MS = 190_000;
+export const REPLICATE_THUMB_CREATE_TIMEOUT_MS = 100_000;
+
+function throwProviderTimeout(message: string): never {
+  throw new ServiceError(504, 'PROVIDER_TIMEOUT', message);
+}
+
+function throwProviderFailed(message: string): never {
+  throw new ServiceError(502, 'PROVIDER_ERROR', message);
+}
+
+async function providerFetch(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    const name = err instanceof Error ? err.name : '';
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      throwProviderTimeout('Der Provider hat nicht rechtzeitig geantwortet. Coins wurden erstattet.');
+    }
+    throwProviderFailed('Die Provider-Anfrage ist fehlgeschlagen. Coins wurden erstattet.');
+  }
+}
 
 export type MusicProviderLimits =
   | { ok: true; id: MusicProviderId; maxDurationSec: number; label: string }
@@ -117,27 +145,31 @@ export async function generateSpeech(
 
   const voiceId = options?.voiceId || getElevenLabsVoiceId();
   const settings = options?.settings ?? defaultVoiceSettings();
-  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-    method: 'POST',
-    headers: {
-      'xi-api-key': apiKey,
-      'Content-Type': 'application/json',
-      Accept: 'audio/mpeg',
-    },
-    body: JSON.stringify({
-      text,
-      model_id: 'eleven_multilingual_v2',
-      voice_settings: {
-        stability: clampVoiceSetting('stability', settings.stability),
-        similarity_boost: clampVoiceSetting('similarity', settings.similarity),
-        style: clampVoiceSetting('style', settings.style),
-        speed: clampVoiceSetting('speed', settings.speed),
+  const res = await providerFetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+    {
+      method: 'POST',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json',
+        Accept: 'audio/mpeg',
       },
-    }),
-  });
+      body: JSON.stringify({
+        text,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: {
+          stability: clampVoiceSetting('stability', settings.stability),
+          similarity_boost: clampVoiceSetting('similarity', settings.similarity),
+          style: clampVoiceSetting('style', settings.style),
+          speed: clampVoiceSetting('speed', settings.speed),
+        },
+      }),
+    },
+    ELEVENLABS_TTS_TIMEOUT_MS
+  );
 
   if (!res.ok) {
-    throw new Error(`ElevenLabs TTS failed (${res.status})`);
+    throw new ServiceError(502, 'PROVIDER_ERROR', 'Provider-TTS ist fehlgeschlagen. Coins wurden erstattet.');
   }
 
   const buffer = Buffer.from(await res.arrayBuffer());
@@ -179,24 +211,28 @@ async function generateMusicWithReplicate(
   duration: number
 ): Promise<{ audioUrl: string; provider: string; duration: number }> {
   const token = getReplicateApiToken()!;
-  const createRes = await fetch('https://api.replicate.com/v1/models/meta/musicgen/predictions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      Prefer: 'wait=120',
-    },
-    body: JSON.stringify({
-      input: {
-        prompt,
-        duration,
-        model_version: 'stereo-large',
+  const createRes = await providerFetch(
+    'https://api.replicate.com/v1/models/meta/musicgen/predictions',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Prefer: 'wait=120',
       },
-    }),
-  });
+      body: JSON.stringify({
+        input: {
+          prompt,
+          duration,
+          model_version: 'stereo-large',
+        },
+      }),
+    },
+    REPLICATE_MUSIC_CREATE_TIMEOUT_MS
+  );
 
   if (!createRes.ok) {
-    throw new Error(`Replicate music error: ${await createRes.text()}`);
+    throwProviderFailed(MUSIC_PROVIDER_FAILED_MESSAGE);
   }
 
   let prediction = (await createRes.json()) as {
@@ -209,9 +245,11 @@ async function generateMusicWithReplicate(
   let attempts = 0;
   while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && attempts < 90) {
     await new Promise((r) => setTimeout(r, 2000));
-    const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const pollRes = await providerFetch(
+      `https://api.replicate.com/v1/predictions/${prediction.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+      PROVIDER_POLL_TIMEOUT_MS
+    );
     prediction = await pollRes.json();
     attempts++;
   }
@@ -219,7 +257,7 @@ async function generateMusicWithReplicate(
   const output = prediction.output;
   const audioUrl = Array.isArray(output) ? output[0] : output;
   if (prediction.status === 'failed' || typeof audioUrl !== 'string' || !audioUrl.trim()) {
-    throw new Error(prediction.error || 'Music generation failed');
+    throwProviderFailed(MUSIC_PROVIDER_FAILED_MESSAGE);
   }
 
   return { audioUrl, provider: 'replicate-musicgen', duration };
@@ -283,20 +321,24 @@ export async function generateVideoThumbnail(
     throw new Error('REPLICATE_API_TOKEN nicht konfiguriert');
   }
 
-  const createRes = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      Prefer: 'wait=90',
+  const createRes = await providerFetch(
+    'https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Prefer: 'wait=90',
+      },
+      body: JSON.stringify({
+        input: { prompt, num_outputs: 1, aspect_ratio: '16:9' },
+      }),
     },
-    body: JSON.stringify({
-      input: { prompt, num_outputs: 1, aspect_ratio: '16:9' },
-    }),
-  });
+    REPLICATE_THUMB_CREATE_TIMEOUT_MS
+  );
 
   if (!createRes.ok) {
-    throw new Error(`Replicate video thumb error: ${await createRes.text()}`);
+    throwProviderFailed('Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.');
   }
 
   const prediction = (await createRes.json()) as {
@@ -306,13 +348,13 @@ export async function generateVideoThumbnail(
   };
 
   if (prediction.status === 'failed') {
-    throw new Error(prediction.error || 'Video thumbnail failed');
+    throwProviderFailed('Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.');
   }
 
   const output = prediction.output;
   const imageUrl = Array.isArray(output) ? output[0] : output;
   if (!imageUrl) {
-    throw new Error('No video thumbnail output');
+    throwProviderFailed('Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.');
   }
 
   return { imageUrl, provider: 'replicate-flux' };
@@ -410,20 +452,24 @@ async function generateVideoWithReplicate(
     input.image = options.imageUrl;
   }
 
-  const createRes = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      Prefer: 'wait=180',
+  const createRes = await providerFetch(
+    `https://api.replicate.com/v1/models/${model}/predictions`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Prefer: 'wait=180',
+      },
+      body: JSON.stringify({
+        input,
+      }),
     },
-    body: JSON.stringify({
-      input,
-    }),
-  });
+    REPLICATE_VIDEO_CREATE_TIMEOUT_MS
+  );
 
   if (!createRes.ok) {
-    throw new Error(`Replicate video error: ${await createRes.text()}`);
+    throwProviderFailed(VIDEO_PROVIDER_FAILED_MESSAGE);
   }
 
   let prediction = (await createRes.json()) as {
@@ -436,21 +482,23 @@ async function generateVideoWithReplicate(
   let attempts = 0;
   while (prediction.status !== 'succeeded' && prediction.status !== 'failed' && attempts < 120) {
     await new Promise((r) => setTimeout(r, 3000));
-    const pollRes = await fetch(`https://api.replicate.com/v1/predictions/${prediction.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const pollRes = await providerFetch(
+      `https://api.replicate.com/v1/predictions/${prediction.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+      PROVIDER_POLL_TIMEOUT_MS
+    );
     prediction = await pollRes.json();
     attempts++;
   }
 
   if (prediction.status === 'failed') {
-    throw new Error(prediction.error || 'Video generation failed');
+    throwProviderFailed(VIDEO_PROVIDER_FAILED_MESSAGE);
   }
 
   const output = prediction.output;
   const videoUrl = Array.isArray(output) ? output[0] : output;
   if (!videoUrl || typeof videoUrl !== 'string') {
-    throw new Error('No video output from Replicate');
+    throwProviderFailed(VIDEO_PROVIDER_FAILED_MESSAGE);
   }
 
   return { videoUrl, provider: `replicate:${model}`, imageToVideo: Boolean(options?.imageUrl) };
@@ -464,23 +512,27 @@ async function generateVideoWithRunway(
   const ratio = options?.aspectRatio === '9:16' ? '720:1280' : '1280:720';
   const duration = Math.min(Math.max(options?.duration ?? 5, 5), 10);
 
-  const createRes = await fetch('https://api.dev.runwayml.com/v1/text_to_video', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'X-Runway-Version': '2024-11-06',
+  const createRes = await providerFetch(
+    'https://api.dev.runwayml.com/v1/text_to_video',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-Runway-Version': '2024-11-06',
+      },
+      body: JSON.stringify({
+        model: 'gen3a_turbo',
+        promptText: prompt,
+        duration,
+        ratio,
+      }),
     },
-    body: JSON.stringify({
-      model: 'gen3a_turbo',
-      promptText: prompt,
-      duration,
-      ratio,
-    }),
-  });
+    RUNWAY_HTTP_TIMEOUT_MS
+  );
 
   if (!createRes.ok) {
-    throw new Error(`Runway video error: ${await createRes.text()}`);
+    throwProviderFailed(VIDEO_PROVIDER_FAILED_MESSAGE);
   }
 
   const task = (await createRes.json()) as { id: string };
@@ -488,15 +540,19 @@ async function generateVideoWithRunway(
 
   while (attempts < 120) {
     await new Promise((r) => setTimeout(r, 3000));
-    const pollRes = await fetch(`https://api.dev.runwayml.com/v1/tasks/${task.id}`, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'X-Runway-Version': '2024-11-06',
+    const pollRes = await providerFetch(
+      `https://api.dev.runwayml.com/v1/tasks/${task.id}`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'X-Runway-Version': '2024-11-06',
+        },
       },
-    });
+      PROVIDER_POLL_TIMEOUT_MS
+    );
 
     if (!pollRes.ok) {
-      throw new Error(`Runway poll error: ${await pollRes.text()}`);
+      throwProviderFailed(VIDEO_PROVIDER_FAILED_MESSAGE);
     }
 
     const result = (await pollRes.json()) as {
@@ -511,11 +567,11 @@ async function generateVideoWithRunway(
     }
 
     if (result.status === 'FAILED') {
-      throw new Error(result.failure || result.failureCode || 'Runway video failed');
+      throwProviderFailed(VIDEO_PROVIDER_FAILED_MESSAGE);
     }
 
     attempts++;
   }
 
-  throw new Error('Runway video timeout');
+  throwProviderTimeout(VIDEO_PROVIDER_FAILED_MESSAGE);
 }

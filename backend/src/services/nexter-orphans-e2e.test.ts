@@ -215,6 +215,7 @@ describe('Block M — V1 orphan surfaces / legacy routes', () => {
     assert.match(src('services/nexter-branding-e2e.test.ts'), /PRODUCT_NAME/);
     assert.match(src('services/nexter-tts-e2e.test.ts'), /TTS_GENERATION_ENABLED/);
     assert.match(src('services/content-rights-e2e.test.ts'), /CONTENT_RIGHTS_ACK_VERSION/);
+    assert.match(src('services/provider-readiness-e2e.test.ts'), /hasImageAiProvider/);
     assert.match(repo('frontend/src/lib/logo-favorites-storage.ts'), /ucbs-logo-favorites/);
   });
 });

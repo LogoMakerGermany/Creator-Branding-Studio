@@ -547,7 +547,7 @@ async function callOpenAiJson(system: string, user: string): Promise<unknown> {
     if (err instanceof Error && err.name === 'AbortError') {
       throw new ServiceError(503, 'AI_TIMEOUT', 'Textgenerierung zeitüberschritten');
     }
-    throw new ServiceError(503, 'AI_PROVIDER_ERROR', err instanceof Error ? err.message : 'OpenAI-Fehler');
+    throw new ServiceError(503, 'AI_PROVIDER_ERROR', 'OpenAI-Fehler');
   } finally {
     clearTimeout(timer);
   }

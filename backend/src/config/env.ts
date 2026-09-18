@@ -478,10 +478,14 @@ export function getAiProviderStatus(): Record<string, ProviderConfigStatus> {
   };
 }
 
+/**
+ * Live studio images require IMAGE_GENERATIONS_ENABLED=true (exact).
+ * A Replicate token must not bypass that kill switch.
+ * OpenAI key alone still does not enable images.
+ */
 export function hasImageAiProvider(): boolean {
-  return Boolean(
-    (getOpenAiApiKey() && isOpenAiImageGenerationLiveEnabled()) || getReplicateApiToken()
-  );
+  if (!isOpenAiImageGenerationLiveEnabled()) return false;
+  return Boolean(getOpenAiApiKey() || getReplicateApiToken());
 }
 
 /** ENV presence only — Runway or Replicate video, and video generations not killed. */
