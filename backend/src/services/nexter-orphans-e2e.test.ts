@@ -90,6 +90,10 @@ describe('Block M — V1 orphan surfaces / legacy routes', () => {
     for (const [, path] of Object.entries(NEXTER_STUDIO_PATHS)) {
       assertActive(path, `NEXTER mapping ${path}`);
     }
+    assert.equal(NEXTER_STUDIO_PATHS.logo, '/logo-studio');
+    assert.equal(Object.prototype.hasOwnProperty.call(LEGACY_REDIRECTS, '/logo-studio'), false);
+    assert.equal(LEGACY_REDIRECTS['/branding-studio'], '/logo-studio');
+    assert.equal(LEGACY_REDIRECTS['/ai-image'], '/nexter');
     assert.match(tools, /NEXTER_STUDIO_PATHS/);
     assert.doesNotMatch(tools, /\/marketplace|\/team-dna|\/ai-assistant|\/ultimate-creator/);
   });

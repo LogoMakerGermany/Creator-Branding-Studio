@@ -11,6 +11,7 @@ import {
   nexterSpeechErrorMessage,
   nexterTtsStatusLabel,
   shouldAutoNavigateNexterStudio,
+  nexterStudioPathFromUtterance,
   shouldAutoSpeakCompletedNexterReply,
   CONTENT_RIGHTS_ACK_STATEMENT,
   CONTENT_RIGHTS_ACK_VERSION,
@@ -510,7 +511,14 @@ export function NexterPanel({
                   <button
                     key={s}
                     type="button"
-                    onClick={() => void send(s)}
+                    onClick={() => {
+                      const studioPath = nexterStudioPathFromUtterance(s);
+                      if (studioPath) {
+                        navigate(studioPath);
+                        return;
+                      }
+                      void send(s);
+                    }}
                     className="min-h-11 rounded-full border border-violet-500/40 bg-violet-500/10 px-2.5 py-1 text-[11px] text-violet-200 hover:bg-violet-500/20"
                   >
                     {s}

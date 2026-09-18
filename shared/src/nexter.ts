@@ -239,4 +239,39 @@ export const NEXTER_STUDIO_PATHS: Record<string, string> = {
   support: '/support',
 };
 
+/** Canonical studio path for an explicit open-studio utterance. Navigation only — never a quote. */
+export function nexterStudioPathFromUtterance(message: string): string | null {
+  const lower = String(message ?? '').toLowerCase();
+  if (/ich möchte shorts machen|shorts machen|clips für tiktok/.test(lower)) {
+    return NEXTER_STUDIO_PATHS.shorts;
+  }
+  const navigates = /öffne|open|geh(e)? zu|studio/.test(lower);
+  if (!navigates) return null;
+  if (/logo/.test(lower)) return NEXTER_STUDIO_PATHS.logo;
+  if (/streamset/.test(lower)) return NEXTER_STUDIO_PATHS.streamset;
+  if (/short/.test(lower)) return NEXTER_STUDIO_PATHS.shorts;
+  if (/(?:ki|ai)[- ]?video/.test(lower)) return NEXTER_STUDIO_PATHS['ai-video'];
+  if (/video/.test(lower) && !/logo/.test(lower)) return NEXTER_STUDIO_PATHS.video;
+  if (/animation|intro|outro|stinger/.test(lower) && !/\b(musik|song|jingle|bgm)\b/.test(lower)) {
+    return NEXTER_STUDIO_PATHS.animation;
+  }
+  if (/musik|music/.test(lower)) return NEXTER_STUDIO_PATHS.music;
+  if (/voice[- ]?studio|sprecher[- ]?studio|\btts\b/.test(lower)) return NEXTER_STUDIO_PATHS.voice;
+  if (/social|thumbnail|story/.test(lower)) return NEXTER_STUDIO_PATHS.social;
+  if (/\btext\b|caption|bio|hashtag/.test(lower)) return NEXTER_STUDIO_PATHS.text;
+  if (/mockup|tasse|shirt/.test(lower)) return NEXTER_STUDIO_PATHS.mockup;
+  if (/\bdna\b/.test(lower)) return NEXTER_STUDIO_PATHS.dna;
+  if (/banner/.test(lower)) return NEXTER_STUDIO_PATHS.banner;
+  if (/layout/.test(lower) && !/overlay/.test(lower)) return NEXTER_STUDIO_PATHS.layout;
+  if (/facecam|webcam[- ]?rahmen/.test(lower)) return NEXTER_STUDIO_PATHS.facecam;
+  if (/overlay/.test(lower)) return NEXTER_STUDIO_PATHS.overlay;
+  if (/sticker|emote|\bbadge\b/.test(lower)) return NEXTER_STUDIO_PATHS.sticker;
+  if (/kalender|calendar/.test(lower)) return NEXTER_STUDIO_PATHS.calendar;
+  if (/projekt/.test(lower)) return NEXTER_STUDIO_PATHS.projects;
+  if (/datei|file[- ]?cloud|\bfiles\b/.test(lower)) return NEXTER_STUDIO_PATHS.files;
+  if (/\bcoins?\b|guthaben/.test(lower)) return NEXTER_STUDIO_PATHS.coins;
+  if (/support|feedback[- ]?hub|hilfezentrum/.test(lower)) return '/support';
+  return null;
+}
+
 export const NEXTER_QUOTE_TTL_MS = 15 * 60 * 1000;

@@ -7,6 +7,7 @@ import {
   STREAMSET_PACK_ITEMS,
   keysForStreamsetThreePart,
   NEXTER_STUDIO_PATHS,
+  nexterStudioPathFromUtterance,
   detectMusicQuoteIntent,
   detectVoiceQuoteIntent,
   detectStudioChangeScope,
@@ -318,7 +319,7 @@ export function detectQuoteKind(message: string): NexterQuoteKind | null {
   }
   if (/\bfacecam|webcam[- ]?rahmen|gesichtsrahmen/.test(lower)) return 'facecam';
   if (/\bsticker|emote|\bbadge\b/.test(lower)) return 'sticker';
-  if (/\blogo\b|gamerlogo|gaminglogo/.test(lower)) return 'logo';
+  if (/\blogos?\b|gamerlogo|gaminglogo/.test(lower)) return 'logo';
   return null;
 }
 
@@ -357,37 +358,7 @@ export function detectExternalPublishIntent(message: string): string | null {
 }
 
 export function detectOpenStudio(message: string): string | null {
-  const lower = message.toLowerCase();
-  if (/ich möchte shorts machen|shorts machen|clips für tiktok/.test(lower)) {
-    return NEXTER_STUDIO_PATHS.shorts;
-  }
-  const navigates = /öffne|open|geh(e)? zu|studio/.test(lower);
-  if (!navigates) return null;
-  if (/logo/.test(lower)) return NEXTER_STUDIO_PATHS.logo;
-  if (/streamset/.test(lower)) return NEXTER_STUDIO_PATHS.streamset;
-  if (/short/.test(lower)) return NEXTER_STUDIO_PATHS.shorts;
-  if (/(?:ki|ai)[- ]?video/.test(lower)) return NEXTER_STUDIO_PATHS['ai-video'];
-  if (/video/.test(lower) && !/logo/.test(lower)) return NEXTER_STUDIO_PATHS.video;
-  if (/animation|intro|outro|stinger/.test(lower) && !/\b(musik|song|jingle|bgm)\b/.test(lower)) {
-    return NEXTER_STUDIO_PATHS.animation;
-  }
-  if (/musik|music/.test(lower)) return NEXTER_STUDIO_PATHS.music;
-  if (/voice[- ]?studio|sprecher[- ]?studio|\btts\b/.test(lower)) return NEXTER_STUDIO_PATHS.voice;
-  if (/social|thumbnail|story/.test(lower)) return NEXTER_STUDIO_PATHS.social;
-  if (/\btext\b|caption|bio|hashtag/.test(lower)) return NEXTER_STUDIO_PATHS.text;
-  if (/mockup|tasse|shirt/.test(lower)) return NEXTER_STUDIO_PATHS.mockup;
-  if (/\bdna\b/.test(lower)) return NEXTER_STUDIO_PATHS.dna;
-  if (/banner/.test(lower)) return NEXTER_STUDIO_PATHS.banner;
-  if (/layout/.test(lower) && !/overlay/.test(lower)) return NEXTER_STUDIO_PATHS.layout;
-  if (/facecam|webcam[- ]?rahmen/.test(lower)) return NEXTER_STUDIO_PATHS.facecam;
-  if (/overlay/.test(lower)) return NEXTER_STUDIO_PATHS.overlay;
-  if (/sticker|emote|\bbadge\b/.test(lower)) return NEXTER_STUDIO_PATHS.sticker;
-  if (/kalender|calendar/.test(lower)) return NEXTER_STUDIO_PATHS.calendar;
-  if (/projekt/.test(lower)) return NEXTER_STUDIO_PATHS.projects;
-  if (/datei|file[- ]?cloud|\bfiles\b/.test(lower)) return NEXTER_STUDIO_PATHS.files;
-  if (/\bcoins?\b|guthaben/.test(lower)) return NEXTER_STUDIO_PATHS.coins;
-  if (/support|feedback[- ]?hub|hilfezentrum/.test(lower)) return '/support';
-  return null;
+  return nexterStudioPathFromUtterance(message);
 }
 
 export function detectFakeDetectionRequest(message: string): string | null {
@@ -469,10 +440,34 @@ export function detectChangeIntent(
   if (detectTextQuoteIntent(message)) return null;
   if (detectStudioChangeScope(message) === 'set') return null;
   const lower = message.toLowerCase();
-  const isEdit =
-    /änder|dunkler|heller|aggressiv|cleaner|variante|schrift|partikel|hintergrund|gr(ö|oe)sser|kleiner|höher|hoeher|zweite version/.test(
+  const changeVerb =
+    /änder|dunkler|heller|aggressiv|cleaner|gr(ö|oe)sser|kleiner|höher|hoeher|zweite version|entferne |nimm den text/.test(
       lower
     );
+  const existingCue = /(mein|letzten|aktuellen|vorhanden)/.test(lower);
+  const backgroundEdit =
+    /mach den hintergrund|änder.{0,32}hintergrund|hintergrund.{0,32}(meines|meinem|des vorhandenen|letzten|aktuellen)/.test(
+      lower
+    ) ||
+    (/hintergrund/.test(lower) &&
+      /(transparent|opak)/.test(lower) &&
+      existingCue);
+  const typographyEdit =
+    /(schrift|partikel).{0,24}(änder|größer|kleiner|mehr|weniger)|(änder|mehr|weniger).{0,24}(schrift|partikel)/.test(
+      lower
+    );
+  const variantOfExisting =
+    (/\bvariante\b/.test(lower) && existingCue) ||
+    Boolean(
+      /\bvariante\b/.test(lower) &&
+        (ctx?.lastLogoId ||
+          ctx?.lastBannerId ||
+          ctx?.lastOverlayId ||
+          ctx?.lastFacecamId ||
+          ctx?.lastStickerId ||
+          ctx?.lastMockupId)
+    );
+  const isEdit = changeVerb || backgroundEdit || typographyEdit || variantOfExisting;
   if (!isEdit) return null;
   if (
     /komplettes?\s+streamset|vollst(ä|a)ndiges?\s+streamset|daraus ein.*streamset/.test(lower) &&
@@ -489,7 +484,7 @@ export function detectChangeIntent(
   if (/\bfacecam|webcam/.test(lower) && isEdit) {
     return { kind: 'facecam', request: message, wantsLatest, facecamOnly: true };
   }
-  if (/\blogo\b/.test(lower)) return { kind: 'logo', request: message, wantsLatest, facecamOnly: false };
+  if (/\blogos?\b/.test(lower)) return { kind: 'logo', request: message, wantsLatest, facecamOnly: false };
   if (/\bbanner\b/.test(lower)) return { kind: 'banner', request: message, wantsLatest, facecamOnly: false };
   if (/\bsticker|emote|\bbadge\b/.test(lower)) return { kind: 'sticker', request: message, wantsLatest, facecamOnly: false };
   if (/\bmockup|tasse|hoodie|t-?shirt/.test(lower) && isEdit) {

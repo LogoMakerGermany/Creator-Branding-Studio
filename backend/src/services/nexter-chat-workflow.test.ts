@@ -335,6 +335,7 @@ describe('nexter chat local closure — quotes, coins, ownership, safety', () =>
     assert.equal(extras[0]?.payload?.coinBalance, 40);
     const panel = repo('frontend/src/components/nexter/NexterPanel.tsx');
     assert.match(panel, /shouldAutoNavigateNexterStudio/);
+    assert.match(panel, /nexterStudioPathFromUtterance/);
     assert.match(panel, /aria-label="Nachricht an Nexter"/);
     assert.match(panel, /role="status"/);
     assert.match(panel, /role="alert"/);

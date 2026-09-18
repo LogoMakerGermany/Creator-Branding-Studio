@@ -486,6 +486,20 @@ describe('nexter tools — phase H change intent', () => {
     assert.equal(detectQuoteKind('Mach die Caption kürzer.'), 'text');
   });
 
+  it('new-logo specs that mention background stay CREATE, not modify', () => {
+    const plasma =
+      'originales futuristisches E-Sports-Logo mit abstrakter violett-blauer Plasmakugel, kreisförmiges Premium-Gaming-Design, transparenter Hintergrund. Keine bestehenden Marken, Figuren oder fremden Logos.';
+    assert.equal(detectChangeIntent(plasma), null);
+    assert.equal(detectChangeIntent('Mach mir ein Logo mit transparentem Hintergrund.'), null);
+    assert.equal(detectChangeIntent('Ändere mein Logo auf blau')?.kind, 'logo');
+    assert.equal(detectChangeIntent('Mach den Hintergrund meines Logos transparent')?.kind, 'logo');
+    assert.equal(detectChangeIntent('Entferne den Text aus meinem vorhandenen Logo')?.kind, 'logo');
+    assert.equal(
+      detectChangeIntent('Mach den Hintergrund transparent.', { lastLogoId: 'logo-1', lastModule: 'logo' })?.kind,
+      'logo'
+    );
+  });
+
   it('asks when several logos exist and the user did not say last', () => {
     const asked = resolveChangeTarget({ ...dnaCtx, lastLogoId: 'logo-a', logoCount: 2 }, 'logo', false);
     assert.ok('ask' in asked);

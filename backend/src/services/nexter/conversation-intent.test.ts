@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { COIN_COSTS, CoinSpendCategory, NEXTER_STUDIO_PATHS, shouldAutoNavigateNexterStudio } from '@ucbs/shared';
+import { COIN_COSTS, CoinSpendCategory, NEXTER_STUDIO_PATHS, nexterStudioPathFromUtterance, shouldAutoNavigateNexterStudio } from '@ucbs/shared';
 import { arePaymentsEnabled, getDefaultFreeCoins } from '../../config/env.js';
 import { getOrCreateUser } from '../user.service.js';
 import { upsertDna } from '../dna.service.js';
@@ -15,7 +15,7 @@ import { isPaidProviderTestBlocked } from '../../lib/media-providers.js';
 import { updateNexterPreferencesForUser } from './preferences.service.js';
 import { nexterChat } from './conversation.service.js';
 import { listOwnedQuotes, createQuote } from './quotes.service.js';
-import { buildActions, looksLikeConstraintFollowUp, recommendFormat } from './tools.service.js';
+import { buildActions, detectChangeIntent, looksLikeConstraintFollowUp, recommendFormat } from './tools.service.js';
 import { resolveNexterConversationIntent, isSmalltalkMessage } from './conversation-intent.js';
 import { NEXTER_SMALLTALK_PROMPT_RULES, NEXTER_PROJECT_ANALYSIS_PROMPT_RULES, NEXTER_NAVIGATION_PROMPT_RULES, buildNexterSystemPrompt, stripUnsolicitedCreatorCta } from './conversation-prompt.js';
 
@@ -441,6 +441,83 @@ describe('nexter conversation intelligence — navigation is free', () => {
     assert.equal(open?.path, NEXTER_STUDIO_PATHS.streamset);
     assert.equal(open?.autoNavigate, true);
     assert.doesNotMatch(nav.content, blockedNav);
+  });
+});
+
+const PLASMA_LOGO =
+  'originales futuristisches E-Sports-Logo mit abstrakter violett-blauer Plasmakugel, kreisförmiges Premium-Gaming-Design, transparenter Hintergrund. Keine bestehenden Marken, Figuren oder fremden Logos.';
+
+describe('nexter conversation intelligence — O.2b logo create vs open studio', () => {
+  it('classifies new-logo prompts as CREATE_ASSET and edits as MODIFY_ASSET', () => {
+    assert.equal(NEXTER_STUDIO_PATHS.logo, '/logo-studio');
+    assert.equal(nexterStudioPathFromUtterance('Öffne das Logo Studio.'), '/logo-studio');
+    assert.equal(nexterStudioPathFromUtterance('Öffne das Logo Studio'), '/logo-studio');
+    assert.equal(nexterStudioPathFromUtterance('Logo Studio öffnen'), '/logo-studio');
+    assert.equal(resolveNexterConversationIntent('Öffne das Logo Studio.').intent, 'NAVIGATION_ACTION');
+    assert.equal(resolveNexterConversationIntent('Mach mir ein Logo').intent, 'CREATE_ASSET');
+    assert.equal(resolveNexterConversationIntent('Erstelle ein neues Logo').intent, 'CREATE_ASSET');
+    assert.equal(resolveNexterConversationIntent('Ich möchte ein Logo für meinen Stream').intent, 'CREATE_ASSET');
+    assert.equal(resolveNexterConversationIntent(PLASMA_LOGO).intent, 'CREATE_ASSET');
+    assert.equal(detectChangeIntent(PLASMA_LOGO), null);
+    assert.equal(resolveNexterConversationIntent('Ändere mein Logo auf blau').intent, 'MODIFY_ASSET');
+    assert.equal(resolveNexterConversationIntent('Mach den Hintergrund meines Logos transparent').intent, 'MODIFY_ASSET');
+    assert.equal(resolveNexterConversationIntent('Entferne den Text aus meinem vorhandenen Logo').intent, 'MODIFY_ASSET');
+    assert.equal(detectChangeIntent('Mach den Hintergrund transparent.', { lastLogoId: 'logo-1', lastModule: 'logo' })?.kind, 'logo');
+    const conv = src('conversation.service.ts');
+    assert.match(conv, /conversationIntent\.intent === 'MODIFY_ASSET'/);
+    assert.doesNotMatch(conv, /confirmQuote/);
+    const panel = readFileSync(join(dir, '../../../../frontend/src/components/nexter/NexterPanel.tsx'), 'utf8');
+    assert.match(panel, /nexterStudioPathFromUtterance/);
+    assert.match(panel, /CONTENT_RIGHTS_ACK_VERSION/);
+    const openaiImage = readFileSync(join(dir, '../../lib/openai-image.ts'), 'utf8');
+    assert.match(openaiImage, /gpt-image-2.5-flare/);
+    assert.match(openaiImage, /images\/generations/);
+    const env = readFileSync(join(dir, '../../config/env.ts'), 'utf8');
+    assert.match(env, /isEnvFlagTrue\('IMAGE_GENERATIONS_ENABLED'\)/);
+  });
+
+  it('CREATE_ASSET without an existing logo does not abort with the no-logo modify message', async () => {
+    const { user } = await seed('o2b-create');
+    const quotesBefore = (await listOwnedQuotes(user.id)).length;
+    const before = await getCoinBalance(user.id);
+    const last = lastAssistant(await nexterChat(user.id, PLASMA_LOGO));
+    assert.doesNotMatch(last.content, /finde kein Logo/i);
+    const start = (last.actions ?? []).find((a) => a.tool === 'start_generation');
+    assert.equal(start?.requiresConfirmation, true);
+    assert.equal(start?.coinCost ?? start?.payload?.coinCost, 15);
+    assert.equal((last.actions ?? []).some((a) => a.tool === 'start_generation' && !a.requiresConfirmation), false);
+    assert.equal(await getCoinBalance(user.id), before);
+    assert.equal((await listOwnedQuotes(user.id)).length, quotesBefore + 1);
+  });
+
+  it('MODIFY_ASSET without a logo stays a safe no-logo reply with a click-to-open studio action', async () => {
+    const { user } = await seed('o2b-modify-none');
+    const quotesBefore = (await listOwnedQuotes(user.id)).length;
+    const before = await getCoinBalance(user.id);
+    const last = lastAssistant(await nexterChat(user.id, 'Ändere mein Logo auf blau'));
+    assert.match(last.content, /finde kein Logo/i);
+    const open = (last.actions ?? []).find((a) => a.tool === 'open_studio');
+    assert.equal(open?.path, NEXTER_STUDIO_PATHS.logo);
+    assert.equal(open?.autoNavigate, false);
+    assert.equal(nexterStudioPathFromUtterance(open?.label ?? ''), '/logo-studio');
+    assert.equal((last.actions ?? []).some((a) => a.tool === 'start_generation'), false);
+    assert.equal(await getCoinBalance(user.id), before);
+    assert.equal((await listOwnedQuotes(user.id)).length, quotesBefore);
+  });
+
+  it('typed and chip-equivalent open-studio stays navigation without quote or debit', async () => {
+    const { user } = await seed('o2b-nav');
+    const quotesBefore = (await listOwnedQuotes(user.id)).length;
+    const before = await getCoinBalance(user.id);
+    await nexterChat(user.id, PLASMA_LOGO);
+    const last = lastAssistant(await nexterChat(user.id, 'Öffne das Logo Studio.'));
+    const open = (last.actions ?? []).find((a) => a.tool === 'open_studio');
+    assert.equal(open?.path, '/logo-studio');
+    assert.equal(open?.autoNavigate, true);
+    assert.equal(shouldAutoNavigateNexterStudio(open, { currentPath: '/nexter', awaitingConfirm: false }), true);
+    assert.equal((last.actions ?? []).some((a) => a.tool === 'start_generation'), false);
+    assert.equal(await getCoinBalance(user.id), before);
+    assert.equal((await listOwnedQuotes(user.id)).length, quotesBefore + 1);
   });
 });
 

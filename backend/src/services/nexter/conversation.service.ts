@@ -1555,7 +1555,7 @@ export async function nexterChat(
   let quoteCost: number | undefined;
   let quoteKind: NexterQuoteKind | undefined;
   let isChangeQuote = false;
-  if (changeIntent && !openPath) {
+  if (changeIntent && !openPath && conversationIntent.intent === 'MODIFY_ASSET') {
     const resolved = resolveChangeTarget(ctx, changeIntent.kind, changeIntent.wantsLatest);
     if ('ask' in resolved) {
       session.messages.push({
@@ -1568,11 +1568,15 @@ export async function nexterChat(
       return session;
     }
     if ('none' in resolved) {
+      const studioPath = NEXTER_STUDIO_PATHS[changeIntent.kind] ?? NEXTER_STUDIO_PATHS.logo;
+      const openLabel = `Öffne das ${changeIntent.kind[0].toUpperCase()}${changeIntent.kind.slice(1)} Studio.`;
       session.messages.push({
         id: randomUUID(),
         role: 'assistant',
         content: resolved.none,
         createdAt: new Date().toISOString(),
+        suggestions: [openLabel],
+        actions: [openStudioAction(studioPath, openLabel, { autoNavigate: false })],
       });
       await persistSession(session);
       return session;
