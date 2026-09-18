@@ -594,6 +594,16 @@ async function deleteUserFileLocked(id: string, userId: string): Promise<boolean
   return true;
 }
 
+function generationCategory(module: string): FileCategory {
+  if (module === 'logo' || module === 'profile-pic') return 'logo';
+  if (module === 'banner') return 'banner';
+  if (module === 'sticker') return 'sticker';
+  if (['overlay', 'facecam', 'stream-start', 'stream-end', 'offline', 'panel', 'alert'].includes(module)) {
+    return 'overlay';
+  }
+  return 'other';
+}
+
 export async function saveGeneratedAsset(
   userId: string,
   module: string,
@@ -606,16 +616,7 @@ export async function saveGeneratedAsset(
   }
   assertSafeProviderImageUrl(imageUrl);
 
-  const category: FileCategory =
-    module === 'logo' || module === 'profile-pic'
-      ? 'logo'
-      : module === 'banner'
-        ? 'banner'
-        : module === 'sticker'
-          ? 'sticker'
-          : ['overlay', 'facecam', 'stream-start', 'stream-end', 'offline', 'panel', 'alert'].includes(module)
-            ? 'overlay'
-            : 'other';
+  const category: FileCategory = generationCategory(module);
 
   const id = randomUUID();
   firestoreDocId(id);
@@ -657,6 +658,57 @@ export async function saveGeneratedAsset(
     createdAt: new Date().toISOString(),
   };
 
+  await persistFileMetadata(file);
+  return file;
+}
+
+export async function saveGeneratedAssetFromBuffer(
+  userId: string,
+  module: string,
+  buffer: Buffer,
+  extra?: {
+    mimeType?: string;
+    projectId?: string;
+    sourceJobId?: string;
+    sourceAssetId?: string;
+    name?: string;
+    version?: number;
+  }
+): Promise<UserFile | null> {
+  if (!buffer?.length) return null;
+  if (saveGeneratedAssetTestHooks?.fail) {
+    throw new ServiceError(503, 'STORAGE_ERROR', IMAGE_PROVIDER_FAILED_MESSAGE);
+  }
+  const mimeType = extra?.mimeType && extra.mimeType.startsWith('image/') ? extra.mimeType : 'image/png';
+  const category = generationCategory(module);
+  const id = randomUUID();
+  firestoreDocId(id);
+  const ext = mimeType.split('/')[1]?.replace('svg+xml', 'svg') || 'png';
+  const fileName = `${id}.${ext}`;
+  const storagePath = `users/${userId}/${category}/${fileName}`;
+  const downloadUrl = await uploadAssetFromBuffer(userId, buffer, {
+    folder: category,
+    fileName,
+    contentType: mimeType,
+    extension: ext,
+  });
+  const file: UserFile = {
+    id,
+    userId,
+    name: extra?.name ? sanitizeFileDisplayName(extra.name) : `${module}-${Date.now()}.png`,
+    mimeType,
+    size: assertFiniteFileSize(buffer.length),
+    category,
+    downloadUrl,
+    storagePath,
+    source: 'generation',
+    projectId: extra?.projectId,
+    sourceJobId: extra?.sourceJobId,
+    sourceAssetId: extra?.sourceAssetId,
+    version: extra?.version ?? 1,
+    deletionState: 'active',
+    createdAt: new Date().toISOString(),
+  };
   await persistFileMetadata(file);
   return file;
 }

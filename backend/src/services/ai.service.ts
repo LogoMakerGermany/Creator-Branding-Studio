@@ -16,6 +16,7 @@ import {
   IMAGE_PROVIDER_FAILED_MESSAGE,
 } from '../lib/media-providers.js';
 import { assertSafeProviderImageUrl } from '../lib/upload-validation.js';
+import { generateGptImage } from '../lib/openai-image.js';
 import { buildSvgExportFromImage } from '../lib/studio-export.js';
 import {
   buildBannerPrompt,
@@ -44,7 +45,7 @@ import {
 } from './creator-dna-engine/index.js';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
 import { ServiceError } from '../lib/errors.js';
-import { saveGeneratedAsset } from './file-cloud.service.js';
+import { saveGeneratedAsset, saveGeneratedAssetFromBuffer } from './file-cloud.service.js';
 import { attachAssetToProject } from './project-assets.service.js';
 
 const JOBS_COLLECTION = 'generationJobs';
@@ -169,8 +170,9 @@ export interface GenerateImageOptions {
     | 'alert';
   dna: CreatorDNA;
   customPrompt?: string;
-  size?: '1024x1024' | '1792x1024' | '1024x1792';
+  size?: '1024x1024' | '1792x1024' | '1024x1792' | '1536x1024' | '1024x1536';
   hd?: boolean;
+  transparentBackground?: boolean;
 }
 
 export function buildPromptFromDNA(dna: CreatorDNA, module: string, customPrompt?: string): string {
@@ -205,7 +207,7 @@ function moduleImageSize(module: string): GenerateImageOptions['size'] {
 
 export async function generateImage(
   options: GenerateImageOptions
-): Promise<{ imageUrl: string; provider: string; exports: StudioExportUrls }> {
+): Promise<{ imageUrl?: string; imageBuffer?: Buffer; mimeType?: string; provider: string; exports: StudioExportUrls }> {
   const hook = studioImageTestHook(options.module);
   if (hook?.result === 'success' || hook?.result === 'storage') {
     const mock =
@@ -235,12 +237,22 @@ export async function generateImage(
 
   const prompt = options.customPrompt ?? buildPromptFromDNA(options.dna, options.module);
   const size = options.size ?? (options.module === 'banner' ? '1792x1024' : '1024x1024');
-  const quality = options.hd ? 'hd' : 'standard';
 
   try {
     if (liveOpenAiImages) {
-      const url = assertSafeProviderImageUrl(await generateWithOpenAI(prompt, size, quality));
-      return { imageUrl: url, provider: 'openai', exports: buildExports(url, options.module) };
+      const gpt = await generateGptImage({
+        prompt,
+        size,
+        hd: options.hd,
+        module: options.module,
+        transparentBackground: options.transparentBackground,
+      });
+      return {
+        imageBuffer: gpt.buffer,
+        mimeType: gpt.mimeType,
+        provider: gpt.provider,
+        exports: { png: '', hd: '', svg: '' },
+      };
     }
 
     if (getReplicateApiToken()) {
@@ -265,39 +277,6 @@ function buildExports(imageUrl: string, module: string): StudioExportUrls {
     hd: imageUrl,
     svg: buildSvgExportFromImage(imageUrl, module),
   };
-}
-
-async function generateWithOpenAI(
-  prompt: string,
-  size: string,
-  quality: 'standard' | 'hd' = 'standard'
-): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/images/generations', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${getOpenAiApiKey()}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'dall-e-3',
-      prompt,
-      n: 1,
-      size,
-      quality,
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-
-  if (!res.ok) {
-    throw new ServiceError(502, 'PROVIDER_ERROR', IMAGE_PROVIDER_FAILED_MESSAGE);
-  }
-
-  const data = (await res.json()) as { data?: { url?: string }[] };
-  const url = data.data?.[0]?.url;
-  if (!url) {
-    throw new ServiceError(502, 'PROVIDER_INVALID_PAYLOAD', IMAGE_PROVIDER_FAILED_MESSAGE);
-  }
-  return url;
 }
 
 async function generateWithReplicate(prompt: string): Promise<string> {
@@ -478,28 +457,41 @@ export async function runGenerationJob(
 
   try {
     const size = genOptions?.size ?? moduleImageSize(module);
-    const { imageUrl, provider, exports: rawExports } = await generateImage({
+    const generated = await generateImage({
       module: module as GenerateImageOptions['module'],
       dna,
       customPrompt,
       size,
       hd: genOptions?.hd,
+      transparentBackground: genOptions?.transparentBackground,
     });
 
-    const persisted = await saveGeneratedAsset(userId, module, imageUrl, {
-      projectId: genOptions?.projectId,
-      sourceJobId: job.id,
-      name: genOptions?.downloadName,
-    });
+    const persisted = generated.imageBuffer
+      ? await saveGeneratedAssetFromBuffer(userId, module, generated.imageBuffer, {
+          mimeType: generated.mimeType ?? 'image/png',
+          projectId: genOptions?.projectId,
+          sourceJobId: job.id,
+          name: genOptions?.downloadName,
+        })
+      : generated.imageUrl
+        ? await saveGeneratedAsset(userId, module, generated.imageUrl, {
+            projectId: genOptions?.projectId,
+            sourceJobId: job.id,
+            name: genOptions?.downloadName,
+          })
+        : null;
     if (!persisted?.id) {
       throw new ServiceError(503, 'STORAGE_ERROR', IMAGE_PROVIDER_FAILED_MESSAGE);
     }
-    const durableUrl = persisted.downloadUrl || imageUrl;
+    const durableUrl = persisted.downloadUrl || generated.imageUrl;
+    if (!durableUrl) {
+      throw new ServiceError(503, 'STORAGE_ERROR', IMAGE_PROVIDER_FAILED_MESSAGE);
+    }
 
     job.status = 'completed';
     job.imageUrl = durableUrl;
     job.fileId = persisted?.id;
-    job.provider = provider;
+    job.provider = generated.provider;
     job.exports = {
       png: durableUrl,
       hd: durableUrl,
@@ -515,10 +507,9 @@ export async function runGenerationJob(
     await recordApiCost({
       userId,
       module,
-      provider: provider ?? 'unknown',
+      provider: generated.provider ?? 'unknown',
       internalCostCents: 4,
     });
-    void rawExports;
 
     if (
       (module === 'logo' || module === 'banner' || module === 'facecam' || module === 'overlay' || module === 'sticker') &&

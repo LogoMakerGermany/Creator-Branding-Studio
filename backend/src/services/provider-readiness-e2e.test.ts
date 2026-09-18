@@ -251,6 +251,8 @@ describe('Block N — production provider readiness (no live calls)', () => {
     const openaiIdx = ai.indexOf('liveOpenAiImages');
     const replicateIdx = ai.indexOf('generateWithReplicate');
     assert.ok(openaiIdx >= 0 && replicateIdx > openaiIdx);
+    assert.match(ai, /generateGptImage/);
+    assert.doesNotMatch(ai, /dall-e-3/);
     assert.match(src('lib/media-providers.ts'), /if \(getRunwayApiKey\(\)\)/);
     const runwayIdx = src('lib/media-providers.ts').indexOf('generateVideoWithRunway');
     const repVidIdx = src('lib/media-providers.ts').indexOf('generateVideoWithReplicate');

@@ -77,7 +77,7 @@ export function areGenerationsEnabled(): boolean {
 }
 
 /**
- * Live studio images (OpenAI DALL·E / Replicate Flux). Fail-closed.
+ * Live studio images (OpenAI GPT Image / Replicate Flux). Fail-closed.
  * Global GENERATIONS_ENABLED must not be false, and IMAGE_GENERATIONS_ENABLED must be exactly "true".
  * OPENAI_API_KEY or REPLICATE_API_TOKEN alone does not enable image generation.
  */

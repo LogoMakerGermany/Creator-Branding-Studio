@@ -24,7 +24,7 @@ import { ServiceError } from '../lib/errors.js';
 import { saveUserFile, getUserFile, issueFileDownloadUrl, mintDownloadUrlForOwnedFile } from './file-cloud.service.js';
 import { getProject } from './project.service.js';
 import { attachAssetToProject } from './project-assets.service.js';
-import { isPaidProviderTestBlocked } from '../lib/media-providers.js';
+import { IMAGE_PROVIDER_FAILED_MESSAGE, isPaidProviderTestBlocked } from '../lib/media-providers.js';
 import { CAPTIONS_DIRECT_BLOCKED_MESSAGE } from '../lib/provider-gate.js';
 import { withCoinCharge } from '../lib/billable-job.js';
 import {
@@ -1073,15 +1073,15 @@ export async function runMediaJob(
       job.metadata = { ...job.metadata, exports };
 
       try {
-        const { imageUrl, provider } = await generateImage({
+        const thumb = await generateImage({
           module: 'ai-image',
           dna,
           customPrompt: `${job.prompt}, video thumbnail frame`,
           size: type === 'short' ? '1024x1792' : '1792x1024',
         });
-        job.thumbnailUrl = await persistImage(userId, imageUrl);
+        job.thumbnailUrl = await persistGeneratedImage(userId, thumb);
         job.imageUrl = job.thumbnailUrl;
-        job.metadata = { ...job.metadata, thumbnailProvider: provider };
+        job.metadata = { ...job.metadata, thumbnailProvider: thumb.provider };
       } catch {
         job.thumbnailUrl = job.videoUrl;
         job.imageUrl = job.videoUrl;
@@ -1089,24 +1089,24 @@ export async function runMediaJob(
 
       job.status = 'completed';
     } else if (type.startsWith('vtuber')) {
-      const { imageUrl, provider } = await generateImage({
+      const vtuber = await generateImage({
         module: 'ai-image',
         dna,
         customPrompt: job.prompt,
       });
-      job.imageUrl = await persistImage(userId, imageUrl);
+      job.imageUrl = await persistGeneratedImage(userId, vtuber);
       job.thumbnailUrl = job.imageUrl;
-      job.provider = provider;
+      job.provider = vtuber.provider;
       job.status = 'completed';
       job.metadata = { ...job.metadata, exportFormats: ['PNG'] };
     } else {
-      const { imageUrl, provider } = await generateImage({
+      const still = await generateImage({
         module: 'ai-image',
         dna,
         customPrompt: job.prompt,
       });
-      job.thumbnailUrl = await persistImage(userId, imageUrl);
-      job.provider = provider;
+      job.thumbnailUrl = await persistGeneratedImage(userId, still);
+      job.provider = still.provider;
       job.status = 'completed';
     }
 
@@ -1135,6 +1135,23 @@ export async function runMediaJob(
 
   await saveMediaJob(job);
   return job;
+}
+
+async function persistGeneratedImage(
+  userId: string,
+  generated: { imageUrl?: string; imageBuffer?: Buffer; mimeType?: string }
+): Promise<string> {
+  if (generated.imageBuffer?.length) {
+    return uploadAssetFromBuffer(userId, generated.imageBuffer, {
+      folder: 'generations',
+      contentType: generated.mimeType || 'image/png',
+      extension: 'png',
+    });
+  }
+  if (!generated.imageUrl) {
+    throw new ServiceError(502, 'PROVIDER_INVALID_PAYLOAD', IMAGE_PROVIDER_FAILED_MESSAGE);
+  }
+  return persistImage(userId, generated.imageUrl);
 }
 
 async function persistImage(userId: string, url: string): Promise<string> {
