@@ -13,6 +13,7 @@ import {
   displayOperatorValue,
   evaluateLegalPublishGate,
   isCurrentLegalAcceptance,
+  isLegalPlaceholderValue,
   missingLegalOperatorFields,
   shouldForceLegalReacceptance,
   type LegalAcceptanceInput,
@@ -83,15 +84,46 @@ function operatorLine(label: string, field: LegalOperatorField): string {
   return `${label}: ${displayOperatorValue(LEGAL_OPERATOR[field])}`;
 }
 
+function providedOperatorValue(field: LegalOperatorField): string | null {
+  return isLegalPlaceholderValue(LEGAL_OPERATOR[field]) ? null : LEGAL_OPERATOR[field].trim();
+}
+
+function publicOperatorItems(): string[] {
+  const items = [
+    operatorLine('Name / Betreiber', 'operatorName'),
+    operatorLine('Geschäfts-/Projektname', 'companyName'),
+  ];
+  const legalForm = providedOperatorValue('legalForm');
+  if (legalForm) items.push(`${LEGAL_OPERATOR_FIELD_LABELS.legalForm}: ${legalForm}`);
+  items.push(operatorAddressLine());
+  items.push(operatorLine('E-Mail', 'contactEmail'));
+  const phone = providedOperatorValue('contactPhone');
+  if (phone) items.push(`${LEGAL_OPERATOR_FIELD_LABELS.contactPhone}: ${phone}`);
+  const vatId = providedOperatorValue('vatId');
+  if (vatId) items.push(`${LEGAL_OPERATOR_FIELD_LABELS.vatId}: ${vatId}`);
+  const registerCourt = providedOperatorValue('registerCourt');
+  if (registerCourt) items.push(`${LEGAL_OPERATOR_FIELD_LABELS.registerCourt}: ${registerCourt}`);
+  const registerNumber = providedOperatorValue('registerNumber');
+  if (registerNumber) items.push(`${LEGAL_OPERATOR_FIELD_LABELS.registerNumber}: ${registerNumber}`);
+  return items;
+}
+
 function operatorAddressLine(): string {
-  const street = displayOperatorValue(LEGAL_OPERATOR.street);
-  const postal = displayOperatorValue(LEGAL_OPERATOR.postalCode);
-  const city = displayOperatorValue(LEGAL_OPERATOR.city);
-  const country = displayOperatorValue(LEGAL_OPERATOR.country);
-  if ([street, postal, city, country].every((value) => value === 'nicht hinterlegt')) {
-    return 'Anschrift: nicht hinterlegt';
+  const street = providedOperatorValue('street');
+  const postal = providedOperatorValue('postalCode');
+  const city = providedOperatorValue('city');
+  const country = providedOperatorValue('country');
+  const known: string[] = [];
+  if (street) known.push(street);
+  const locality = [postal, city].filter(Boolean).join(' ').trim();
+  if (locality) known.push(locality);
+  if (country) known.push(country);
+  if (!street && !postal) {
+    if (!known.length) return 'Anschrift: noch nicht hinterlegt';
+    return `Anschrift: ${known.join(', ')} (Straße und PLZ noch nicht hinterlegt)`;
   }
-  return `Anschrift: ${street}, ${postal} ${city}, ${country}`;
+  if (!known.length) return 'Anschrift: noch nicht hinterlegt';
+  return `Anschrift: ${known.join(', ')}`;
 }
 
 function pageNotice(status: LegalPublicationStatus, missing: LegalOperatorField[]): string {
@@ -148,21 +180,11 @@ function impressumBlocks(): LegalBlock[] {
     { type: 'h2', text: 'Anbieter' },
     {
       type: 'p',
-      text: 'NEXTER Creator Studio ist der Produktname der Anwendung. Die folgenden Betreiberangaben sind nur hinterlegt, soweit reale Impressumsdaten zentral gepflegt sind. Fehlende Felder erscheinen als „nicht hinterlegt“. Es werden keine erfundenen Namen, Adressen oder Registerdaten verwendet.',
+      text: 'NEXTER Creator Studio ist der Produktname der Anwendung. Bestätigt sind derzeit Betreiber, Geschäfts-/Projektname, Ort und Land. Ladungsfähige Anschrift und geschäftliche E-Mail fehlen noch. Optionale Angaben wie Telefon, USt-IdNr. oder Handelsregister werden nur gezeigt, wenn sie hinterlegt sind — ein leeres Feld begründet keine rechtliche Pflicht. Es werden keine erfundenen Adressen oder Registerdaten verwendet.',
     },
     {
       type: 'ul',
-      items: [
-        operatorLine('Name / Betreiber', 'operatorName'),
-        operatorLine('Firma', 'companyName'),
-        operatorLine('Rechtsform', 'legalForm'),
-        operatorAddressLine(),
-        operatorLine('E-Mail', 'contactEmail'),
-        operatorLine('Telefon', 'contactPhone'),
-        operatorLine('USt-IdNr.', 'vatId'),
-        operatorLine('Registergericht', 'registerCourt'),
-        operatorLine('Registernummer', 'registerNumber'),
-      ],
+      items: publicOperatorItems(),
     },
   ];
   if (missing.length) {
@@ -170,7 +192,7 @@ function impressumBlocks(): LegalBlock[] {
       { type: 'h2', text: 'Fehlende Pflichtangaben' },
       {
         type: 'p',
-        text: 'Diese Felder sind für eine Veröffentlichung technisch erforderlich und derzeit nicht hinterlegt. Es werden keine Platzhalter als echte Angaben dargestellt.',
+        text: 'Diese Felder sind für eine Veröffentlichung technisch erforderlich und derzeit nicht hinterlegt. USt-IdNr., Handelsregister und Telefon werden dadurch nicht zu erfundenen Pflichten. Es werden keine Platzhalter als echte Angaben dargestellt.',
       },
       {
         type: 'ul',
@@ -204,11 +226,27 @@ function impressumBlocks(): LegalBlock[] {
   return blocks;
 }
 
-function privacyBlocks(): LegalBlock[] {
+function responsiblePartyText(): string {
   const missing = missingLegalOperatorFields();
-  const responsible = missing.length
-    ? 'Die verantwortliche Stelle ist der Betreiber von NEXTER Creator Studio. Name, Anschrift und Kontakt sind derzeit nicht hinterlegt. Siehe Impressum. Es werden keine erfundenen Betreiberdaten verwendet.'
-    : `Verantwortlich für die Verarbeitung ist der Betreiber: ${displayOperatorValue(LEGAL_OPERATOR.operatorName)}, ${displayOperatorValue(LEGAL_OPERATOR.companyName)} ${displayOperatorValue(LEGAL_OPERATOR.legalForm)}, ${displayOperatorValue(LEGAL_OPERATOR.street)}, ${displayOperatorValue(LEGAL_OPERATOR.postalCode)} ${displayOperatorValue(LEGAL_OPERATOR.city)}, ${displayOperatorValue(LEGAL_OPERATOR.country)}, ${displayOperatorValue(LEGAL_OPERATOR.contactEmail)}.`;
+  const known = [
+    providedOperatorValue('operatorName'),
+    providedOperatorValue('companyName'),
+    providedOperatorValue('city'),
+    providedOperatorValue('country'),
+  ].filter((value): value is string => Boolean(value));
+  if (missing.length) {
+    const knownLine = known.length ? ` Bekannte Angaben: ${known.join(', ')}.` : '';
+    return `Die verantwortliche Stelle ist der Betreiber von NEXTER Creator Studio.${knownLine} Ladungsfähige Anschrift und geschäftliche Kontakt-E-Mail sind noch nicht hinterlegt. Siehe Impressum. Es werden keine erfundenen Betreiberdaten verwendet.`;
+  }
+  const legalForm = providedOperatorValue('legalForm');
+  const street = providedOperatorValue('street');
+  const postal = providedOperatorValue('postalCode');
+  const locality = [postal, providedOperatorValue('city')].filter(Boolean).join(' ');
+  return `Verantwortlich für die Verarbeitung ist der Betreiber: ${known.join(', ')}${legalForm ? `, ${legalForm}` : ''}${street ? `, ${street}` : ''}${locality ? `, ${locality}` : ''}, ${displayOperatorValue(LEGAL_OPERATOR.contactEmail)}.`;
+}
+
+function privacyBlocks(): LegalBlock[] {
+  const responsible = responsiblePartyText();
   return [
     {
       type: 'note',
@@ -538,7 +576,7 @@ const PAGES: Record<LegalPublicSlug, () => LegalPagePayload> = {
     page(
       'impressum',
       'Impressum',
-      'Impressum-Entwurf von NEXTER Creator Studio. Betreiberangaben sind nicht hinterlegt, solange sie nicht real gepflegt sind.',
+      'Impressum-Entwurf von NEXTER Creator Studio. Bestätigte Angaben: Lars Gaube, NEXTER, Hamburg, Deutschland. Ladungsfähige Anschrift und Kontakt-E-Mail fehlen noch. Keine Finalfassung.',
       impressumBlocks()
     ),
   datenschutz: () =>

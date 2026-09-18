@@ -113,10 +113,13 @@ describe('legal pages local closure', () => {
 
   it('keeps operator placeholders and does not invent company data', () => {
     const fields = missingLegalOperatorFields();
-    assert.ok(fields.length >= 8);
-    assert.ok(fields.includes('operatorName'));
+    assert.ok(fields.includes('street'));
+    assert.ok(fields.includes('postalCode'));
     assert.ok(fields.includes('contactEmail'));
-    assert.ok(fields.includes('vatId'));
+    assert.equal(fields.includes('operatorName'), false);
+    assert.equal(fields.includes('vatId'), false);
+    assert.equal(fields.includes('registerCourt'), false);
+    assert.equal(fields.includes('registerNumber'), false);
     const impressum = getLegalPage('impressum')!;
     assert.equal(/EINTRAGEN/.test(impressum.html), false);
     assert.match(impressum.html, /nicht hinterlegt/);
@@ -126,7 +129,8 @@ describe('legal pages local closure', () => {
     assertNoFakeOperator(impressum.html);
     assertNoFakeOperator(legalService);
     assertNoFakeOperator(legalPage);
-    assert.equal(LEGAL_OPERATOR.operatorName.includes('EINTRAGEN'), true);
+    assert.equal(LEGAL_OPERATOR.operatorName, 'Lars Gaube');
+    assert.equal(LEGAL_OPERATOR.operatorName.includes('EINTRAGEN'), false);
   });
 
   it('privacy/terms inventory matches actual architecture', () => {

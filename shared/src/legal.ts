@@ -12,7 +12,7 @@ export const LEGAL_TERMS_VERSION = 'draft-terms-1';
 export const LEGAL_PRIVACY_VERSION = 'draft-privacy-1';
 
 /** Technical content date only. Not a legal-review or publication date. */
-export const LEGAL_LAST_UPDATED = '2026-09-17';
+export const LEGAL_LAST_UPDATED = '2026-09-18';
 
 /**
  * When true AND texts are no longer draft, missing/outdated acceptance may gate the app.
@@ -39,7 +39,7 @@ export type LegalOperatorField = keyof typeof LEGAL_PLACEHOLDER;
 
 export const LEGAL_OPERATOR_FIELD_LABELS: Record<LegalOperatorField, string> = {
   operatorName: 'Name / Betreiber',
-  companyName: 'Firma',
+  companyName: 'Geschäfts-/Projektname',
   legalForm: 'Rechtsform',
   street: 'Straße',
   postalCode: 'PLZ',
@@ -52,8 +52,48 @@ export const LEGAL_OPERATOR_FIELD_LABELS: Record<LegalOperatorField, string> = {
   registerNumber: 'Registernummer',
 };
 
-/** Production operator values. Placeholders only — never invent real data here. */
-export const LEGAL_OPERATOR: Record<LegalOperatorField, string> = { ...LEGAL_PLACEHOLDER };
+/**
+ * Fields that must be real values before the publish gate may open.
+ * Empty VAT / register / phone / legal form are not invented legal duties.
+ */
+export const LEGAL_PUBLISH_REQUIRED_FIELDS: readonly LegalOperatorField[] = [
+  'operatorName',
+  'companyName',
+  'street',
+  'postalCode',
+  'city',
+  'country',
+  'contactEmail',
+];
+
+export const LEGAL_OPTIONAL_OPERATOR_FIELDS: readonly LegalOperatorField[] = [
+  'legalForm',
+  'contactPhone',
+  'vatId',
+  'registerCourt',
+  'registerNumber',
+];
+
+export const LEGAL_MISSING_DISPLAY = 'noch nicht hinterlegt';
+
+/**
+ * Confirmed operator facts only. Empty string = not provided / missing.
+ * Never invent street, e-mail, phone, VAT or register data.
+ */
+export const LEGAL_OPERATOR: Record<LegalOperatorField, string> = {
+  operatorName: 'Lars Gaube',
+  companyName: 'NEXTER',
+  legalForm: '',
+  street: '',
+  postalCode: '',
+  city: 'Hamburg',
+  country: 'Deutschland',
+  contactEmail: '',
+  contactPhone: '',
+  vatId: '',
+  registerCourt: '',
+  registerNumber: '',
+};
 
 export const LEGAL_PUBLIC_SLUGS = ['impressum', 'datenschutz', 'agb', 'widerruf', 'cookies'] as const;
 export type LegalPublicSlug = (typeof LEGAL_PUBLIC_SLUGS)[number];
@@ -100,10 +140,14 @@ export function shouldForceLegalReacceptance(
   return record.termsVersion !== LEGAL_TERMS_VERSION || record.privacyVersion !== LEGAL_PRIVACY_VERSION;
 }
 
-export function isLegalPlaceholderValue(value: string | undefined): boolean {
+export function isLegalPlaceholderValue(value: string | undefined | null): boolean {
   const trimmed = (value ?? '').trim();
   if (!trimmed) return true;
   return /\[[^\]]*EINTRAGEN[^\]]*\]/i.test(trimmed);
+}
+
+export function isLegalPublishRequiredField(field: LegalOperatorField): boolean {
+  return LEGAL_PUBLISH_REQUIRED_FIELDS.includes(field);
 }
 
 export function hasActiveLegalPlaceholderToken(text: string): boolean {
@@ -113,13 +157,14 @@ export function hasActiveLegalPlaceholderToken(text: string): boolean {
 export function missingLegalOperatorFields(
   operator: Record<LegalOperatorField, string> = LEGAL_OPERATOR
 ): LegalOperatorField[] {
-  return (Object.keys(LEGAL_OPERATOR_FIELD_LABELS) as LegalOperatorField[]).filter((key) =>
-    isLegalPlaceholderValue(operator[key])
-  );
+  return LEGAL_PUBLISH_REQUIRED_FIELDS.filter((key) => isLegalPlaceholderValue(operator[key]));
 }
 
-export function displayOperatorValue(value: string | undefined): string {
-  return isLegalPlaceholderValue(value) ? 'nicht hinterlegt' : String(value).trim();
+export function displayOperatorValue(value: string | undefined | null): string {
+  if (value === undefined || value === null || isLegalPlaceholderValue(value)) {
+    return LEGAL_MISSING_DISPLAY;
+  }
+  return String(value).trim();
 }
 
 export interface LegalPublishGateInput {

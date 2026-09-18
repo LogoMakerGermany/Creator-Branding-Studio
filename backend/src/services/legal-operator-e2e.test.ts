@@ -15,11 +15,16 @@ import {
   LEGAL_REACCEPTANCE_REQUIRED,
   LEGAL_TERMS_VERSION,
   LEGAL_TEXT_STATUS,
+  CoinSpendCategory,
   currentDraftLegalAcceptanceInput,
+  displayOperatorValue,
   evaluateLegalPublishGate,
   hasActiveLegalPlaceholderToken,
+  isLegalPlaceholderValue,
   missingLegalOperatorFields,
   shouldForceLegalReacceptance,
+  STREAMSET_PACK_COIN_COST,
+  STREAMSET_THREE_PART_COIN_COST,
   type LegalOperatorField,
 } from '@ucbs/shared';
 import { isPathAllowedForGate } from '../../../frontend/src/lib/auth-gates.ts';
@@ -104,8 +109,11 @@ describe('Block D — legal operator + draft publish readiness', () => {
       assert.equal(/Lorem ipsum/i.test(page.html), false, slug);
       assert.equal(/\[NAME\]|\[ADRESSE\]/.test(page.html), false, slug);
     }
-    assert.equal(LEGAL_OPERATOR.operatorName, LEGAL_PLACEHOLDER.operatorName);
-    assert.ok(missingLegalOperatorFields().length >= 8);
+    assert.equal(LEGAL_OPERATOR.operatorName, 'Lars Gaube');
+    assert.ok(missingLegalOperatorFields().includes('street'));
+    assert.ok(missingLegalOperatorFields().includes('postalCode'));
+    assert.ok(missingLegalOperatorFields().includes('contactEmail'));
+    assert.equal(missingLegalOperatorFields().includes('operatorName'), false);
     assert.match(getLegalPage('impressum')!.html, /nicht hinterlegt/);
     assert.equal(legalService.includes('Max Mustermann'), false);
     assert.equal(legalService.includes('Musterstraße'), false);
@@ -123,7 +131,10 @@ describe('Block D — legal operator + draft publish readiness', () => {
     });
     assert.equal(missing.publishable, false);
     assert.equal(missing.status, 'incomplete');
-    assert.ok(missing.missingOperatorFields.includes('operatorName'));
+    assert.ok(missing.missingOperatorFields.includes('street'));
+    assert.ok(missing.missingOperatorFields.includes('contactEmail'));
+    assert.equal(missing.missingOperatorFields.includes('operatorName'), false);
+    assert.equal(missing.missingOperatorFields.includes('vatId'), false);
     assert.ok(missing.reasons.includes('missing_operator_data'));
 
     const complete = evaluateLegalPublishGate({
@@ -217,5 +228,135 @@ describe('Block D — legal operator + draft publish readiness', () => {
     assert.match(adminRoutes, /requireRole\(UserRole\.ADMIN, UserRole\.SUPER_ADMIN\)/);
     const uid = `legal-d-${randomUUID()}`;
     assert.ok(uid.startsWith('legal-d-'));
+  });
+});
+
+describe('Block D/R — confirmed operator data stays draft', () => {
+  const requiredOnlyOperator: Record<LegalOperatorField, string> = {
+    operatorName: 'TEST_OPERATOR_COMPLETE',
+    companyName: 'TEST_COMPANY_COMPLETE',
+    legalForm: '',
+    street: 'TEST_STREET_1',
+    postalCode: '00000',
+    city: 'TEST_CITY',
+    country: 'TEST_COUNTRY',
+    contactEmail: 'operator@test.invalid',
+    contactPhone: '',
+    vatId: '',
+    registerCourt: '',
+    registerNumber: '',
+  };
+
+  it('1-4. shows confirmed operator, business name, city and country', () => {
+    const impressum = getLegalPage('impressum')!;
+    assert.equal(LEGAL_OPERATOR.operatorName, 'Lars Gaube');
+    assert.equal(LEGAL_OPERATOR.companyName, 'NEXTER');
+    assert.equal(LEGAL_OPERATOR.city, 'Hamburg');
+    assert.equal(LEGAL_OPERATOR.country, 'Deutschland');
+    assert.match(impressum.html, /Lars Gaube/);
+    assert.match(impressum.html, /Geschäfts-\/Projektname: NEXTER/);
+    assert.match(impressum.html, /Hamburg/);
+    assert.match(impressum.html, /Deutschland/);
+    assert.equal(impressum.draft, true);
+    assert.equal(impressum.publishable, false);
+  });
+
+  it('5-10. does not invent street, postal code, e-mail, phone, VAT or register data', () => {
+    assert.equal(isLegalPlaceholderValue(LEGAL_OPERATOR.street), true);
+    assert.equal(isLegalPlaceholderValue(LEGAL_OPERATOR.postalCode), true);
+    assert.equal(isLegalPlaceholderValue(LEGAL_OPERATOR.contactEmail), true);
+    assert.equal(isLegalPlaceholderValue(LEGAL_OPERATOR.contactPhone), true);
+    assert.equal(isLegalPlaceholderValue(LEGAL_OPERATOR.vatId), true);
+    assert.equal(isLegalPlaceholderValue(LEGAL_OPERATOR.registerCourt), true);
+    assert.equal(isLegalPlaceholderValue(LEGAL_OPERATOR.registerNumber), true);
+    assert.equal(LEGAL_OPERATOR.street, '');
+    assert.equal(LEGAL_OPERATOR.postalCode, '');
+    assert.equal(LEGAL_OPERATOR.contactEmail, '');
+    const impressum = getLegalPage('impressum')!.html;
+    assert.doesNotMatch(impressum, /Musterstraße|Example Street|Fiktive Straße/i);
+    assert.doesNotMatch(impressum, /\b\d{5}\b/);
+    assert.doesNotMatch(impressum, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    assert.doesNotMatch(impressum, /\+49|Telefon:/);
+    assert.doesNotMatch(impressum, /USt-IdNr\.:|DE\d{9}/);
+    assert.doesNotMatch(impressum, /Registergericht:|Registernummer:|HRB\s*\d+/);
+    assert.equal(LEGAL_PLACEHOLDER.street.includes('EINTRAGEN'), true);
+  });
+
+  it('11. never prints undefined, null or PLACEHOLDER as operator values', () => {
+    assert.equal(displayOperatorValue(undefined), 'noch nicht hinterlegt');
+    assert.equal(displayOperatorValue(null), 'noch nicht hinterlegt');
+    for (const slug of LEGAL_PUBLIC_SLUGS) {
+      const html = getLegalPage(slug)!.html;
+      assert.doesNotMatch(html, /\bundefined\b/);
+      assert.doesNotMatch(html, /\bnull\b/);
+      assert.doesNotMatch(html, /\bPLACEHOLDER\b/);
+    }
+  });
+
+  it('12-14. publish gate stays closed because address and contact e-mail are missing', () => {
+    const live = evaluateLegalPublishGate({
+      intendedStatus: 'final',
+      operator: LEGAL_OPERATOR,
+      lastUpdated: LEGAL_LAST_UPDATED,
+      termsVersion: LEGAL_TERMS_VERSION,
+      privacyVersion: LEGAL_PRIVACY_VERSION,
+      contentPresent: true,
+      userFacingHtml: '<p>NEXTER Creator Studio</p>',
+    });
+    assert.equal(live.publishable, false);
+    assert.equal(getLegalPage('impressum')!.publishable, false);
+    assert.equal(LEGAL_TEXT_STATUS, 'draft');
+    assert.ok(live.missingOperatorFields.includes('street'));
+    assert.ok(live.missingOperatorFields.includes('postalCode'));
+    assert.ok(live.missingOperatorFields.includes('contactEmail'));
+    assert.match(getLegalPage('impressum')!.html, /Straße und PLZ noch nicht hinterlegt/);
+    assert.match(getLegalPage('impressum')!.html, /E-Mail: noch nicht hinterlegt/);
+  });
+
+  it('15-16. empty VAT or register fields alone are not invented publish blockers', () => {
+    const gate = evaluateLegalPublishGate({
+      intendedStatus: 'final',
+      operator: requiredOnlyOperator,
+      lastUpdated: LEGAL_LAST_UPDATED,
+      termsVersion: 'v-final-terms',
+      privacyVersion: 'v-final-privacy',
+      contentPresent: true,
+      userFacingHtml: '<p>NEXTER Creator Studio</p>',
+    });
+    assert.equal(gate.publishable, true);
+    assert.deepEqual(gate.missingOperatorFields, []);
+    assert.equal(gate.missingOperatorFields.includes('vatId'), false);
+    assert.equal(gate.missingOperatorFields.includes('registerCourt'), false);
+    assert.equal(gate.missingOperatorFields.includes('registerNumber'), false);
+    assert.equal(gate.missingOperatorFields.includes('contactPhone'), false);
+  });
+
+  it('17-19. Block R content-rights safety, reporting and takedown stay in place', () => {
+    const agb = getLegalPage('agb')!.html;
+    assert.match(agb, /TODO — User Content Rights/);
+    assert.match(agb, /TODO — Copyright\/Trademark Complaints/);
+    assert.match(agb, /TODO — AI Generated Content/);
+    assert.match(agb, /TODO — Voice Consent/);
+    assert.match(agb, /TODO — Commercial Use/);
+    assert.match(agb, /TODO — Provider Terms/);
+    assert.match(agb, /LEGAL REVIEW REQUIRED/);
+    const rights = repo('backend/src/services/content-rights.service.ts');
+    assert.match(rights, /submitContentRightsReport/);
+    assert.match(rights, /adminTakedownReportedFile/);
+    assert.match(rights, /deleteUserFile/);
+    assert.match(rights, /applyRightsTakedownFlag/);
+    assert.doesNotMatch(rights, /acceptRightsForUser/);
+  });
+
+  it('20. pricing, payments and draft legal status stay unchanged', () => {
+    assert.equal(getDefaultFreeCoins(), 50);
+    assert.equal(COIN_COSTS[CoinSpendCategory.LOGO_GENERATION], 15);
+    assert.equal(COIN_COSTS[CoinSpendCategory.AI_MUSIC], 10);
+    assert.equal(COIN_COSTS[CoinSpendCategory.ANIMATION_GENERATION], 25);
+    assert.equal(COIN_COSTS[CoinSpendCategory.AI_VIDEO], 25);
+    assert.equal(STREAMSET_THREE_PART_COIN_COST, 75);
+    assert.equal(STREAMSET_PACK_COIN_COST, 200);
+    assert.equal(arePaymentsEnabled(), false);
+    assert.equal(LEGAL_TEXT_STATUS, 'draft');
   });
 });
