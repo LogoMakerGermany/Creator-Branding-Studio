@@ -6,6 +6,7 @@ import {
   isFirebaseAdminConfigured,
   arePaymentsEnabled,
   getAiProviderStatus,
+  getPaidGenerationAvailability,
   getFirebaseProjectConsistency,
   getFirebaseAuthEmailStatus,
   getCustomEmailProviderStatus,
@@ -344,6 +345,7 @@ export async function getAdminSystemStatus() {
       updatedAt: settings.updatedAt,
     },
     providers: getAiProviderStatus(),
+    generationAvailability: getPaidGenerationAvailability(),
   };
 }
 

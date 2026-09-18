@@ -48,7 +48,9 @@ describe('music duration validation', () => {
   it('assertMusicDurationSupported throws MUSIC_DURATION_UNSUPPORTED over max', () => {
     const prevToken = process.env.REPLICATE_API_TOKEN;
     const prevProv = process.env.MUSIC_PROVIDER;
+    const prevMusicFlag = process.env.MUSIC_GENERATIONS_ENABLED;
     process.env.REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN || 'test-token';
+    process.env.MUSIC_GENERATIONS_ENABLED = 'true';
     delete process.env.MUSIC_PROVIDER;
     try {
       assert.throws(
@@ -60,6 +62,8 @@ describe('music duration validation', () => {
       else process.env.REPLICATE_API_TOKEN = prevToken;
       if (prevProv === undefined) delete process.env.MUSIC_PROVIDER;
       else process.env.MUSIC_PROVIDER = prevProv;
+      if (prevMusicFlag === undefined) delete process.env.MUSIC_GENERATIONS_ENABLED;
+      else process.env.MUSIC_GENERATIONS_ENABLED = prevMusicFlag;
     }
   });
 });

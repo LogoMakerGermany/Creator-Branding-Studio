@@ -88,8 +88,9 @@ Do **not** paste private keys, tokens, or Railway tokens into chat, tickets, or 
 
 - Chat: `NEXTER_CHAT_ENABLED=true` **and** `OPENAI_API_KEY`
 - Image live: `IMAGE_GENERATIONS_ENABLED=true` **and** provider configuration
+- Video: `VIDEO_GENERATIONS_ENABLED=true` **and** RUNWAY_API_KEY or REPLICATE_API_TOKEN
+- Music: `MUSIC_GENERATIONS_ENABLED=true` **and** REPLICATE_API_TOKEN (MusicGen). One Replicate token does not enable image, music, and video together
 - TTS provider: `TTS_GENERATION_ENABLED=true` **and** provider key (browser TTS stays 0 coins)
-- Music / video providers: respective keys + existing gates
 - Transactional email: `RESEND_API_KEY` + `EMAIL_FROM`
 - Payments: Stripe / PayPal names only if payments are later enabled
 - OAuth client IDs/secrets: only when that provider is configured

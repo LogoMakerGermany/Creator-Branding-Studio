@@ -22,6 +22,11 @@ function requireEnv(key: string): string {
   return value;
 }
 
+/** Fail-closed feature flag: only the exact case-insensitive value "true" enables. */
+function isEnvFlagTrue(key: string): boolean {
+  return readEnv(key)?.toLowerCase() === 'true';
+}
+
 // ─── Runtime / server ───────────────────────────────────────────────────────
 
 export function isProduction(): boolean {
@@ -71,25 +76,34 @@ export function areGenerationsEnabled(): boolean {
   return readEnv('GENERATIONS_ENABLED') !== 'false';
 }
 
+/**
+ * Live studio images (OpenAI DALL·E / Replicate Flux). Fail-closed.
+ * Global GENERATIONS_ENABLED must not be false, and IMAGE_GENERATIONS_ENABLED must be exactly "true".
+ * OPENAI_API_KEY or REPLICATE_API_TOKEN alone does not enable image generation.
+ */
 export function areImageGenerationsEnabled(): boolean {
-  return areGenerationsEnabled() && readEnv('IMAGE_GENERATIONS_ENABLED') !== 'false';
+  return areGenerationsEnabled() && isEnvFlagTrue('IMAGE_GENERATIONS_ENABLED');
+}
+
+/** Alias of areImageGenerationsEnabled — kept for existing image/chat isolation tests. */
+export function isOpenAiImageGenerationLiveEnabled(): boolean {
+  return areImageGenerationsEnabled();
 }
 
 /**
- * Live DALL·E / OpenAI image calls. Fail-closed.
- * OPENAI_API_KEY alone (e.g. for Nexter text-chat) does not enable image generation.
- * Only the exact value "true" on IMAGE_GENERATIONS_ENABLED allows a live image provider call.
+ * Live video (Runway / Replicate). Fail-closed.
+ * A provider key alone must not enable video. Only exact "true" on VIDEO_GENERATIONS_ENABLED.
  */
-export function isOpenAiImageGenerationLiveEnabled(): boolean {
-  return areGenerationsEnabled() && readEnv('IMAGE_GENERATIONS_ENABLED')?.toLowerCase() === 'true';
-}
-
 export function areVideoGenerationsEnabled(): boolean {
-  return areGenerationsEnabled() && readEnv('VIDEO_GENERATIONS_ENABLED') !== 'false';
+  return areGenerationsEnabled() && isEnvFlagTrue('VIDEO_GENERATIONS_ENABLED');
 }
 
+/**
+ * Live music (Replicate MusicGen). Fail-closed.
+ * REPLICATE_API_TOKEN alone must not enable music. Only exact "true" on MUSIC_GENERATIONS_ENABLED.
+ */
 export function areMusicGenerationsEnabled(): boolean {
-  return areGenerationsEnabled() && readEnv('MUSIC_GENERATIONS_ENABLED') !== 'false';
+  return areGenerationsEnabled() && isEnvFlagTrue('MUSIC_GENERATIONS_ENABLED');
 }
 
 /**
@@ -98,7 +112,7 @@ export function areMusicGenerationsEnabled(): boolean {
  * Only the exact value "true" on TTS_GENERATION_ENABLED allows a provider call.
  */
 export function isTtsGenerationEnabled(): boolean {
-  return areGenerationsEnabled() && readEnv('TTS_GENERATION_ENABLED')?.toLowerCase() === 'true';
+  return areGenerationsEnabled() && isEnvFlagTrue('TTS_GENERATION_ENABLED');
 }
 
 export function isElevenLabsTtsLiveEnabled(): boolean {
@@ -111,7 +125,7 @@ export function isElevenLabsTtsLiveEnabled(): boolean {
  * OPENAI_API_KEY alone must not enable chat.
  */
 export function isNexterChatEnabled(): boolean {
-  return readEnv('NEXTER_CHAT_ENABLED')?.toLowerCase() === 'true';
+  return isEnvFlagTrue('NEXTER_CHAT_ENABLED');
 }
 
 export const NEXTER_CHAT_MODEL_DEFAULT = 'gpt-4o-mini';
@@ -130,7 +144,7 @@ export function isNexterChatProviderAvailable(): boolean {
 }
 
 export function arePaymentsEnabled(): boolean {
-  return readEnv('PAYMENTS_ENABLED')?.toLowerCase() === 'true';
+  return isEnvFlagTrue('PAYMENTS_ENABLED');
 }
 
 export function getDailyProviderBudgetCents(): number | null {
@@ -479,27 +493,47 @@ export function getAiProviderStatus(): Record<string, ProviderConfigStatus> {
 }
 
 /**
- * Live studio images require IMAGE_GENERATIONS_ENABLED=true (exact).
- * A Replicate token must not bypass that kill switch.
+ * Live studio images require IMAGE_GENERATIONS_ENABLED=true (exact) plus credentials.
+ * A Replicate token must not bypass that kill switch or enable music/video.
  * OpenAI key alone still does not enable images.
  */
 export function hasImageAiProvider(): boolean {
-  if (!isOpenAiImageGenerationLiveEnabled()) return false;
+  if (!areImageGenerationsEnabled()) return false;
   return Boolean(getOpenAiApiKey() || getReplicateApiToken());
 }
 
-/** ENV presence only — Runway or Replicate video, and video generations not killed. */
+/** Runway or Replicate video — only when VIDEO_GENERATIONS_ENABLED is exactly true. */
 export function hasVideoAiProvider(): boolean {
   return areVideoGenerationsEnabled() && Boolean(getRunwayApiKey() || getReplicateApiToken());
 }
 
-/** ENV presence only — MusicGen via Replicate. Unofficial Suno does not count. */
+/** MusicGen via Replicate — only when MUSIC_GENERATIONS_ENABLED is exactly true. Unofficial Suno does not count. */
 export function hasMusicAiProvider(): boolean {
   if (!areMusicGenerationsEnabled()) return false;
   const pref = getMusicProviderPreference()?.toLowerCase();
   if (pref === 'suno') return false;
   if (pref && pref !== 'replicate' && pref !== 'replicate-musicgen') return false;
   return Boolean(getReplicateApiToken());
+}
+
+/**
+ * Execution-aligned availability. Credential presence alone is never "available".
+ * Shared REPLICATE_API_TOKEN is isolated per feature flag.
+ */
+export function getPaidGenerationAvailability(): {
+  image: boolean;
+  video: boolean;
+  music: boolean;
+  tts: boolean;
+  chat: boolean;
+} {
+  return {
+    image: hasImageAiProvider(),
+    video: hasVideoAiProvider(),
+    music: hasMusicAiProvider(),
+    tts: isElevenLabsTtsLiveEnabled(),
+    chat: isNexterChatProviderAvailable(),
+  };
 }
 
 export function getResendApiKey(): string | undefined {

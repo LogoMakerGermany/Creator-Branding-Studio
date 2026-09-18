@@ -13,6 +13,7 @@ import {
   areGenerationsEnabled,
   areImageGenerationsEnabled,
   areVideoGenerationsEnabled,
+  areMusicGenerationsEnabled,
   isTtsGenerationEnabled,
 } from '../config/env.js';
 import { ServiceError } from './errors.js';
@@ -72,6 +73,9 @@ export function getMusicProviderLimits(): MusicProviderLimits {
       message: `Unbekannter MUSIC_PROVIDER „${pref}“. Unterstützt: replicate (MusicGen). Offizielles Suno ist nicht konfiguriert.`,
       code: 'MUSIC_PROVIDER_DISABLED',
     };
+  }
+  if (!areMusicGenerationsEnabled()) {
+    return { ok: false, message: MUSIC_PROVIDER_UNAVAILABLE_MESSAGE, code: 'AI_NOT_CONFIGURED' };
   }
   if (!getReplicateApiToken()) {
     if (getSunoApiKey()) {
@@ -190,6 +194,9 @@ export async function generateMusic(
   }
   if (!areGenerationsEnabled()) {
     throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
+  }
+  if (!areMusicGenerationsEnabled() || !hasMusicAiProvider()) {
+    throwMusicProviderUnavailable();
   }
   const limits = requireMusicProviderLimits();
   const requested = options?.duration ?? limits.maxDurationSec;
@@ -310,8 +317,11 @@ export async function generateVideoThumbnail(
       'Video-Thumbnails sind provider-gated und in Tests blockiert'
     );
   }
-  if (!areImageGenerationsEnabled()) {
+  if (!areGenerationsEnabled()) {
     throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
+  }
+  if (!areImageGenerationsEnabled()) {
+    throwImageGenerationUnavailable();
   }
   const token = getReplicateApiToken();
   if (!token) {
@@ -419,8 +429,11 @@ export async function generateVideo(
       'Video-Generierung ist provider-gated und in Tests blockiert'
     );
   }
-  if (!areVideoGenerationsEnabled()) {
+  if (!areGenerationsEnabled()) {
     throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
+  }
+  if (!areVideoGenerationsEnabled()) {
+    throwVideoProviderUnavailable();
   }
   if (getRunwayApiKey()) {
     return generateVideoWithRunway(prompt, options);

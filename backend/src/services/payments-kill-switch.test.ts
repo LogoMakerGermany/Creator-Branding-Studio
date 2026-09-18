@@ -165,7 +165,8 @@ describe('P1 payment kill switch — PAYMENTS_ENABLED', () => {
     const coinsPage = repo('frontend/src/pages/coins/CoinsPage.tsx');
     const api = repo('frontend/src/services/api.ts');
 
-    assert.match(env, /readEnv\('PAYMENTS_ENABLED'\)\?\.toLowerCase\(\) === 'true'/);
+    assert.match(env, /function isEnvFlagTrue/);
+    assert.match(env, /isEnvFlagTrue\('PAYMENTS_ENABLED'\)/);
 
     const stripeCheckout = routeHandler(stripe, '/checkout');
     assert.match(stripeCheckout, /assertNewPaymentsAllowed/);
