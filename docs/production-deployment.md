@@ -22,7 +22,7 @@ Do **not** paste private keys, tokens, or Railway tokens into chat, tickets, or 
 | Service | `nexter-creator-studio` |
 | GitHub repo | `LogoMakerGermany/Creator-Branding-Studio` |
 | Release branch used for commits | `cursor/phase1-invite-pricing-ledger` |
-| Linked GitHub default branch (dashboard) | `main` — do not switch; deploys pin an explicit commit SHA |
+| Linked GitHub production branch | `main` — must fast-forward to the approved NEXTER release. ENV-only Railway rebuilds use this branch HEAD, not a previously pinned SHA. |
 | Builder | `DOCKERFILE` |
 | Dockerfile | `/Dockerfile` (repo root) |
 | Root directory | repository root |
@@ -118,10 +118,11 @@ A bad Firebase Admin config still fail-closes startup (no Dev Store fallback). `
 2. `npm run typecheck` and backend + frontend `npm run build`
 3. Secret scan the diff (no live Stripe secrets, PEM blocks, or Railway API tokens)
 4. Commit on `cursor/phase1-invite-pricing-ledger`
-5. Push, then deploy the **existing** service `nexter-creator-studio` in environment `production` (explicit commit SHA). No env/domain/replica/volume/database changes.
-6. Wait until Railway deployment `SUCCESS` and `GET /health` → 200
-7. Read-only smoke: `/api/v1/status` (Firebase production, payments off, invite_only, no provider activation), `GET /`, `GET /login`, `GET /legal/impressum`, one SPA path such as `/nexter` (HTML shell, no login)
-8. If unhealthy, rollback (below)
+5. Fast-forward `main` to that approved commit (`git merge --ff-only`). Railway production is connected to `main`; an ENV-only rebuild will use `main` HEAD, not an older pinned SHA.
+6. Push both branches, then deploy the **existing** service `nexter-creator-studio` in environment `production`. No env/domain/replica/volume/database changes.
+7. Wait until Railway deployment `SUCCESS` and `GET /health` → 200
+8. Read-only smoke: `/api/v1/status` (Firebase production, payments off, invite_only, no provider activation), `GET /`, `GET /login`, `GET /legal/impressum`, one SPA path such as `/nexter` (HTML shell, no login)
+9. If unhealthy, rollback (below)
 
 Do not run `railway variables set/delete/update`. Do not use `npm run railway:vars` as part of a normal code deploy.
 

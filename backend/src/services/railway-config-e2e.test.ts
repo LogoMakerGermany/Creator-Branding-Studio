@@ -235,6 +235,7 @@ describe('Block J — Railway config-as-code / IaC readiness', () => {
     assert.doesNotMatch(tomlText, /nexter-creator-studio-production\.up\.railway\.app/);
     assert.match(docs, /LogoMakerGermany\/Creator-Branding-Studio/);
     assert.match(docs, /cursor\/phase1-invite-pricing-ledger/);
+    assert.match(docs, /ENV-only Railway rebuilds use this branch HEAD/);
     assert.doesNotMatch(tomlText, /IMAGE_GENERATIONS_ENABLED|TTS_GENERATION_ENABLED|PAYMENTS_ENABLED|NEXTER_CHAT_ENABLED|VIDEO_GENERATIONS_ENABLED|MUSIC_GENERATIONS_ENABLED/);
     assert.match(gitignore, /\.env/);
     assert.match(gitignore, /backend\/\.env\.railway/);
