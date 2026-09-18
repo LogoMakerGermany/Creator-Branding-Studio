@@ -14,6 +14,12 @@ import {
   logoConfigFromDna,
   logoDownloadFilename,
   logoNeedsFollowUp,
+  pickLatestCompletedLogoResult,
+  resolveLogoStudioPreview,
+  logoStudioPreviewLabel,
+  LOGO_CONFIG_PREVIEW_LABEL,
+  LOGO_GENERATED_RESULT_LABEL,
+  LOGO_FAILED_PREVIEW_LABEL,
   parseLogoIntent,
   sanitizeLogoStyleRequest,
   validateLogoDimensions,
@@ -447,5 +453,110 @@ describe('logo closure — provider and payment safety', () => {
     const page = src('../../../frontend/src/pages/studios/LogoStudioPage.tsx');
     assert.match(page, /logo-nexter-chip/);
     assert.match(page, /logo-design-summary/);
+    assert.match(page, /pickLatestCompletedLogoResult/);
+    assert.match(page, /logo-generated-result/);
+    assert.match(page, /lastCompletedQuote/);
+    assert.match(page, /logoStudioPreviewLabel/);
+    assert.doesNotMatch(page, /Konfigurationsvorschau — noch kein generiertes Logo/);
+    const preview = src('../../../frontend/src/components/studio/LogoLivePreview.tsx');
+    assert.match(preview, /logo-config-preview-badge/);
+    assert.doesNotMatch(preview, /'MAGIK AI'/);
+    const panel = src('../../../frontend/src/components/nexter/NexterPanel.tsx');
+    assert.match(panel, /notifyQuoteCompleted/);
+    assert.match(panel, /api\.nexter\.confirmQuote/);
+    const hook = src('../../../frontend/src/hooks/useStudioProjects.ts');
+    assert.match(hook, /lastCompletedQuote\.kind !== module/);
+    assert.doesNotMatch(hook, /api\.studio\.generate|confirmQuote/);
+    const hydrate = src('./logo.service.ts');
+    assert.match(hydrate, /issueFileDownloadUrl/);
+    assert.match(hydrate, /fileMissing/);
+  });
+});
+
+describe('logo studio result display — generated vs configuration', () => {
+  it('picks completed owned results and never treats placeholders or failures as success', () => {
+    const generated = pickLatestCompletedLogoResult([
+      { id: 'old', status: 'completed', imageUrl: 'https://signed.example/old', createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'new', status: 'completed', imageUrl: 'https://signed.example/new', completedAt: '2026-09-18T14:54:35.905Z' },
+      { id: 'fail', status: 'failed', error: 'provider' },
+      { id: 'missing', status: 'completed', fileMissing: true },
+    ]);
+    assert.equal(generated?.id, 'new');
+    const preferred = pickLatestCompletedLogoResult(
+      [
+        { id: 'old', status: 'completed', imageUrl: 'https://signed.example/old', createdAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'job-1', status: 'completed', imageUrl: 'https://signed.example/job', completedAt: '2026-09-18T14:54:35.905Z' },
+      ],
+      ['job-1']
+    );
+    assert.equal(preferred?.id, 'job-1');
+    assert.equal(pickLatestCompletedLogoResult([{ id: 'fail', status: 'failed', error: 'x' }]), null);
+    assert.equal(
+      pickLatestCompletedLogoResult(
+        [{ id: 'old', status: 'completed', imageUrl: 'https://signed.example/old' }],
+        ['missing']
+      ),
+      null
+    );
+    const mixed = resolveLogoStudioPreview({
+      jobs: [
+        { id: 'old', status: 'completed', imageUrl: 'https://signed.example/old' },
+        { id: 'job-1', status: 'failed', error: 'provider down' },
+      ],
+      preferredJobIds: ['job-1'],
+    });
+    assert.equal(mixed.mode, 'failed');
+    const success = resolveLogoStudioPreview({
+      jobs: [{ id: 'job-1', status: 'completed', imageUrl: 'https://signed.example/job' }],
+      preferredJobIds: ['job-1'],
+    });
+    assert.equal(success.mode, 'generated');
+    assert.equal(logoStudioPreviewLabel(success.mode), LOGO_GENERATED_RESULT_LABEL);
+    const failed = resolveLogoStudioPreview({
+      jobs: [{ id: 'job-1', status: 'failed', error: 'provider down' }],
+      preferredJobIds: ['job-1'],
+    });
+    assert.equal(failed.mode, 'failed');
+    assert.equal(logoStudioPreviewLabel(failed.mode), LOGO_FAILED_PREVIEW_LABEL);
+    const config = resolveLogoStudioPreview({ jobs: [] });
+    assert.equal(config.mode, 'configuration');
+    assert.equal(logoStudioPreviewLabel(config.mode), LOGO_CONFIG_PREVIEW_LABEL);
+    const missing = resolveLogoStudioPreview({
+      jobs: [{ id: 'job-1', status: 'completed', fileMissing: true }],
+      preferredJobIds: ['job-1'],
+    });
+    assert.equal(missing.mode, 'failed');
+  });
+
+  it('completed logo list hydrates owned file metadata for studio preview', async () => {
+    const { user, project } = await seed();
+    setLogoTestHooks({ result: 'success' });
+    const quote = await createQuote(user.id, 'logo', project.id, {
+      logoName: 'NightWolf',
+      width: 400,
+      height: 400,
+      outputFormat: 'png',
+    });
+    const result = await confirmQuote(user.id, quote.id);
+    assert.equal(result.jobIds.length, 1);
+    const listed = await listLogo(user.id);
+    const job = listed.find((row) => row.id === result.jobIds[0]);
+    assert.equal(job?.status, 'completed');
+    assert.equal(job?.userId, user.id);
+    assert.ok(job?.imageUrl);
+    assert.equal(job?.fileMissing, false);
+    assert.ok(job?.fileId);
+    const preview = pickLatestCompletedLogoResult(
+      listed.map((row) => ({
+        id: row.id,
+        status: row.status,
+        imageUrl: row.imageUrl,
+        fileMissing: row.fileMissing,
+        createdAt: row.createdAt,
+        completedAt: row.completedAt,
+      })),
+      result.jobIds
+    );
+    assert.equal(preview?.id, result.jobIds[0]);
   });
 });

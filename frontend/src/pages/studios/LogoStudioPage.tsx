@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CheckCircle2, Download, AlertCircle, Wand2, Star, Trash2,
+  CheckCircle2, Download, AlertCircle, Wand2,
 } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 import { StudioHistory } from '@/components/studio/StudioHistory';
@@ -11,7 +11,7 @@ import { NeonPreviewBox, StudioErrorBanner, ImageGenerationUnavailableHint } fro
 import { useStudioProjects } from '@/hooks/useStudioProjects';
 import { useAuth } from '@/context/AuthContext';
 import { useBrandProjectStore } from '@/v2/store/brand-project-store';
-import { api, ApiError, type LogoVariantResult } from '@/services/api';
+import { api, ApiError, type LogoVariantResult, type StudioProjectSummary } from '@/services/api';
 import { useNexterStore } from '@/v2/store/nexter-store';
 import { formatCoins } from '@/lib/utils';
 import {
@@ -46,7 +46,11 @@ import {
   defaultLogoConfig,
   logoConfigFromDna,
   logoConfigFromGenerationOptions,
+  pickLatestCompletedLogoResult,
+  resolveLogoStudioPreview,
+  logoStudioPreviewLabel,
   type LogoGenerationOptions,
+  type LogoResultCandidate,
   type LogoStudioMode,
   type SavedLogoFavorite,
   type LogoPlatform,
@@ -60,6 +64,19 @@ import { GlassCard } from '@/v2/components/GlassCard';
 import { Link } from 'react-router-dom';
 
 const COIN_COST = COIN_COSTS[CoinSpendCategory.LOGO_GENERATION];
+
+function variantFromJob(p: StudioProjectSummary): LogoVariantResult {
+  return {
+    variant: 'a',
+    jobId: p.id,
+    status: p.status,
+    imageUrl: p.imageUrl,
+    exports: p.exports,
+    provider: p.provider,
+    prompt: '',
+    error: p.error,
+  };
+}
 
 const EMPTY_FORM: LogoGenerationOptions = {
   logoName: '',
@@ -112,6 +129,7 @@ export function LogoStudioPage() {
   const projectId = useBrandProjectStore((s) => s.activeProjectId);
   const { projects, refresh, loading: jobsLoading } = useStudioProjects('logo');
   const queueNexterPrompt = useNexterStore((s) => s.queueNexterPrompt);
+  const lastCompletedQuote = useNexterStore((s) => s.lastCompletedQuote);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [variants, setVariants] = useState<LogoVariantResult[]>([]);
@@ -227,6 +245,46 @@ export function LogoStudioPage() {
   }, [magikPrompts, editPrompt]);
 
   const activeResult = variants.find((v) => v.variant === activeVariant) ?? variants[0];
+  const preferredJobIds = lastCompletedQuote?.kind === 'logo' ? lastCompletedQuote.jobIds : undefined;
+  const resultCandidates: LogoResultCandidate[] = projects.map((p) => ({
+    id: p.id,
+    status: p.status,
+    imageUrl: p.imageUrl,
+    fileMissing: p.fileMissing,
+    createdAt: p.createdAt,
+    completedAt: p.completedAt,
+    error: p.error,
+  }));
+  const previewState = resolveLogoStudioPreview({
+    selected: activeResult
+      ? {
+          id: activeResult.jobId,
+          status: activeResult.status,
+          imageUrl: activeResult.imageUrl,
+          fileMissing: !activeResult.imageUrl,
+          error: activeResult.error,
+        }
+      : null,
+    jobs: resultCandidates,
+    preferredJobIds,
+  });
+  const generatedPreview = previewState.mode === 'generated' ? previewState.job : null;
+  const previewLabel = logoStudioPreviewLabel(previewState.mode);
+
+  useEffect(() => {
+    if (jobsLoading) return;
+    const latest = pickLatestCompletedLogoResult(projects, preferredJobIds);
+    if (latest) {
+      setVariants((prev) => {
+        if (prev.length === 1 && prev[0].jobId === latest.id && prev[0].imageUrl) return prev;
+        return [variantFromJob(latest)];
+      });
+      return;
+    }
+    if (previewState.mode === 'failed') {
+      setError(previewState.job?.error || 'Logo-Generierung fehlgeschlagen');
+    }
+  }, [projects, jobsLoading, lastCompletedQuote]);
 
   function setField<K extends keyof LogoGenerationOptions>(key: K, value: LogoGenerationOptions[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -240,26 +298,6 @@ export function LogoStudioPage() {
       customPromptOverride: override,
     };
     return merged;
-  }
-
-  function magikProfile() {
-    return {
-      magikMode: form.magikMode,
-      magikStyle: form.magikStyle,
-      game: form.game,
-      magikCharacter: form.magikCharacter,
-      magikLogoArt: form.magikLogoArt,
-      magikBackground: form.magikBackground,
-    };
-  }
-
-  function trackFeedback(
-    eventType: 'download' | 'delete' | 'favorite' | 'regenerate',
-    variant?: 'a' | 'b',
-    prompt?: string
-  ) {
-    if (!prompt) return;
-    api.magik.feedback({ eventType, variant, prompt, profile: magikProfile() }).catch(() => {});
   }
 
   function nexterPrompt(kind: 'create' | 'variant' | 'change' = 'create', extra = '') {
@@ -723,7 +761,7 @@ export function LogoStudioPage() {
           <div className={`grid gap-4 ${isProMode ? 'xl:grid-cols-[1fr_minmax(260px,300px)]' : ''}`}>
             <div className="space-y-4">
             <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400" data-testid="logo-preview-label">
-              Konfigurationsvorschau — noch kein generiertes Logo
+              {previewLabel}
             </p>
             <div className="rounded-lg border border-white/10 p-3 text-sm text-zinc-200" data-testid="logo-design-summary">
               {designSummary}
@@ -757,8 +795,9 @@ export function LogoStudioPage() {
               onGenerateRandom={handleGenerateRandom}
             />
 
-            {variants.length > 0 ? (
+            {previewState.mode === 'generated' && generatedPreview?.imageUrl ? (
               <>
+                {variants.length > 1 && (
                 <div className="flex gap-2">
                   {variants.map((v) => (
                     <button
@@ -776,52 +815,38 @@ export function LogoStudioPage() {
                     </button>
                   ))}
                 </div>
-                <NeonPreviewBox aspect="square">
-                  {activeResult?.imageUrl ? (
-                    <img src={activeResult.imageUrl} alt={`Logo ${activeVariant}`} className="h-full w-full object-contain" />
-                  ) : (
-                    <p className="text-sm text-zinc-500">Generierung läuft…</p>
-                  )}
-                </NeonPreviewBox>
-                {activeResult && (
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1"
-                      onClick={() => {
-                        trackFeedback('favorite', activeResult.variant, activeResult.prompt);
-                      }}
-                    >
-                      <Star className="h-3.5 w-3.5" /> Favorit
-                    </Button>
-                    {activeResult.exports?.png && (
-                      <a
-                        href={activeResult.exports.png}
-                        download={`logo-${activeResult.variant}.png`}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={() => trackFeedback('download', activeResult.variant, activeResult.prompt)}
-                      >
-                        <Button size="sm" variant="outline" className="gap-1">
-                          <Download className="h-3.5 w-3.5" /> PNG
-                        </Button>
-                      </a>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="gap-1 text-red-400"
-                      onClick={() => {
-                        trackFeedback('delete', activeResult.variant, activeResult.prompt);
-                        setVariants((prev) => prev.filter((x) => x.variant !== activeResult.variant));
-                      }}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" /> Verwerfen
-                    </Button>
-                  </div>
                 )}
+                <NeonPreviewBox aspect="square">
+                  <img
+                    src={generatedPreview.imageUrl}
+                    alt="Generiertes Logo"
+                    className="h-full w-full object-contain"
+                    data-testid="logo-generated-result"
+                  />
+                </NeonPreviewBox>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    onClick={() => void downloadOwnedLogo(generatedPreview.id)}
+                  >
+                    <Download className="h-3.5 w-3.5" /> Download
+                  </Button>
+                </div>
               </>
+            ) : jobsLoading || loading ? (
+              <NeonPreviewBox aspect="square">
+                <p className="text-sm text-zinc-400" data-testid="logo-preview-loading">
+                  {loading ? 'Wird erzeugt …' : 'Ergebnisse laden …'}
+                </p>
+              </NeonPreviewBox>
+            ) : previewState.mode === 'failed' ? (
+              <NeonPreviewBox aspect="square">
+                <p className="text-sm text-red-400" data-testid="logo-preview-error">
+                  {previewState.job?.error || 'Logo-Generierung fehlgeschlagen'}
+                </p>
+              </NeonPreviewBox>
             ) : (
               <NeonPreviewBox aspect="square">
                 <LogoLivePreview form={form} loading={loading} nameAnalysis={nameAnalysis?.summary} />

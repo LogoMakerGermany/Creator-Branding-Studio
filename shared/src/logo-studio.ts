@@ -571,3 +571,72 @@ export function logoStudioPath(config?: Partial<LogoConfig>): string {
 export function logoQualityHint(style?: string): string {
   return qualityInstructionsForStyle(style);
 }
+
+export const LOGO_CONFIG_PREVIEW_LABEL = 'Konfigurationsvorschau — kein KI-Ergebnis';
+export const LOGO_GENERATED_RESULT_LABEL = 'Generiertes Logo';
+export const LOGO_FAILED_PREVIEW_LABEL = 'Generierung fehlgeschlagen';
+export const LOGO_CONFIG_PREVIEW_GLYPH = 'Vorschau';
+
+export interface LogoResultCandidate {
+  id: string;
+  status?: string;
+  imageUrl?: string;
+  fileMissing?: boolean;
+  createdAt?: string;
+  completedAt?: string;
+  error?: string;
+}
+
+export function isCompletedLogoResult(job: LogoResultCandidate): boolean {
+  return job.status === 'completed' && Boolean(job.imageUrl) && job.fileMissing !== true;
+}
+
+export function pickLatestCompletedLogoResult<T extends LogoResultCandidate>(
+  jobs: T[],
+  preferredIds?: string[]
+): T | null {
+  const completed = jobs.filter(isCompletedLogoResult);
+  if (preferredIds?.length) {
+    const byId = new Map(completed.map((job) => [job.id, job]));
+    for (const id of preferredIds) {
+      const hit = byId.get(id);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  return (
+    completed
+      .slice()
+      .sort((a, b) =>
+        String(b.completedAt || b.createdAt || '').localeCompare(String(a.completedAt || a.createdAt || ''))
+      )[0] ?? null
+  );
+}
+
+export function resolveLogoStudioPreview<T extends LogoResultCandidate>(input: {
+  selected?: T | null;
+  jobs: T[];
+  preferredJobIds?: string[];
+}): { mode: 'generated' | 'configuration' | 'failed'; job: T | null } {
+  if (input.preferredJobIds?.length) {
+    const preferredCompleted = pickLatestCompletedLogoResult(input.jobs, input.preferredJobIds);
+    if (preferredCompleted) return { mode: 'generated', job: preferredCompleted };
+    const preferredFailed = input.jobs.find(
+      (candidate) =>
+        input.preferredJobIds!.includes(candidate.id) &&
+        (candidate.status === 'failed' || candidate.fileMissing === true || !candidate.imageUrl)
+    );
+    if (preferredFailed) return { mode: 'failed', job: preferredFailed };
+  }
+  const selectedOk = input.selected && isCompletedLogoResult(input.selected) ? input.selected : null;
+  if (selectedOk) return { mode: 'generated', job: selectedOk };
+  const latest = pickLatestCompletedLogoResult(input.jobs);
+  if (latest) return { mode: 'generated', job: latest };
+  return { mode: 'configuration', job: null };
+}
+
+export function logoStudioPreviewLabel(mode: 'generated' | 'configuration' | 'failed'): string {
+  if (mode === 'generated') return LOGO_GENERATED_RESULT_LABEL;
+  if (mode === 'failed') return LOGO_FAILED_PREVIEW_LABEL;
+  return LOGO_CONFIG_PREVIEW_LABEL;
+}

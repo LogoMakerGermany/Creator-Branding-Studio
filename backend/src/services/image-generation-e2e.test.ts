@@ -314,6 +314,12 @@ describe('Block A — paid image generation E2E + kill-switch safety', () => {
     assert.ok(streamset.indexOf('requireImageProvider()') < streamset.indexOf('deductAmount('));
     const hint = frontend('components/studio/StudioBanners.tsx');
     assert.match(hint, /image-generation-unavailable-hint/);
+    const logoPage = frontend('pages/studios/LogoStudioPage.tsx');
+    assert.match(logoPage, /logo-generated-result/);
+    assert.match(logoPage, /pickLatestCompletedLogoResult/);
+    assert.doesNotMatch(logoPage, /api\.nexter\.confirmQuote/);
+    const panel = frontend('components/nexter/NexterPanel.tsx');
+    assert.match(panel, /notifyQuoteCompleted/);
     assert.equal(isSafeAssetUrl('javascript:alert(1)'), false);
     assert.equal(isSafeAssetUrl('http://example.com/x.png'), false);
     assert.equal(isSafeAssetUrl('https://cdn.openai.com/x.png'), true);

@@ -42,7 +42,7 @@ export function NexterPanel({
   const { activeDna, refreshUser, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const { orbState, setOrbState, pulse, studioHint, setAudioLevel, pendingPrompt, consumePendingPrompt } =
+  const { orbState, setOrbState, pulse, studioHint, setAudioLevel, pendingPrompt, consumePendingPrompt, notifyQuoteCompleted } =
     useNexterStore();
   const activeProjectId = useBrandProjectStore((s) => s.activeProjectId);
   const [messages, setMessages] = useState<NexterChatMessage[]>([]);
@@ -362,6 +362,13 @@ export function NexterPanel({
         const res = await api.nexter.confirmQuote(quoteId);
         closeQuote(quoteId);
         setMessages(res.session.messages);
+        notifyQuoteCompleted({
+          quoteId: res.quote.id,
+          kind: res.quote.kind,
+          jobIds: res.jobIds ?? [],
+          coinsSpent: res.coinsSpent,
+          completedAt: Date.now(),
+        });
         await refreshUser();
         pulse('success');
       } catch (err) {

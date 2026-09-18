@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { LogoGenerationOptions } from '@ucbs/shared';
-import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset, logoCameraPreviewFactors, logoDetailsPreviewFactors, logoTypographyPreviewStyle, getLogoFontPreset, resolveLogoTypography, logoAiSettingsPreviewLabel, getLogoTemplate } from '@ucbs/shared';
+import { collectMagikColors as collectLogoColors, logoLightingPreviewFactors, resolveLogoMaterial, getLogoMaterialPreset, logoMaterialPreviewStyle, resolveLogoEffects, getLogoEffectPreset, logoEffectsPreviewHints, resolveLogoBackground, logoBackgroundPreviewStyle, getLogoBackgroundPreset, logoCameraPreviewFactors, logoDetailsPreviewFactors, logoTypographyPreviewStyle, getLogoFontPreset, resolveLogoTypography, logoAiSettingsPreviewLabel, getLogoTemplate, LOGO_CONFIG_PREVIEW_GLYPH, LOGO_CONFIG_PREVIEW_LABEL } from '@ucbs/shared';
 
 interface LogoLivePreviewProps {
   form: LogoGenerationOptions;
@@ -112,7 +112,7 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
         <span className="text-center text-[10px] font-bold uppercase tracking-wider text-white/90">
           {form.magikMode === 'character'
             ? form.magikCharacter || 'Figur'
-            : form.symbol?.trim() || nameAnalysis?.split(':')[1]?.trim() || 'MAGIK AI'}
+            : form.symbol?.trim() || nameAnalysis?.split(':')[1]?.trim() || form.logoName?.trim()?.slice(0, 2).toUpperCase() || LOGO_CONFIG_PREVIEW_GLYPH}
         </span>
         {isRing && (
           <div
@@ -185,8 +185,11 @@ export function LogoLivePreview({ form, imageUrl, loading, nameAnalysis }: LogoL
         ))}
       </div>
 
-      <p className="mt-4 max-w-xs text-center text-xs text-zinc-500">
-        Live-Vorschau deiner Einstellungen — nach „Logo generieren“ erscheint das KI-Ergebnis hier.
+      <p className="mt-4 max-w-xs text-center text-xs font-medium text-amber-200/90" data-testid="logo-config-preview-badge">
+        {LOGO_CONFIG_PREVIEW_LABEL}
+      </p>
+      <p className="mt-2 max-w-xs text-center text-xs text-zinc-500">
+        Live-Vorschau deiner Einstellungen — nach erfolgreicher Generierung erscheint das echte Logo hier.
       </p>
       </div>
     </div>
