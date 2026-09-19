@@ -1,5 +1,16 @@
 import { isIP } from 'node:net';
 import { ServiceError } from './errors.js';
+import {
+  MAX_PROVIDER_VIDEO_BYTES,
+  PROVIDER_VIDEO_FETCH_TIMEOUT_MS,
+  PROVIDER_VIDEO_MAX_REDIRECTS,
+  PROVIDER_VIDEO_MIME,
+  VIDEO_DOWNLOAD_TIMEOUT_CODE,
+  VIDEO_DOWNLOAD_TIMEOUT_MESSAGE,
+  VIDEO_INVALID_PAYLOAD_CODE,
+  VIDEO_INVALID_PAYLOAD_MESSAGE,
+  assertProviderVideoBytes,
+} from './upload-validation.js';
 
 export const MAX_PROVIDER_AUDIO_BYTES = 20 * 1024 * 1024;
 export const PROVIDER_AUDIO_FETCH_TIMEOUT_MS = 30_000;
@@ -199,7 +210,11 @@ export async function fetchProviderAudio(url: string): Promise<ProviderAudio> {
     }
 
     const contentType = res.headers.get('content-type');
-    const buffer = Buffer.from(await readResponseBytes(res));
+    const buffer = Buffer.from(
+      await readResponseBytes(res, MAX_PROVIDER_AUDIO_BYTES, () => {
+        throw new ServiceError(413, MUSIC_INVALID_AUDIO_CODE, MUSIC_INVALID_AUDIO_MESSAGE);
+      })
+    );
     const mimeType = resolveAudioMime(contentType, current, buffer);
     assertAudioBuffer(buffer, mimeType);
     return { buffer, mimeType, extension: audioExtensionForMime(mimeType) };
@@ -208,12 +223,14 @@ export async function fetchProviderAudio(url: string): Promise<ProviderAudio> {
   throw new ServiceError(502, MUSIC_INVALID_AUDIO_CODE, MUSIC_INVALID_AUDIO_MESSAGE);
 }
 
-async function readResponseBytes(res: Response): Promise<Uint8Array> {
+async function readResponseBytes(
+  res: Response,
+  maxBytes: number,
+  tooLarge: () => never
+): Promise<Uint8Array> {
   if (!res.body) {
     const abs = await res.arrayBuffer();
-    if (abs.byteLength > MAX_PROVIDER_AUDIO_BYTES) {
-      throw new ServiceError(413, MUSIC_INVALID_AUDIO_CODE, MUSIC_INVALID_AUDIO_MESSAGE);
-    }
+    if (abs.byteLength > maxBytes) tooLarge();
     return new Uint8Array(abs);
   }
   const reader = res.body.getReader();
@@ -224,9 +241,9 @@ async function readResponseBytes(res: Response): Promise<Uint8Array> {
     if (done) break;
     if (!value) continue;
     total += value.byteLength;
-    if (total > MAX_PROVIDER_AUDIO_BYTES) {
+    if (total > maxBytes) {
       await reader.cancel().catch(() => undefined);
-      throw new ServiceError(413, MUSIC_INVALID_AUDIO_CODE, MUSIC_INVALID_AUDIO_MESSAGE);
+      tooLarge();
     }
     chunks.push(value);
   }
@@ -287,4 +304,98 @@ function assertAudioBuffer(buffer: Buffer, mimeType: string): void {
   if (!ALLOWED_AUDIO_MIME.has(mimeType) && mimeType !== 'audio/wav' && mimeType !== 'audio/mpeg') {
     throw new ServiceError(502, MUSIC_INVALID_AUDIO_CODE, MUSIC_INVALID_AUDIO_MESSAGE);
   }
+}
+
+let testVideoFetch: FetchLike | undefined;
+let testVideoTimeoutMs: number | undefined;
+
+export function setProviderVideoFetchTestHooks(
+  hooks: { fetch?: FetchLike; timeoutMs?: number } | null
+): void {
+  testVideoFetch = hooks?.fetch;
+  testVideoTimeoutMs = hooks?.timeoutMs;
+}
+
+export interface ProviderVideo {
+  buffer: Buffer;
+  mimeType: typeof PROVIDER_VIDEO_MIME;
+}
+
+export function assertSafeProviderVideoUrl(raw: string): URL {
+  const trimmed = raw.trim();
+  if (!trimmed || /^data:/i.test(trimmed)) {
+    throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+  }
+  if (parsed.username || parsed.password) {
+    throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+  }
+  if (isBlockedProviderHost(parsed.hostname)) {
+    throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+  }
+  return parsed;
+}
+
+export async function fetchProviderVideo(url: string): Promise<ProviderVideo> {
+  let current = assertSafeProviderVideoUrl(url).href;
+  const fetchImpl = testVideoFetch ?? fetch;
+  if (process.env.NODE_TEST && !testVideoFetch) {
+    throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+  }
+
+  for (let hop = 0; hop <= PROVIDER_VIDEO_MAX_REDIRECTS; hop++) {
+    let res: Response;
+    try {
+      res = await fetchImpl(current, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: AbortSignal.timeout(testVideoTimeoutMs ?? PROVIDER_VIDEO_FETCH_TIMEOUT_MS),
+        headers: { Accept: 'video/mp4,video/*,application/octet-stream' },
+      });
+    } catch (err) {
+      const name = err instanceof Error ? err.name : '';
+      if (name === 'TimeoutError' || name === 'AbortError') {
+        throw new ServiceError(504, VIDEO_DOWNLOAD_TIMEOUT_CODE, VIDEO_DOWNLOAD_TIMEOUT_MESSAGE);
+      }
+      throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+    }
+
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get('location');
+      if (!location) {
+        throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+      }
+      let next: URL;
+      try {
+        next = new URL(location, current);
+      } catch {
+        throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+      }
+      current = assertSafeProviderVideoUrl(next.href).href;
+      continue;
+    }
+
+    if (!res.ok) {
+      throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+    }
+
+    const contentType = res.headers.get('content-type');
+    const buffer = Buffer.from(
+      await readResponseBytes(res, MAX_PROVIDER_VIDEO_BYTES, () => {
+        throw new ServiceError(413, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+      })
+    );
+    assertProviderVideoBytes(buffer, contentType);
+    return { buffer, mimeType: PROVIDER_VIDEO_MIME };
+  }
+
+  throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
 }

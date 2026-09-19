@@ -20,10 +20,10 @@ import {
   probeVideoMetadata,
   exportEditedVideo,
 } from '../lib/video-processing.js';
-import { fetchProviderAudio } from '../lib/safe-provider-fetch.js';
+import { fetchProviderAudio, fetchProviderVideo } from '../lib/safe-provider-fetch.js';
 import { randomUUID } from 'node:crypto';
 import { ServiceError } from '../lib/errors.js';
-import { saveUserFile, getUserFile, issueFileDownloadUrl, mintDownloadUrlForOwnedFile } from './file-cloud.service.js';
+import { saveUserFile, getUserFile, issueFileDownloadUrl, mintDownloadUrlForOwnedFile, saveGeneratedVideoFile } from './file-cloud.service.js';
 import { getProject } from './project.service.js';
 import { attachAssetToProject } from './project-assets.service.js';
 import { IMAGE_PROVIDER_FAILED_MESSAGE, isPaidProviderTestBlocked } from '../lib/media-providers.js';
@@ -33,10 +33,40 @@ import {
   MAX_VIDEO_DURATION_SEC,
   MAX_CONCURRENT_LOCAL_VIDEO_JOBS,
   looksLikePathInjection,
+  PROVIDER_VIDEO_MIME,
+  VIDEO_INVALID_PAYLOAD_CODE,
+  VIDEO_INVALID_PAYLOAD_MESSAGE,
+  VIDEO_STORAGE_ERROR_CODE,
+  VIDEO_STORAGE_ERROR_MESSAGE,
 } from '../lib/upload-validation.js';
+import { recordEstimatedRunwayVideoCost } from '../lib/api-cost.js';
+import { RUNWAY_CREDITS_PER_SECOND, RUNWAY_PROVIDER_NAME, RUNWAY_VIDEO_MODEL, type GeneratedVideoResult } from '../lib/runway-video.js';
+import { omitUndefinedFields } from '../lib/firestore-payload.js';
 import { getElevenLabsVoiceId, getMaxConcurrentJobsPerUser } from '../config/env.js';
 const COLLECTION = 'mediaJobs';
 const VIDEO_COLLECTION = 'videoProjects';
+
+let videoPersistTestHooks: { failThumbnail?: boolean; failMetadata?: boolean } | null = null;
+
+export function setVideoPersistTestHooks(hooks: typeof videoPersistTestHooks): void {
+  videoPersistTestHooks = hooks;
+}
+
+const GENERATED_VIDEO_JOB_TYPES = new Set<MediaJobType>([
+  'ai-video',
+  'short',
+  'intro',
+  'outro',
+  'stinger',
+  'alert',
+  'logo-loop',
+  'stream-start',
+  'stream-end',
+]);
+
+function isGeneratedVideoJobType(type: MediaJobType): boolean {
+  return GENERATED_VIDEO_JOB_TYPES.has(type);
+}
 
 export interface SubtitleEntry {
   start: number;
@@ -1048,12 +1078,33 @@ export async function runMediaJob(
         duration,
         imageUrl: startImageUrl,
       });
-      job.videoUrl = await persistVideo(userId, video.videoUrl);
       job.provider = video.provider;
       job.duration = duration;
-      job.metadata = { ...job.metadata, format: aspectRatio };
+      job.metadata = omitUndefinedFields({
+        ...job.metadata,
+        format: aspectRatio,
+        ...providerAuditMetadata(video, duration),
+      });
+      await saveMediaJob(job);
+      await recordRunwayAuditIfApplicable(userId, type, job.id, duration, video);
+      if (videoPersistTestHooks?.failMetadata) {
+        throw new ServiceError(503, VIDEO_STORAGE_ERROR_CODE, VIDEO_STORAGE_ERROR_MESSAGE);
+      }
 
-      const mp4Buffer = await fetchVideoBufferForExport(job.videoUrl);
+      const persisted = await persistGeneratedVideo(userId, video.videoUrl, {
+        jobId: job.id,
+        title: job.title || type,
+        projectId: job.projectId,
+      });
+      job.videoUrl = persisted.downloadUrl;
+      job.metadata = {
+        ...job.metadata,
+        fileId: persisted.fileId,
+        mimeType: PROVIDER_VIDEO_MIME,
+        outputFormat: 'mp4',
+      };
+
+      const mp4Buffer = persisted.buffer;
       const exports: Record<string, string> = { mp4: job.videoUrl };
       try {
         const gifBuffer = await convertMp4ToGif(mp4Buffer);
@@ -1105,8 +1156,10 @@ export async function runMediaJob(
     job.completedAt = new Date().toISOString();
   } catch (err) {
     job.status = 'failed';
-    job.error = err instanceof Error ? err.message : 'Failed';
+    job.error = publicMediaJobError(err, type);
     job.completedAt = new Date().toISOString();
+    await saveMediaJob(job);
+    if (err instanceof ServiceError) throw err;
   }
 
   if (job.status === 'completed' && job.projectId) {
@@ -1172,6 +1225,9 @@ async function attachLocalVideoThumbnail(
   };
 
   try {
+    if (videoPersistTestHooks?.failThumbnail) {
+      throw new Error('thumbnail-test-fail');
+    }
     const jpeg = await extractVideoThumbnailJpeg(mp4Buffer);
     const url = await persistLocalThumbnailJpeg(userId, job.id, jpeg);
     job.thumbnailUrl = url;
@@ -1234,11 +1290,78 @@ async function persistImage(userId: string, url: string): Promise<string> {
   return uploadAssetFromUrl(userId, url, { folder: 'generations' });
 }
 
-async function persistVideo(userId: string, url: string): Promise<string> {
-  if (url.startsWith('data:')) {
-    return uploadAssetFromDataUrl(userId, url, { folder: 'videos', fileName: `${randomUUID()}.mp4` });
+function providerAuditMetadata(video: GeneratedVideoResult, durationSec: number): Record<string, unknown> {
+  const isRunway = video.providerName === RUNWAY_PROVIDER_NAME || video.provider.startsWith('runway');
+  return omitUndefinedFields({
+    providerName: video.providerName ?? (isRunway ? RUNWAY_PROVIDER_NAME : undefined),
+    providerModel: video.providerModel,
+    providerTaskId: video.providerTaskId,
+    providerTaskStatus: video.providerTaskStatus,
+    providerSubmittedAt: video.providerSubmittedAt,
+    providerCompletedAt: video.providerCompletedAt,
+    estimatedCredits: isRunway ? RUNWAY_CREDITS_PER_SECOND * durationSec : undefined,
+    estimatedCreditsKind: isRunway ? 'estimate' : undefined,
+    actualProviderCredits: isRunway ? 'not-claimed' : undefined,
+  });
+}
+
+async function recordRunwayAuditIfApplicable(
+  userId: string,
+  module: string,
+  jobId: string,
+  durationSec: number,
+  video: GeneratedVideoResult
+): Promise<void> {
+  const isRunway = video.providerName === RUNWAY_PROVIDER_NAME || video.provider.startsWith('runway');
+  if (!isRunway) return;
+  try {
+    await recordEstimatedRunwayVideoCost({
+      userId,
+      module,
+      jobId,
+      durationSec,
+      estimatedCredits: RUNWAY_CREDITS_PER_SECOND * durationSec,
+      model: video.providerModel || RUNWAY_VIDEO_MODEL,
+    });
+  } catch (err) {
+    console.warn('[Media] runway estimate audit failed:', err instanceof Error ? err.message : 'error');
   }
-  return uploadAssetFromUrl(userId, url, { folder: 'videos', contentType: 'video/mp4' });
+}
+
+function publicMediaJobError(err: unknown, type: MediaJobType): string {
+  if (err instanceof ServiceError) return err.message;
+  if (isGeneratedVideoJobType(type)) return VIDEO_INVALID_PAYLOAD_MESSAGE;
+  return err instanceof Error ? err.message : 'Failed';
+}
+
+async function persistGeneratedVideo(
+  userId: string,
+  url: string,
+  extra: { jobId: string; title: string; projectId?: string }
+): Promise<{ downloadUrl: string; buffer: Buffer; fileId: string; storagePath: string }> {
+  const video = await fetchProviderVideo(url);
+  try {
+    const file = await saveGeneratedVideoFile(userId, {
+      name: extra.title,
+      buffer: video.buffer,
+      mimeType: PROVIDER_VIDEO_MIME,
+      projectId: extra.projectId,
+      sourceJobId: extra.jobId,
+    });
+    if (!file.downloadUrl) {
+      throw new ServiceError(503, VIDEO_STORAGE_ERROR_CODE, VIDEO_STORAGE_ERROR_MESSAGE);
+    }
+    return {
+      downloadUrl: file.downloadUrl,
+      buffer: video.buffer,
+      fileId: file.id,
+      storagePath: file.storagePath ?? `users/${userId}/videos/${file.id}.mp4`,
+    };
+  } catch (err) {
+    if (err instanceof ServiceError && err.code === VIDEO_STORAGE_ERROR_CODE) throw err;
+    if (err instanceof ServiceError && err.code === VIDEO_INVALID_PAYLOAD_CODE) throw err;
+    throw new ServiceError(503, VIDEO_STORAGE_ERROR_CODE, VIDEO_STORAGE_ERROR_MESSAGE);
+  }
 }
 
 async function persistAudio(userId: string, url: string): Promise<string> {

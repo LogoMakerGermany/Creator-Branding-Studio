@@ -12,7 +12,7 @@ import {
 import { withCoinCharge } from '../lib/billable-job.js';
 import { ServiceError } from '../lib/errors.js';
 import { requireVideoProvider } from '../lib/media-providers.js';
-import { mapRunwayDuration } from '../lib/runway-video.js';
+import { isRunwayVideoTestFetchActive, mapRunwayDuration } from '../lib/runway-video.js';
 import { resolveDnaForRequest } from './dna.service.js';
 import { issueFileDownloadUrl, saveUserFile } from './file-cloud.service.js';
 import { getMediaJob, listMediaJobs, runMediaJob, type MediaJob } from './media.service.js';
@@ -96,7 +96,7 @@ export async function generateAiVideo(
   const prompt = [customPrompt || `Social promotional video for ${dna.name}`, dnaCtx].filter(Boolean).join('. ');
   const quoteId = typeof payload?.quoteId === 'string' ? payload.quoteId : undefined;
 
-  if (!aiVideoTestHooks) {
+  if (!aiVideoTestHooks && !isRunwayVideoTestFetchActive()) {
     requireVideoProvider();
   }
 

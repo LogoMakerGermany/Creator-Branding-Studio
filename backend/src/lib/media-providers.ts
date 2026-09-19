@@ -22,6 +22,7 @@ import {
   generateVideoWithRunway,
   isRunwayVideoTestFetchActive,
   RUNWAY_HTTP_TIMEOUT_MS,
+  type GeneratedVideoResult,
 } from './runway-video.js';
 import {
   MUSIC_PROVIDERS,
@@ -373,7 +374,7 @@ export type VideoAspectRatio = '16:9' | '9:16';
 export async function generateVideo(
   prompt: string,
   options?: { aspectRatio?: VideoAspectRatio; duration?: number; imageUrl?: string }
-): Promise<{ videoUrl: string; provider: string; imageToVideo?: boolean }> {
+): Promise<GeneratedVideoResult> {
   if (isPaidProviderTestBlocked() && !isRunwayVideoTestFetchActive()) {
     throw new ServiceError(
       503,
@@ -411,7 +412,7 @@ export async function generateVideo(
 async function generateVideoWithReplicate(
   prompt: string,
   options?: { aspectRatio?: VideoAspectRatio; duration?: number; imageUrl?: string }
-): Promise<{ videoUrl: string; provider: string; imageToVideo?: boolean }> {
+): Promise<GeneratedVideoResult> {
   const token = getReplicateApiToken()!;
   const model = getReplicateVideoModel();
   const aspectRatio = options?.aspectRatio === '9:16' ? '9:16' : '16:9';
@@ -474,5 +475,13 @@ async function generateVideoWithReplicate(
     throwProviderFailed(VIDEO_PROVIDER_FAILED_MESSAGE);
   }
 
-  return { videoUrl, provider: `replicate:${model}`, imageToVideo: Boolean(options?.imageUrl) };
+  return {
+    videoUrl,
+    provider: `replicate:${model}`,
+    providerName: 'replicate',
+    providerModel: model,
+    providerTaskId: typeof prediction.id === 'string' ? prediction.id : undefined,
+    providerTaskStatus: typeof prediction.status === 'string' ? prediction.status : undefined,
+    imageToVideo: Boolean(options?.imageUrl),
+  };
 }

@@ -34,9 +34,14 @@ export const RUNWAY_RATIO_9_16 = '720:1280' as const;
 
 export const VIDEO_PROVIDER_FAILED_MESSAGE =
   'Die KI-Videogenerierung ist fehlgeschlagen. Coins wurden erstattet.';
+export const VIDEO_PROVIDER_FAILED_CODE = 'VIDEO_PROVIDER_FAILED';
+export const VIDEO_PROVIDER_TIMEOUT_CODE = 'VIDEO_PROVIDER_TIMEOUT';
 export const VIDEO_DURATION_UNSUPPORTED_CODE = 'VIDEO_DURATION_UNSUPPORTED';
 export const VIDEO_RATIO_UNSUPPORTED_CODE = 'VIDEO_RATIO_UNSUPPORTED';
 export const VIDEO_IMAGE_UNSUPPORTED_CODE = 'VIDEO_IMAGE_UNSUPPORTED';
+export const RUNWAY_PROVIDER_NAME = 'runway';
+/** Official Runway gen4.5 list price. Estimate only — not claimed as actual consumption. */
+export const RUNWAY_CREDITS_PER_SECOND = 12;
 
 const RETIRED_RUNWAY_MODELS = new Set(['gen3a_turbo', 'gen4_aleph']);
 
@@ -80,12 +85,24 @@ export type RunwayVideoCreateRequest = {
 };
 
 function throwProviderTimeout(): never {
-  throw new ServiceError(504, 'PROVIDER_TIMEOUT', VIDEO_PROVIDER_FAILED_MESSAGE);
+  throw new ServiceError(504, VIDEO_PROVIDER_TIMEOUT_CODE, VIDEO_PROVIDER_FAILED_MESSAGE);
 }
 
 function throwProviderFailed(): never {
-  throw new ServiceError(502, 'PROVIDER_ERROR', VIDEO_PROVIDER_FAILED_MESSAGE);
+  throw new ServiceError(502, VIDEO_PROVIDER_FAILED_CODE, VIDEO_PROVIDER_FAILED_MESSAGE);
 }
+
+export type GeneratedVideoResult = {
+  videoUrl: string;
+  provider: string;
+  providerName?: string;
+  providerModel?: string;
+  providerTaskId?: string;
+  providerTaskStatus?: string;
+  providerSubmittedAt?: string;
+  providerCompletedAt?: string;
+  imageToVideo?: boolean;
+};
 
 function isTestRuntime(): boolean {
   return (
@@ -227,7 +244,7 @@ function runwayHeaders(apiKey: string): Record<string, string> {
 export async function generateVideoWithRunway(
   prompt: string,
   options?: { aspectRatio?: '16:9' | '9:16'; duration?: number; imageUrl?: string }
-): Promise<{ videoUrl: string; provider: string; imageToVideo?: boolean }> {
+): Promise<GeneratedVideoResult> {
   if (isTestRuntime() && !runwayTestFetch) {
     throw new ServiceError(
       503,
@@ -273,6 +290,7 @@ export async function generateVideoWithRunway(
   if (!taskId) {
     throwProviderFailed();
   }
+  const providerSubmittedAt = new Date().toISOString();
 
   const pollInterval = runwayPollIntervalForTests ?? RUNWAY_POLL_INTERVAL_MS;
   const maxPolls = runwayMaxPollsForTests ?? RUNWAY_MAX_POLLS;
@@ -309,6 +327,12 @@ export async function generateVideoWithRunway(
       return {
         videoUrl,
         provider: `runway-${RUNWAY_VIDEO_MODEL}`,
+        providerName: RUNWAY_PROVIDER_NAME,
+        providerModel: RUNWAY_VIDEO_MODEL,
+        providerTaskId: taskId,
+        providerTaskStatus: 'SUCCEEDED',
+        providerSubmittedAt,
+        providerCompletedAt: new Date().toISOString(),
         imageToVideo: request.mode === 'image_to_video',
       };
     }

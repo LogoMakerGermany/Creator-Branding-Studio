@@ -21,6 +21,7 @@ import {
 import { withCoinCharge } from '../lib/billable-job.js';
 import { ServiceError } from '../lib/errors.js';
 import { requireVideoProvider } from '../lib/media-providers.js';
+import { isRunwayVideoTestFetchActive } from '../lib/runway-video.js';
 import { resolveDnaForRequest } from './dna.service.js';
 import { getJobsByUser } from './ai.service.js';
 import {
@@ -296,7 +297,7 @@ export async function generateAnimation(
 
   const quoteId = typeof payload?.quoteId === 'string' ? payload.quoteId : undefined;
 
-  if (!animationTestHooks) {
+  if (!animationTestHooks && !isRunwayVideoTestFetchActive()) {
     requireVideoProvider();
   }
 

@@ -77,6 +77,14 @@ export function sniffVideoContainer(buffer: Buffer): 'video/mp4' | 'video/webm' 
   return null;
 }
 
+/** Bounded ISO-BMFF check: size + `ftyp` only. Not a media parser. */
+export function hasSafeMp4Ftyp(buffer: Buffer): boolean {
+  if (buffer.length < 16) return false;
+  const boxSize = buffer.readUInt32BE(0);
+  if (boxSize < 16 || boxSize > 256 || boxSize > buffer.length) return false;
+  return buffer.toString('ascii', 4, 8) === 'ftyp';
+}
+
 export function videoExtensionAllowed(fileName: string | undefined, mimeType: string): boolean {
   if (!fileName) return true;
   const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
@@ -244,6 +252,26 @@ export function parseAndValidateProjectZipDataUrl(dataUrl: string): {
 export const MAX_PROVIDER_IMAGE_BYTES = 15 * 1024 * 1024;
 export const PROVIDER_IMAGE_FETCH_TIMEOUT_MS = 20_000;
 
+/**
+ * Bounded provider-video download. Matches MAX_VIDEO_UPLOAD_BYTES (50 MB).
+ * Runway gen4.5 clips are 2–10s at 1280:720 / 720:1280 — typically well under 15 MB.
+ * 50 MB is headroom without unbounded buffering.
+ */
+export const MAX_PROVIDER_VIDEO_BYTES = MAX_VIDEO_UPLOAD_BYTES;
+export const PROVIDER_VIDEO_FETCH_TIMEOUT_MS = 45_000;
+export const PROVIDER_VIDEO_MAX_REDIRECTS = 3;
+export const PROVIDER_VIDEO_MIME = 'video/mp4';
+
+export const VIDEO_INVALID_PAYLOAD_CODE = 'VIDEO_INVALID_PAYLOAD';
+export const VIDEO_DOWNLOAD_TIMEOUT_CODE = 'VIDEO_DOWNLOAD_TIMEOUT';
+export const VIDEO_STORAGE_ERROR_CODE = 'VIDEO_STORAGE_ERROR';
+export const VIDEO_INVALID_PAYLOAD_MESSAGE =
+  'Das KI-Video konnte nicht verarbeitet werden. Coins wurden erstattet.';
+export const VIDEO_DOWNLOAD_TIMEOUT_MESSAGE =
+  'Das KI-Video konnte nicht geladen werden. Coins wurden erstattet.';
+export const VIDEO_STORAGE_ERROR_MESSAGE =
+  'Das KI-Video konnte nicht gespeichert werden. Coins wurden erstattet.';
+
 const PROVIDER_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml']);
 
 export function isSafeAssetUrl(url: string): boolean {
@@ -297,5 +325,29 @@ export function assertProviderImageBytes(buffer: Buffer, contentType?: string | 
       'PROVIDER_INVALID_PAYLOAD',
       'Die Bildgenerierung lieferte keinen Bildinhalt. Coins wurden erstattet.'
     );
+  }
+}
+
+export function assertProviderVideoBytes(buffer: Buffer, contentType?: string | null): void {
+  if (!buffer.length) {
+    throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+  }
+  if (buffer.length > MAX_PROVIDER_VIDEO_BYTES) {
+    throw new ServiceError(413, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+  }
+  const mime = (contentType ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+  if (
+    mime &&
+    mime !== 'application/octet-stream' &&
+    mime !== PROVIDER_VIDEO_MIME &&
+    !mime.startsWith('video/')
+  ) {
+    throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+  }
+  if (mime.startsWith('video/') && mime !== PROVIDER_VIDEO_MIME) {
+    throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
+  }
+  if (!hasSafeMp4Ftyp(buffer) || sniffVideoContainer(buffer) !== PROVIDER_VIDEO_MIME) {
+    throw new ServiceError(502, VIDEO_INVALID_PAYLOAD_CODE, VIDEO_INVALID_PAYLOAD_MESSAGE);
   }
 }

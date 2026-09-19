@@ -4,6 +4,9 @@ import {
   parseAndValidateDataUrl,
   parseAndValidateVideoDataUrl,
   assertSafeProviderImageUrl,
+  PROVIDER_VIDEO_MIME,
+  VIDEO_STORAGE_ERROR_CODE,
+  VIDEO_STORAGE_ERROR_MESSAGE,
 } from '../lib/upload-validation.js';
 import { IMAGE_PROVIDER_FAILED_MESSAGE } from '../lib/media-providers.js';
 import { sanitizeZipEntryName } from '../lib/zip-store.js';
@@ -777,6 +780,80 @@ export async function saveGeneratedAudioFile(
       await deleteOwnedStorageObject(userId, storagePath).catch(() => undefined);
     }
     throw err;
+  }
+  return file;
+}
+
+export async function saveGeneratedVideoFile(
+  userId: string,
+  input: {
+    name: string;
+    buffer: Buffer;
+    mimeType?: string;
+    projectId?: string;
+    sourceJobId?: string;
+    version?: number;
+  }
+): Promise<UserFile> {
+  if (saveGeneratedAssetTestHooks?.fail) {
+    throw new ServiceError(503, VIDEO_STORAGE_ERROR_CODE, VIDEO_STORAGE_ERROR_MESSAGE);
+  }
+  if (input.projectId) {
+    await assertOwnedProject(userId, input.projectId);
+  }
+  if (input.mimeType && input.mimeType !== PROVIDER_VIDEO_MIME) {
+    throw new ServiceError(502, VIDEO_STORAGE_ERROR_CODE, VIDEO_STORAGE_ERROR_MESSAGE);
+  }
+  const mimeType = PROVIDER_VIDEO_MIME;
+  const id = randomUUID();
+  firestoreDocId(id);
+  const fileName = sanitizeZipEntryName(`${id}.mp4`, `${id}.mp4`);
+  const storagePath = `users/${userId}/videos/${fileName}`;
+  let downloadUrl: string;
+  try {
+    downloadUrl = await uploadAssetFromBuffer(userId, input.buffer, {
+      folder: 'videos',
+      fileName,
+      contentType: mimeType,
+      extension: 'mp4',
+    });
+  } catch (err) {
+    if (err instanceof ServiceError) {
+      throw new ServiceError(503, VIDEO_STORAGE_ERROR_CODE, VIDEO_STORAGE_ERROR_MESSAGE);
+    }
+    throw new ServiceError(503, VIDEO_STORAGE_ERROR_CODE, VIDEO_STORAGE_ERROR_MESSAGE);
+  }
+  const file: UserFile = {
+    id,
+    userId,
+    name: sanitizeFileDisplayName(input.name),
+    mimeType,
+    size: assertFiniteFileSize(input.buffer.length),
+    category: 'video',
+    downloadUrl,
+    storagePath,
+    source: 'generation',
+    projectId: input.projectId,
+    sourceJobId: input.sourceJobId,
+    version: input.version,
+    deletionState: 'active',
+    createdAt: new Date().toISOString(),
+  };
+  try {
+    if (saveGeneratedAssetTestHooks?.failAfterUpload) {
+      throw new ServiceError(503, VIDEO_STORAGE_ERROR_CODE, VIDEO_STORAGE_ERROR_MESSAGE);
+    }
+    await dsSet(
+      FILES_COLLECTION,
+      firestoreDocId(id),
+      Object.fromEntries(Object.entries(file).filter(([, v]) => v !== undefined)) as Record<string, unknown>
+    );
+  } catch (err) {
+    if (isOwnedStoragePath(userId, storagePath)) {
+      await deleteOwnedStorageObject(userId, storagePath).catch(() => undefined);
+    }
+    if (err instanceof ServiceError) throw err;
+    throw new ServiceError(503, VIDEO_STORAGE_ERROR_CODE, VIDEO_STORAGE_ERROR_MESSAGE);
   }
   return file;
 }

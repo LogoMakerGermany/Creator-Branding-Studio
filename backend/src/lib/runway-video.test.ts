@@ -263,6 +263,10 @@ describe('Block Q.1 — Runway gen4.5 adapter (no live calls)', () => {
     await withEnv({ RUNWAY_API_KEY: 'rw_test_not_real', VIDEO_GENERATIONS_ENABLED: 'true' }, async () => {
       const result = await generateVideoWithRunway('clean prompt', { duration: 5, aspectRatio: '16:9' });
       assert.equal(result.provider, 'runway-gen4.5');
+      assert.equal(result.providerName, 'runway');
+      assert.equal(result.providerModel, 'gen4.5');
+      assert.equal(result.providerTaskId, 'task_ok');
+      assert.equal(result.providerTaskStatus, 'SUCCEEDED');
       assert.equal(result.imageToVideo, false);
       assert.equal(result.videoUrl.startsWith('https://'), true);
     });
