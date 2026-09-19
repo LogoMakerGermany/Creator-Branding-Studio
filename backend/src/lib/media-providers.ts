@@ -19,6 +19,11 @@ import {
 import { ServiceError } from './errors.js';
 import { MUSIC_PROVIDER_FAILED_MESSAGE } from './safe-provider-fetch.js';
 import {
+  generateVideoWithRunway,
+  isRunwayVideoTestFetchActive,
+  RUNWAY_HTTP_TIMEOUT_MS,
+} from './runway-video.js';
+import {
   MUSIC_PROVIDERS,
   checkMusicDuration,
   clampVoiceSetting,
@@ -28,12 +33,13 @@ import {
   PRODUCT_NAME,
 } from '@ucbs/shared';
 
+export { RUNWAY_HTTP_TIMEOUT_MS };
+
 const UNOFFICIAL_SUNO_DISABLED_MESSAGE =
   'Der inoffizielle Suno-Endpunkt ist deaktiviert. Es ist kein offizieller Suno-Endpunkt konfiguriert. Musik läuft über MusicGen, wenn REPLICATE_API_TOKEN gesetzt ist.';
 
 export const ELEVENLABS_TTS_TIMEOUT_MS = 30_000;
 export const PROVIDER_POLL_TIMEOUT_MS = 20_000;
-export const RUNWAY_HTTP_TIMEOUT_MS = 30_000;
 export const REPLICATE_MUSIC_CREATE_TIMEOUT_MS = 130_000;
 export const REPLICATE_VIDEO_CREATE_TIMEOUT_MS = 190_000;
 export const REPLICATE_THUMB_CREATE_TIMEOUT_MS = 100_000;
@@ -422,7 +428,7 @@ export async function generateVideo(
   prompt: string,
   options?: { aspectRatio?: VideoAspectRatio; duration?: number; imageUrl?: string }
 ): Promise<{ videoUrl: string; provider: string; imageToVideo?: boolean }> {
-  if (isPaidProviderTestBlocked()) {
+  if (isPaidProviderTestBlocked() && !isRunwayVideoTestFetchActive()) {
     throw new ServiceError(
       503,
       'AI_NOT_CONFIGURED',
@@ -436,7 +442,15 @@ export async function generateVideo(
     throwVideoProviderUnavailable();
   }
   if (getRunwayApiKey()) {
+    // Once a Runway create is submitted, do not fall through to Replicate.
     return generateVideoWithRunway(prompt, options);
+  }
+  if (isPaidProviderTestBlocked()) {
+    throw new ServiceError(
+      503,
+      'AI_NOT_CONFIGURED',
+      'Video-Generierung ist provider-gated und in Tests blockiert'
+    );
   }
   if (getReplicateApiToken()) {
     return generateVideoWithReplicate(prompt, options);
@@ -515,76 +529,4 @@ async function generateVideoWithReplicate(
   }
 
   return { videoUrl, provider: `replicate:${model}`, imageToVideo: Boolean(options?.imageUrl) };
-}
-
-async function generateVideoWithRunway(
-  prompt: string,
-  options?: { aspectRatio?: VideoAspectRatio; duration?: number }
-): Promise<{ videoUrl: string; provider: string }> {
-  const apiKey = getRunwayApiKey()!;
-  const ratio = options?.aspectRatio === '9:16' ? '720:1280' : '1280:720';
-  const duration = Math.min(Math.max(options?.duration ?? 5, 5), 10);
-
-  const createRes = await providerFetch(
-    'https://api.dev.runwayml.com/v1/text_to_video',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'X-Runway-Version': '2024-11-06',
-      },
-      body: JSON.stringify({
-        model: 'gen3a_turbo',
-        promptText: prompt,
-        duration,
-        ratio,
-      }),
-    },
-    RUNWAY_HTTP_TIMEOUT_MS
-  );
-
-  if (!createRes.ok) {
-    throwProviderFailed(VIDEO_PROVIDER_FAILED_MESSAGE);
-  }
-
-  const task = (await createRes.json()) as { id: string };
-  let attempts = 0;
-
-  while (attempts < 120) {
-    await new Promise((r) => setTimeout(r, 3000));
-    const pollRes = await providerFetch(
-      `https://api.dev.runwayml.com/v1/tasks/${task.id}`,
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'X-Runway-Version': '2024-11-06',
-        },
-      },
-      PROVIDER_POLL_TIMEOUT_MS
-    );
-
-    if (!pollRes.ok) {
-      throwProviderFailed(VIDEO_PROVIDER_FAILED_MESSAGE);
-    }
-
-    const result = (await pollRes.json()) as {
-      status: string;
-      output?: string[];
-      failure?: string;
-      failureCode?: string;
-    };
-
-    if (result.status === 'SUCCEEDED' && result.output?.[0]) {
-      return { videoUrl: result.output[0], provider: 'runway-gen3a' };
-    }
-
-    if (result.status === 'FAILED') {
-      throwProviderFailed(VIDEO_PROVIDER_FAILED_MESSAGE);
-    }
-
-    attempts++;
-  }
-
-  throwProviderTimeout(VIDEO_PROVIDER_FAILED_MESSAGE);
 }

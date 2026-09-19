@@ -91,10 +91,10 @@ export const CONTENT_PROVIDER_RIGHTS_INVENTORY: readonly ContentProviderRightsIn
   },
   {
     id: 'runway',
-    inputType: 'text-to-video prompts',
+    inputType: 'text-to-video prompts; optional first-frame image on /v1/image_to_video (same gen4.5 model)',
     outputType: 'video',
-    featureGate: 'RUNWAY_API_KEY; video generation flags',
-    productionStatus: 'implemented in media-providers.ts; tests block paid provider calls',
+    featureGate: 'RUNWAY_API_KEY; VIDEO_GENERATIONS_ENABLED=true',
+    productionStatus: 'adapter in runway-video.ts; tests block paid provider calls; production remains disabled until flag+key',
     commercialUse: 'LEGAL/PROVIDER REVIEW REQUIRED',
   },
   {

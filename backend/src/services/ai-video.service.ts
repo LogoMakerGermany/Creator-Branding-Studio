@@ -3,6 +3,7 @@ import { CoinSpendCategory, buildDnaPromptContext, type CreatorDNA } from '@ucbs
 import { withCoinCharge } from '../lib/billable-job.js';
 import { ServiceError } from '../lib/errors.js';
 import { requireVideoProvider } from '../lib/media-providers.js';
+import { mapRunwayDuration } from '../lib/runway-video.js';
 import { resolveDnaForRequest } from './dna.service.js';
 import { issueFileDownloadUrl, saveUserFile } from './file-cloud.service.js';
 import { getMediaJob, listMediaJobs, runMediaJob, type MediaJob } from './media.service.js';
@@ -60,7 +61,7 @@ export async function generateAiVideo(
   const durationRaw = payload?.duration;
   const duration =
     typeof durationRaw === 'number' && Number.isFinite(durationRaw)
-      ? Math.min(15, Math.max(3, durationRaw))
+      ? mapRunwayDuration(Number.isInteger(durationRaw) ? durationRaw : Math.round(durationRaw))
       : 8;
   const dnaCtx = buildDnaPromptContext(dna);
   const prompt = [customPrompt || `Social promotional video for ${dna.name}`, dnaCtx].filter(Boolean).join('. ');
