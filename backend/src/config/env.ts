@@ -7,6 +7,12 @@
  * Secret values are never logged.
  */
 
+import {
+  isAllowedTransactionalFrom,
+  parseFromAddress,
+  transactionalAppUrl,
+} from '../lib/email-address.js';
+
 function readEnv(key: string): string | undefined {
   const value = process.env[key];
   if (value === undefined) return undefined;
@@ -548,9 +554,38 @@ export function getEmailFrom(): string | undefined {
   return readEnv('EMAIL_FROM');
 }
 
-/** Send requires both API key and from-address. Never returns secret values. */
+/** Validated From used for Resend. Undefined when missing or malformed. */
+export function getTransactionalFromAddress(): string | undefined {
+  const parsed = parseFromAddress(getEmailFrom());
+  if (!isAllowedTransactionalFrom(parsed, isProduction())) return undefined;
+  return parsed?.formatted;
+}
+
+/** Optional Reply-To. Missing is allowed; invalid value fail-closes availability. */
+export function getEmailReplyTo(): string | undefined {
+  const raw = readEnv('EMAIL_REPLY_TO');
+  if (!raw) return undefined;
+  const parsed = parseFromAddress(raw);
+  if (!isAllowedTransactionalFrom(parsed, isProduction())) return undefined;
+  return parsed?.email;
+}
+
+function isEmailReplyToConfigValid(): boolean {
+  const raw = readEnv('EMAIL_REPLY_TO');
+  if (!raw) return true;
+  return Boolean(getEmailReplyTo());
+}
+
+/**
+ * Send requires API key + valid From (+ valid Reply-To if that optional var is set).
+ * Credential presence alone is never "available". Never returns secret values.
+ */
 export function isTransactionalEmailConfigured(): boolean {
-  return Boolean(getResendApiKey()?.trim() && getEmailFrom()?.trim());
+  return Boolean(getResendApiKey()?.trim() && getTransactionalFromAddress() && isEmailReplyToConfigValid());
+}
+
+export function getTransactionalAppUrl(): string | null {
+  return transactionalAppUrl(getPrimaryFrontendUrl(), isProduction());
 }
 
 export type FirebaseProjectConsistency = 'ok' | 'mismatch' | 'not_verified';

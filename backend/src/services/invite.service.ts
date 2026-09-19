@@ -4,6 +4,7 @@ import { dsDelete, dsGet, dsList, dsSet } from '../lib/data-store.js';
 import { firestoreDocId, omitUndefinedFields } from '../lib/firestore-payload.js';
 import { ServiceError } from '../lib/errors.js';
 import { isDevMode } from '../config/env.js';
+import { normalizeRecipientEmail } from '../lib/email-address.js';
 import { inviteLockKey, withDevLock } from '../lib/dev-mutex.js';
 
 const COLLECTION = 'invite_codes';
@@ -52,11 +53,20 @@ export async function createInviteCode(
     maximumUses = input.maximumUses;
   }
 
+  let assignedEmail: string | undefined;
+  if (input.assignedEmail?.trim()) {
+    const normalized = normalizeRecipientEmail(input.assignedEmail);
+    if (!normalized) {
+      throw new ServiceError(400, 'INVALID_INPUT', 'Ungültige E-Mail-Adresse');
+    }
+    assignedEmail = normalized;
+  }
+
   const invite: InviteCode = {
     id: randomUUID(),
     code,
     description: input.description.trim(),
-    assignedEmail: input.assignedEmail?.trim().toLowerCase() || undefined,
+    assignedEmail,
     maximumUses,
     currentUses: 0,
     expiresAt: input.expiresAt,

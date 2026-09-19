@@ -4,10 +4,16 @@ import {
   isProduction,
   getDefaultFreeCoins,
   getResendApiKey,
-  getEmailFrom,
+  getTransactionalFromAddress,
+  getEmailReplyTo,
+  getTransactionalAppUrl,
   isTransactionalEmailConfigured,
 } from '../config/env.js';
 import { isPaidProviderTestBlocked } from '../lib/media-providers.js';
+import {
+  isSafeTransactionalSubject,
+  normalizeRecipientEmail,
+} from '../lib/email-address.js';
 import { dsGet, dsSet } from '../lib/data-store.js';
 import { withDevLock } from '../lib/dev-mutex.js';
 
@@ -42,6 +48,7 @@ export interface SendEmailResult {
   sent: boolean;
   provider: string;
   reason?: EmailFailureReason;
+  providerMessageId?: string;
 }
 
 export interface DispatchResult {
@@ -50,6 +57,7 @@ export interface DispatchResult {
   provider: string;
   reason?: EmailFailureReason;
   status: EmailDeliveryStatus;
+  providerMessageId?: string;
 }
 
 export interface InviteEmailDelivery {
@@ -114,18 +122,33 @@ function redactLogText(message: string): string {
   return message
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '***')
     .replace(/\bre_[A-Za-z0-9]+\b/g, 're_***')
-    .replace(/RESEND_API_KEY|EMAIL_FROM/g, 'ENV');
+    .replace(/RESEND_API_KEY|EMAIL_FROM|EMAIL_REPLY_TO/g, 'ENV');
 }
 
 function logDeliveryIssue(kind: EmailKind, reason: EmailFailureReason | 'error', provider?: string): void {
   console.error('[email] delivery failed', { kind, reason, provider: provider || 'none' });
 }
 
+function assertSendPayload(payload: EmailPayload): EmailFailureReason | null {
+  if (!normalizeRecipientEmail(payload.to)) return 'provider_error';
+  if (!isSafeTransactionalSubject(payload.subject)) return 'provider_error';
+  return null;
+}
+
 /**
  * Send is a side effect. Callers must not roll back money or accounts on failure.
- * Tests never call a real provider.
+ * Tests never call a real provider. From/reply-to come only from server env.
  */
-export async function sendTransactionalEmail(payload: EmailPayload): Promise<SendEmailResult> {
+export async function sendTransactionalEmail(
+  payload: EmailPayload,
+  options?: { idempotencyKey?: string }
+): Promise<SendEmailResult> {
+  const invalid = assertSendPayload(payload);
+  if (invalid) {
+    logDeliveryIssue(payload.kind, invalid, 'none');
+    return { sent: false, provider: 'none', reason: invalid };
+  }
+
   if (isPaidProviderTestBlocked()) {
     if (testTransport) return testTransport(payload);
     if (isTransactionalEmailConfigured()) {
@@ -136,25 +159,41 @@ export async function sendTransactionalEmail(payload: EmailPayload): Promise<Sen
   }
 
   const key = getResendApiKey();
-  const from = getEmailFrom();
-  if (key && from) {
+  const from = getTransactionalFromAddress();
+  if (key && from && isTransactionalEmailConfigured()) {
+    const to = normalizeRecipientEmail(payload.to)!;
+    const body: Record<string, unknown> = {
+      from,
+      to: [to],
+      subject: payload.subject,
+      text: payload.text,
+    };
+    const replyTo = getEmailReplyTo();
+    if (replyTo) body.reply_to = [replyTo];
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+    };
+    const idempotencyKey = options?.idempotencyKey?.trim().slice(0, 256);
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from,
-        to: payload.to,
-        subject: payload.subject,
-        text: payload.text,
-      }),
+      headers,
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       throw new Error(`E-Mail fehlgeschlagen (${res.status})`);
     }
-    return { sent: true, provider: 'resend' };
+    let providerMessageId: string | undefined;
+    try {
+      const json = (await res.json()) as { id?: unknown };
+      if (typeof json.id === 'string' && json.id.trim()) providerMessageId = json.id.trim();
+    } catch {
+      providerMessageId = undefined;
+    }
+    return { sent: true, provider: 'resend', providerMessageId };
   }
 
   if (isProduction()) {
@@ -196,17 +235,24 @@ export async function dispatchTransactionalEmail(
     }
 
     try {
-      const result = await sendTransactionalEmail(payload);
+      const result = await sendTransactionalEmail(payload, { idempotencyKey });
       if (result.sent) {
         await dsSet(DISPATCH_COLLECTION, idempotencyKey, {
           id: idempotencyKey,
           kind: payload.kind,
-          to: payload.to,
+          toMasked: maskEmailAddress(payload.to),
           provider: result.provider,
           status: 'sent',
           sentAt: new Date().toISOString(),
+          ...(result.providerMessageId ? { providerMessageId: result.providerMessageId } : {}),
         });
-        return { sent: true, duplicate: false, provider: result.provider, status: 'sent' };
+        return {
+          sent: true,
+          duplicate: false,
+          provider: result.provider,
+          status: 'sent',
+          providerMessageId: result.providerMessageId,
+        };
       }
       const reason = result.reason || 'provider_error';
       await dsSet(DISPATCH_COLLECTION, idempotencyKey, {
@@ -247,12 +293,17 @@ export async function dispatchTransactionalEmail(
   });
 }
 
+function appUrlLine(): string {
+  const url = getTransactionalAppUrl();
+  return url ? `\n\n${url}` : '';
+}
+
 export function welcomeEmail(to: string, name: string, coins = getDefaultFreeCoins()): EmailPayload {
   return {
     to,
     kind: 'welcome',
     subject: 'Willkommen bei NEXTER Creator Studio',
-    text: `Hallo ${sanitizeEmailTextField(name)},\n\ndu bist bei NEXTER Creator Studio. Startguthaben: ${coins} Coins.\n\n— NEXTER`,
+    text: `Hallo ${sanitizeEmailTextField(name)},\n\ndu bist bei NEXTER Creator Studio. Startguthaben: ${coins} Coins.${appUrlLine()}\n\n— NEXTER`,
   };
 }
 
@@ -261,7 +312,7 @@ export function inviteEmail(to: string, code: string, description: string): Emai
     to,
     kind: 'invite',
     subject: 'Deine NEXTER-Einladung',
-    text: `Hallo,\n\ndu wurdest zu NEXTER Creator Studio eingeladen.\nCode: ${sanitizeEmailTextField(code, 64)}\n${sanitizeEmailTextField(description, 200)}\n\n— NEXTER`,
+    text: `Hallo,\n\ndu wurdest zu NEXTER Creator Studio eingeladen.\nCode: ${sanitizeEmailTextField(code, 64)}\n${sanitizeEmailTextField(description, 200)}${appUrlLine()}\n\n— NEXTER`,
   };
 }
 
@@ -275,7 +326,7 @@ export function purchaseReceiptEmail(
     to,
     kind: 'purchase',
     subject: `NEXTER: ${sanitizeEmailTextField(packageName, 80)} gutgeschrieben`,
-    text: `Hallo ${sanitizeEmailTextField(name)},\n\n${coins} Coins (${sanitizeEmailTextField(packageName, 80)}) wurden deinem Konto gutgeschrieben.\n\n— NEXTER`,
+    text: `Hallo ${sanitizeEmailTextField(name)},\n\n${coins} Coins (${sanitizeEmailTextField(packageName, 80)}) wurden deinem Konto gutgeschrieben.${appUrlLine()}\n\n— NEXTER`,
   };
 }
 
