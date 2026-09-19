@@ -5,6 +5,8 @@ import {
   attachRightsSafetyToPayload,
   classifyContentRightsRisk,
   coinCostForStreamsetSelection,
+  generatedVideoDurationFollowUpMessage,
+  inspectGeneratedVideoQuoteDuration,
   type NexterQuote,
   type NexterQuoteKind,
 } from '@ucbs/shared';
@@ -64,6 +66,12 @@ export async function createQuote(
   }
   if (!Number.isInteger(resolvedCost) || !Number.isFinite(resolvedCost) || resolvedCost < 0) {
     throw new ServiceError(400, 'INVALID_INPUT', 'Die Anfrage ist ungültig');
+  }
+  if (kind === 'animation' || kind === 'ai-video') {
+    const durationCheck = inspectGeneratedVideoQuoteDuration(resolvedPayload ?? payload);
+    if (!durationCheck.ok) {
+      throw new ServiceError(400, 'INVALID_DURATION', generatedVideoDurationFollowUpMessage());
+    }
   }
   const quote: NexterQuote = {
     id: randomUUID(),

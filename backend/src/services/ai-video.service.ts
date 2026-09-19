@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { CoinSpendCategory, buildDnaPromptContext, type CreatorDNA } from '@ucbs/shared';
+import {
+  CoinSpendCategory,
+  GENERATED_VIDEO_DURATION_DEFAULT_SEC,
+  generatedVideoDurationFollowUpMessage,
+  parseGeneratedVideoDurationFromMessage,
+  validateGeneratedVideoDuration,
+  buildDnaPromptContext,
+  type CreatorDNA,
+} from '@ucbs/shared';
 import { withCoinCharge } from '../lib/billable-job.js';
 import { ServiceError } from '../lib/errors.js';
 import { requireVideoProvider } from '../lib/media-providers.js';
@@ -41,6 +49,26 @@ export async function downloadAiVideo(
   return { downloadUrl: issued.downloadUrl, expiresAt: issued.expiresAt, fileId };
 }
 
+function throwInvalidGeneratedVideoDuration(): never {
+  throw new ServiceError(400, 'INVALID_DURATION', generatedVideoDurationFollowUpMessage());
+}
+
+function resolveAiVideoDuration(payload?: Record<string, unknown>): number {
+  const raw = payload?.duration ?? payload?.durationSec;
+  if (raw !== undefined && raw !== null && raw !== '') {
+    const check = validateGeneratedVideoDuration(raw);
+    if (!check.ok) throwInvalidGeneratedVideoDuration();
+    return mapRunwayDuration(check.durationSec);
+  }
+  const fromMessage =
+    typeof payload?.message === 'string' ? parseGeneratedVideoDurationFromMessage(payload.message) : { mentioned: false as const };
+  if (fromMessage.mentioned) {
+    if (!fromMessage.ok) throwInvalidGeneratedVideoDuration();
+    return mapRunwayDuration(fromMessage.durationSec);
+  }
+  return mapRunwayDuration(GENERATED_VIDEO_DURATION_DEFAULT_SEC);
+}
+
 export async function generateAiVideo(
   userId: string,
   projectId: string | undefined,
@@ -58,11 +86,7 @@ export async function generateAiVideo(
     typeof payload?.prompt === 'string' && payload.prompt.trim()
       ? payload.prompt.trim()
       : message.replace(/^(erstell(?:e)? (mir )?ein( )?ki[- ]?video:?\s*)/i, '').trim() || message;
-  const durationRaw = payload?.duration;
-  const duration =
-    typeof durationRaw === 'number' && Number.isFinite(durationRaw)
-      ? mapRunwayDuration(Number.isInteger(durationRaw) ? durationRaw : Math.round(durationRaw))
-      : 8;
+  const duration = resolveAiVideoDuration(payload);
   const dnaCtx = buildDnaPromptContext(dna);
   const prompt = [customPrompt || `Social promotional video for ${dna.name}`, dnaCtx].filter(Boolean).join('. ');
   const quoteId = typeof payload?.quoteId === 'string' ? payload.quoteId : undefined;

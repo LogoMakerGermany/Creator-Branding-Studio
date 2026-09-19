@@ -7,6 +7,8 @@ import {
   buildAnimationPreviewState,
   buildDnaPromptContext,
   defaultAnimationPlan,
+  GENERATED_VIDEO_DURATION_DEFAULT_SEC,
+  generatedVideoDurationFollowUpMessage,
   isSupportedAnimationEffect,
   isSupportedAnimationType,
   parseAnimationIntent,
@@ -14,6 +16,7 @@ import {
   type AnimationConfig,
   type AnimationTypeId,
   type CreatorDNA,
+  type ParsedAnimationIntent,
 } from '@ucbs/shared';
 import { withCoinCharge } from '../lib/billable-job.js';
 import { ServiceError } from '../lib/errors.js';
@@ -165,7 +168,7 @@ export async function resolveAnimationLogo(userId: string, explicit?: string): P
   return owned[0];
 }
 
-function planFromPayload(payload?: Record<string, unknown>, parsed?: Partial<AnimationConfig>): AnimationConfig {
+function planFromPayload(payload?: Record<string, unknown>, parsed?: ParsedAnimationIntent): AnimationConfig {
   const base = defaultAnimationPlan();
   const typeCandidate = String((payload?.type as string) || parsed?.type || base.type);
   if (!isSupportedAnimationType(typeCandidate)) {
@@ -176,14 +179,19 @@ function planFromPayload(payload?: Record<string, unknown>, parsed?: Partial<Ani
   if (effectRaw && !isSupportedAnimationEffect(String(effectRaw))) {
     throw new ServiceError(400, 'INVALID_PRESET', 'Dieser Animationseffekt wird nicht unterstützt');
   }
-  const rawDur = payload?.durationSec ?? parsed?.durationSec;
-  const candidate =
-    typeof rawDur === 'number' && Number.isFinite(rawDur)
-      ? rawDur
-      : (ANIMATION_TYPES.find((t) => t.id === typeRaw)?.durationSec ?? 6);
-  const durationCheck = validateAnimationDuration(candidate);
-  if (!durationCheck.ok) {
-    throw new ServiceError(400, 'INVALID_DURATION', 'Ungültige Animationsdauer');
+  const rawDur = payload?.durationSec ?? payload?.duration ?? parsed?.durationSec;
+  if (parsed?.durationUnsupported) {
+    throw new ServiceError(400, 'INVALID_DURATION', generatedVideoDurationFollowUpMessage());
+  }
+  let candidate: number;
+  if (rawDur !== undefined && rawDur !== null && rawDur !== '') {
+    const durationCheck = validateAnimationDuration(rawDur);
+    if (!durationCheck.ok) {
+      throw new ServiceError(400, 'INVALID_DURATION', generatedVideoDurationFollowUpMessage());
+    }
+    candidate = durationCheck.durationSec;
+  } else {
+    candidate = ANIMATION_TYPES.find((t) => t.id === typeRaw)?.durationSec ?? GENERATED_VIDEO_DURATION_DEFAULT_SEC;
   }
   const aspectRaw = (payload?.aspectRatio as AnimationConfig['aspectRatio']) || parsed?.aspectRatio || '16:9';
   const aspectRatio: AnimationConfig['aspectRatio'] = (
@@ -201,7 +209,7 @@ function planFromPayload(payload?: Record<string, unknown>, parsed?: Partial<Ani
   const rotations = Math.min(3, Math.max(1, Number(payload?.rotations ?? parsed?.rotations ?? 1) || 1));
   return {
     type: typeRaw,
-    durationSec: durationCheck.durationSec,
+    durationSec: candidate,
     aspectRatio,
     motion: motion === 'subtle' || motion === 'strong' ? motion : 'medium',
     loop: Boolean(payload?.loop ?? parsed?.loop ?? (typeRaw === 'logo-loop' || typeRaw === 'stream-start')),

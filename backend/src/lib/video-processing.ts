@@ -15,7 +15,7 @@ import {
 } from '@ucbs/shared';
 import { ServiceError } from './errors.js';
 import { sanitizeFfmpegError } from './observability.js';
-import { FFMPEG_TIMEOUT_MS, MAX_VIDEO_OUTPUT_BYTES } from './upload-validation.js';
+import { FFMPEG_TIMEOUT_MS, MAX_UPLOAD_BYTES, MAX_VIDEO_OUTPUT_BYTES, parseAndValidateDataUrl } from './upload-validation.js';
 
 export interface SubtitleSegment {
   start: number;
@@ -636,6 +636,88 @@ export async function createTinyTestVideo(durationSec = 2.2): Promise<Buffer> {
     ]);
     return readFile(output);
   });
+}
+
+export const VIDEO_THUMBNAIL_TIMEOUT_MS = 15_000;
+export const MAX_VIDEO_THUMBNAIL_BYTES = 2 * 1024 * 1024;
+
+const THUMB_STILL_EXT: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+};
+
+function assertJpegThumbnail(buf: Buffer): Buffer {
+  if (buf.length < 32 || buf.length > MAX_VIDEO_THUMBNAIL_BYTES || buf[0] !== 0xff || buf[1] !== 0xd8) {
+    throw new ServiceError(400, 'THUMBNAIL_FAILED', 'Thumbnail ungültig');
+  }
+  return buf;
+}
+
+function ffmpegThumbnailArgs(input: string, output: string, seekSec?: string): string[] {
+  const args = ['-y'];
+  if (seekSec) args.push('-ss', seekSec);
+  args.push(
+    '-i',
+    input,
+    '-frames:v',
+    '1',
+    '-an',
+    '-vf',
+    'scale=640:-2:flags=lanczos',
+    '-q:v',
+    '4',
+    output
+  );
+  return args;
+}
+
+async function renderJpegThumbnail(inputName: string, inputBuffer: Buffer, seekFirst?: string): Promise<Buffer> {
+  if (!/^(input\.(mp4|png|jpg|webp))$/.test(inputName)) {
+    throw new ServiceError(400, 'INVALID_SOURCE', 'Ungültiger Thumbnail-Input');
+  }
+  return withTempDir(async (dir) => {
+    const input = join(dir, inputName);
+    const output = join(dir, 'thumb.jpg');
+    await writeFile(input, inputBuffer);
+    try {
+      await runFfmpeg(ffmpegThumbnailArgs(input, output, seekFirst), VIDEO_THUMBNAIL_TIMEOUT_MS);
+    } catch (firstErr) {
+      if (seekFirst) {
+        await runFfmpeg(ffmpegThumbnailArgs(input, output), VIDEO_THUMBNAIL_TIMEOUT_MS);
+      } else {
+        throw firstErr;
+      }
+    }
+    return assertJpegThumbnail(await readFile(output));
+  });
+}
+
+export async function extractVideoThumbnailJpeg(mp4Buffer: Buffer): Promise<Buffer> {
+  if (!Buffer.isBuffer(mp4Buffer) || mp4Buffer.length < 32) {
+    throw new ServiceError(400, 'INVALID_SOURCE', 'Kein gültiges Video für Thumbnail');
+  }
+  if (mp4Buffer.length > MAX_VIDEO_OUTPUT_BYTES) {
+    throw new ServiceError(413, 'FILE_TOO_LARGE', 'Video zu groß für Thumbnail');
+  }
+  return renderJpegThumbnail('input.mp4', mp4Buffer, '0.5');
+}
+
+export async function extractStillThumbnailJpegFromDataUrl(dataUrl: string): Promise<Buffer> {
+  const parsed = parseAndValidateDataUrl(dataUrl);
+  const ext = THUMB_STILL_EXT[parsed.mimeType];
+  if (!ext) {
+    throw new ServiceError(400, 'INVALID_SOURCE', 'Startbild nicht als Thumbnail nutzbar');
+  }
+  if (parsed.size > MAX_UPLOAD_BYTES) {
+    throw new ServiceError(413, 'FILE_TOO_LARGE', 'Startbild zu groß für Thumbnail');
+  }
+  const match = /^data:[^;]+;base64,([A-Za-z0-9+/=\s]+)$/.exec(dataUrl.trim());
+  if (!match) {
+    throw new ServiceError(400, 'INVALID_SOURCE', 'Ungültiges Startbild');
+  }
+  const buf = Buffer.from(match[1].replace(/\s/g, ''), 'base64');
+  return renderJpegThumbnail(`input.${ext}`, buf);
 }
 
 export { inferMusicMetadata };

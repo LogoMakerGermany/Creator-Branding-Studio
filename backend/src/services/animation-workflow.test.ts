@@ -124,6 +124,14 @@ describe('animation closure — source and validation', () => {
   it('rejects invalid duration and unsupported presets', async () => {
     const { user, project, file } = await seed();
     await assert.rejects(
+      () => generateAnimation(user.id, project.id, { sourceFileId: file.id, durationSec: 1, type: 'intro' }),
+      (err: unknown) => err instanceof ServiceError && err.code === 'INVALID_DURATION'
+    );
+    await assert.rejects(
+      () => generateAnimation(user.id, project.id, { sourceFileId: file.id, durationSec: 2.5, type: 'intro' }),
+      (err: unknown) => err instanceof ServiceError && err.code === 'INVALID_DURATION'
+    );
+    await assert.rejects(
       () => generateAnimation(user.id, project.id, { sourceFileId: file.id, durationSec: 0, type: 'intro' }),
       (err: unknown) => err instanceof ServiceError && err.code === 'INVALID_DURATION'
     );

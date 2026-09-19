@@ -26,9 +26,105 @@ export const ANIMATION_EFFECTS = [
 ] as const;
 export type AnimationEffectId = (typeof ANIMATION_EFFECTS)[number]['id'];
 
-export const MIN_ANIMATION_DURATION_SEC = 1;
-export const MAX_ANIMATION_DURATION_SEC = 15;
+/** Canonical range for provider-backed generated video (Runway gen4.5). Local FFmpeg edit/export limits are separate. */
+export const GENERATED_VIDEO_DURATION_MIN_SEC = 2;
+export const GENERATED_VIDEO_DURATION_MAX_SEC = 10;
+export const GENERATED_VIDEO_DURATION_DEFAULT_SEC = 5;
+export const MIN_ANIMATION_DURATION_SEC = GENERATED_VIDEO_DURATION_MIN_SEC;
+export const MAX_ANIMATION_DURATION_SEC = GENERATED_VIDEO_DURATION_MAX_SEC;
 export const MAX_ANIMATION_ROTATIONS = 3;
+
+export type ParsedGeneratedVideoDuration =
+  | { mentioned: false }
+  | { mentioned: true; ok: true; durationSec: number }
+  | { mentioned: true; ok: false; code: 'INVALID_DURATION' };
+
+const GENERATED_VIDEO_DURATION_WORDS: Record<string, number> = {
+  eins: 1,
+  eine: 1,
+  ein: 1,
+  zwei: 2,
+  drei: 3,
+  vier: 4,
+  fünf: 5,
+  funf: 5,
+  sechs: 6,
+  sieben: 7,
+  acht: 8,
+  neun: 9,
+  zehn: 10,
+  elf: 11,
+  zwölf: 12,
+  zwoelf: 12,
+  fünfzehn: 15,
+  funfzehn: 15,
+};
+
+export function validateGeneratedVideoDuration(
+  value: unknown
+): { ok: true; durationSec: number } | { ok: false; code: 'INVALID_DURATION' } {
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) {
+    return { ok: false, code: 'INVALID_DURATION' };
+  }
+  if (value < GENERATED_VIDEO_DURATION_MIN_SEC || value > GENERATED_VIDEO_DURATION_MAX_SEC) {
+    return { ok: false, code: 'INVALID_DURATION' };
+  }
+  return { ok: true, durationSec: value };
+}
+
+export function parseGeneratedVideoDurationFromMessage(message: string): ParsedGeneratedVideoDuration {
+  if (typeof message !== 'string' || !message.trim()) return { mentioned: false };
+  const lower = message.toLowerCase();
+  const num =
+    lower.match(/(\d+(?:\.\d+)?)\s*[-–]?\s*(sekunden|sekunde|seconds|second|sek)\b/) ??
+    lower.match(/(\d+(?:\.\d+)?)\s*s\b/);
+  const word = lower.match(
+    /\b(eins|eine|ein|zwei|drei|vier|fünf|funf|sechs|sieben|acht|neun|zehn|elf|zwölf|zwoelf|fünfzehn|funfzehn)\s*[-–]?\s*(sekunden|sekunde|seconds|second|sek|s)\b/
+  );
+  if (!num && !word) return { mentioned: false };
+  const raw = num
+    ? Number(num[1])
+    : GENERATED_VIDEO_DURATION_WORDS[word![1]!.replace('ü', 'u').replace('ö', 'oe')] ??
+      GENERATED_VIDEO_DURATION_WORDS[word![1]!];
+  const check = validateGeneratedVideoDuration(raw);
+  if (!check.ok) return { mentioned: true, ok: false, code: 'INVALID_DURATION' };
+  return { mentioned: true, ok: true, durationSec: check.durationSec };
+}
+
+export function generatedVideoDurationNeedsFollowUp(message: string): boolean {
+  const parsed = parseGeneratedVideoDurationFromMessage(message);
+  return parsed.mentioned && !parsed.ok;
+}
+
+export function generatedVideoDurationFollowUpMessage(): string {
+  return `KI-generiertes Video unterstützt aktuell ${GENERATED_VIDEO_DURATION_MIN_SEC}–${GENERATED_VIDEO_DURATION_MAX_SEC} Sekunden (ganze Zahlen, Standard ${GENERATED_VIDEO_DURATION_DEFAULT_SEC}). Ungültige Längen ändere ich nicht stillschweigend. Bitte eine Dauer zwischen ${GENERATED_VIDEO_DURATION_MIN_SEC} und ${GENERATED_VIDEO_DURATION_MAX_SEC} Sekunden wählen. Kein Job, keine Coins.`;
+}
+
+export function inspectGeneratedVideoQuoteDuration(
+  payload?: Record<string, unknown> | null
+): { ok: true } | { ok: false; code: 'INVALID_DURATION' } {
+  if (!payload) return { ok: true };
+  if (payload.durationUnsupported === true) return { ok: false, code: 'INVALID_DURATION' };
+  const raw = payload.durationSec ?? payload.duration;
+  if (raw !== undefined && raw !== null && raw !== '') {
+    if (!validateGeneratedVideoDuration(raw).ok) return { ok: false, code: 'INVALID_DURATION' };
+  }
+  if (typeof payload.message === 'string') {
+    const parsed = parseGeneratedVideoDurationFromMessage(payload.message);
+    if (parsed.mentioned && !parsed.ok) return { ok: false, code: 'INVALID_DURATION' };
+  }
+  return { ok: true };
+}
+
+/** Relative speed changes of an already-valid plan. Never use this to accept raw user input. */
+export function clampGeneratedVideoDuration(value: number): number {
+  if (!Number.isFinite(value)) return GENERATED_VIDEO_DURATION_DEFAULT_SEC;
+  const rounded = Math.round(value);
+  return Math.min(
+    GENERATED_VIDEO_DURATION_MAX_SEC,
+    Math.max(GENERATED_VIDEO_DURATION_MIN_SEC, rounded)
+  );
+}
 
 export type AnimationDirection = 'cw' | 'ccw' | 'left' | 'right' | 'up' | 'down';
 
@@ -318,7 +414,11 @@ function isStreamScreenPhrase(lower: string): boolean {
   );
 }
 
-export function parseAnimationIntent(message: string): Partial<AnimationConfig> {
+export type ParsedAnimationIntent = Partial<AnimationConfig> & {
+  durationUnsupported?: boolean;
+};
+
+export function parseAnimationIntent(message: string): ParsedAnimationIntent {
   const lower = message.toLowerCase();
   let type: AnimationTypeId = 'intro';
   const animatedScreen = /animier/.test(lower);
@@ -335,36 +435,10 @@ export function parseAnimationIntent(message: string): Partial<AnimationConfig> 
   else if (endingScreen) type = 'stream-end';
   else if (startingSoon) type = 'stream-start';
 
-  const wordDur: Record<string, number> = {
-    eins: 1,
-    zwei: 2,
-    drei: 3,
-    vier: 4,
-    fünf: 5,
-    funf: 5,
-    sechs: 6,
-    sieben: 7,
-    acht: 8,
-    neun: 9,
-    zehn: 10,
-    elf: 11,
-    zwölf: 12,
-    zwoelf: 12,
-    fünfzehn: 15,
-    funfzehn: 15,
-  };
-  const dur = message.match(/(\d+)\s*(s|sek)/i);
-  const word = lower.match(
-    /\b(eins|zwei|drei|vier|fünf|funf|sechs|sieben|acht|neun|zehn|elf|zwölf|zwoelf|fünfzehn|funfzehn)\s*(s|sek)/i
-  );
-  const rawDur = dur
-    ? Number(dur[1])
-    : word
-      ? wordDur[word[1]!.replace('ü', 'u').replace('ö', 'oe')] ?? wordDur[word[1]!]
-      : undefined;
+  const parsedDur = parseGeneratedVideoDurationFromMessage(message);
   const durationSec =
-    rawDur != null
-      ? Math.min(MAX_ANIMATION_DURATION_SEC, Math.max(MIN_ANIMATION_DURATION_SEC, rawDur))
+    parsedDur.mentioned && parsedDur.ok
+      ? parsedDur.durationSec
       : ANIMATION_TYPES.find((t) => t.id === type)!.durationSec;
   let aspectRatio: AnimationAspect = '16:9';
   if (/9\s*[:x]\s*16|vertikal|short|tiktok/.test(lower)) aspectRatio = '9:16';
@@ -410,6 +484,7 @@ export function parseAnimationIntent(message: string): Partial<AnimationConfig> 
     transparent: /transparent/.test(lower) || undefined,
     rotations,
     direction,
+    durationUnsupported: parsedDur.mentioned && !parsedDur.ok ? true : undefined,
   };
 }
 
@@ -441,19 +516,13 @@ export function isSupportedAnimationEffect(value: string | undefined): value is 
 export function validateAnimationDuration(
   value: unknown
 ): { ok: true; durationSec: number } | { ok: false; code: 'INVALID_DURATION' } {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return { ok: false, code: 'INVALID_DURATION' };
-  }
-  if (value < MIN_ANIMATION_DURATION_SEC || value > MAX_ANIMATION_DURATION_SEC) {
-    return { ok: false, code: 'INVALID_DURATION' };
-  }
-  return { ok: true, durationSec: value };
+  return validateGeneratedVideoDuration(value);
 }
 
 export function defaultAnimationPlan(): AnimationConfig {
   return {
     type: 'intro',
-    durationSec: 6,
+    durationSec: GENERATED_VIDEO_DURATION_DEFAULT_SEC,
     aspectRatio: '16:9',
     motion: 'medium',
     loop: false,
@@ -545,11 +614,11 @@ export function applyAnimationChangeRequest(plan: AnimationConfig, request: stri
   const lower = request.toLowerCase();
   const next = { ...plan };
   if (/langsamer/.test(lower)) {
-    next.durationSec = Math.min(MAX_ANIMATION_DURATION_SEC, Math.max(MIN_ANIMATION_DURATION_SEC, plan.durationSec * 1.5));
+    next.durationSec = clampGeneratedVideoDuration(plan.durationSec * 1.5);
     next.motion = 'subtle';
   }
   if (/schneller/.test(lower)) {
-    next.durationSec = Math.min(MAX_ANIMATION_DURATION_SEC, Math.max(MIN_ANIMATION_DURATION_SEC, plan.durationSec * 0.65));
+    next.durationSec = clampGeneratedVideoDuration(plan.durationSec * 0.65);
     next.motion = 'strong';
   }
   if (/drehrichtung|gegen den uhr|andere richtung/.test(lower)) {
@@ -557,7 +626,10 @@ export function applyAnimationChangeRequest(plan: AnimationConfig, request: stri
     next.effect = 'rotate';
   }
   const onlyDur = lower.match(/nur\s+(\d+)\s*(s|sek)/);
-  if (onlyDur) next.durationSec = Math.min(MAX_ANIMATION_DURATION_SEC, Math.max(MIN_ANIMATION_DURATION_SEC, Number(onlyDur[1])));
+  if (onlyDur) {
+    const explicit = validateGeneratedVideoDuration(Number(onlyDur[1]));
+    if (explicit.ok) next.durationSec = explicit.durationSec;
+  }
   if (/transparent/.test(lower)) next.transparent = true;
   if (/tiktok|9\s*[:x]\s*16/.test(lower)) next.aspectRatio = '9:16';
   return next;

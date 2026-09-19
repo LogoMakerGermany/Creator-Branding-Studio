@@ -42,7 +42,6 @@ export const ELEVENLABS_TTS_TIMEOUT_MS = 30_000;
 export const PROVIDER_POLL_TIMEOUT_MS = 20_000;
 export const REPLICATE_MUSIC_CREATE_TIMEOUT_MS = 130_000;
 export const REPLICATE_VIDEO_CREATE_TIMEOUT_MS = 190_000;
-export const REPLICATE_THUMB_CREATE_TIMEOUT_MS = 100_000;
 
 function throwProviderTimeout(message: string): never {
   throw new ServiceError(504, 'PROVIDER_TIMEOUT', message);
@@ -314,66 +313,13 @@ async function generateMusicWithSuno(
 }
 
 export async function generateVideoThumbnail(
-  prompt: string
+  _prompt?: string
 ): Promise<{ imageUrl: string; provider: string }> {
-  if (isPaidProviderTestBlocked()) {
-    throw new ServiceError(
-      503,
-      'AI_NOT_CONFIGURED',
-      'Video-Thumbnails sind provider-gated und in Tests blockiert'
-    );
-  }
-  if (!areGenerationsEnabled()) {
-    throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
-  }
-  if (!areImageGenerationsEnabled()) {
-    throwImageGenerationUnavailable();
-  }
-  const token = getReplicateApiToken();
-  if (!token) {
-    if (isProduction()) {
-      throw new ServiceError(503, 'AI_NOT_CONFIGURED', 'REPLICATE_API_TOKEN fehlt für Video-Thumbnails');
-    }
-    throw new Error('REPLICATE_API_TOKEN nicht konfiguriert');
-  }
-
-  const createRes = await providerFetch(
-    'https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Prefer: 'wait=90',
-      },
-      body: JSON.stringify({
-        input: { prompt, num_outputs: 1, aspect_ratio: '16:9' },
-      }),
-    },
-    REPLICATE_THUMB_CREATE_TIMEOUT_MS
+  throw new ServiceError(
+    400,
+    'VIDEO_THUMBNAIL_LOCAL_ONLY',
+    'Video-Thumbnails werden lokal aus dem fertigen Video oder einem vorhandenen Startbild erzeugt. Es gibt keinen Replicate- oder OpenAI-Thumbnail-Aufruf.'
   );
-
-  if (!createRes.ok) {
-    throwProviderFailed('Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.');
-  }
-
-  const prediction = (await createRes.json()) as {
-    status: string;
-    output?: string | string[];
-    error?: string;
-  };
-
-  if (prediction.status === 'failed') {
-    throwProviderFailed('Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.');
-  }
-
-  const output = prediction.output;
-  const imageUrl = Array.isArray(output) ? output[0] : output;
-  if (!imageUrl) {
-    throwProviderFailed('Die Bildgenerierung ist fehlgeschlagen. Coins wurden erstattet.');
-  }
-
-  return { imageUrl, provider: 'replicate-flux' };
 }
 
 export function isPaidProviderTestBlocked(): boolean {

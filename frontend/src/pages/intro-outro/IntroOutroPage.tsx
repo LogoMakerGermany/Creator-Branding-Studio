@@ -96,7 +96,7 @@ export function IntroOutroPage() {
         {!activeDna && <DnaRequiredBanner />}
         {error && <StudioErrorBanner message={error} />}
         <p className="text-xs text-zinc-500">
-          KI-Video und Animation starten erst nach Nexter-Bestätigung. Ohne Video-Provider werden keine Coins abgebucht.
+          KI-Video und Animation starten erst nach Nexter-Bestätigung. Ohne Video-Provider werden keine Coins abgebucht. Generierte Animationen: 2–10 Sekunden (ganze Zahlen, Standard 5).
         </p>
       </div>
 

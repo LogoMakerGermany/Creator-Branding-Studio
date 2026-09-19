@@ -5,6 +5,9 @@ import {
   parseAnimationIntent,
   animationNeedsFollowUp,
   animationStudioPath,
+  generatedVideoDurationFollowUpMessage,
+  generatedVideoDurationNeedsFollowUp,
+  parseGeneratedVideoDurationFromMessage,
   parseHighlightIndex,
   parseTextIntent,
   parseSocialIntent,
@@ -1009,6 +1012,20 @@ export async function nexterChat(
       animLower
     );
   if (animationChange && ctx.lastAnimationId) {
+    if (generatedVideoDurationNeedsFollowUp(message)) {
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content: generatedVideoDurationFollowUpMessage(),
+        createdAt: new Date().toISOString(),
+        suggestions: ['Mach daraus ein 5 Sekunden Intro.', 'Nur 8 Sekunden.'],
+        actions: [
+          { id: randomUUID(), tool: 'open_studio', label: 'Animation Studio öffnen', path: NEXTER_STUDIO_PATHS.animation },
+        ],
+      });
+      await persistSession(session);
+      return session;
+    }
     const parsed = parseAnimationIntent(message);
     const quote = await createQuote(userId, 'animation', meta?.projectId || ctx.projectId, {
       ...parsed,
@@ -1360,7 +1377,7 @@ export async function nexterChat(
       id: randomUUID(),
       role: 'assistant',
       content:
-        'Wie soll die Animation aussehen — Rotation, Fade-In oder ein Intro? Und wie lange (1–15 Sekunden)? Ich starte keine kostenpflichtige Generierung, bis das klar ist und du bestätigst.',
+        'Wie soll die Animation aussehen — Rotation, Fade-In oder ein Intro? Und wie lange (2–10 Sekunden)? Ich starte keine kostenpflichtige Generierung, bis das klar ist und du bestätigst.',
       createdAt: new Date().toISOString(),
       suggestions: [
         'Lass mein Logo einmal um die eigene Achse drehen.',
@@ -1368,6 +1385,31 @@ export async function nexterChat(
         'Lass das Logo langsam einblenden.',
       ],
       actions: [{ id: randomUUID(), tool: 'open_studio', label: 'Animation Studio öffnen', path: NEXTER_STUDIO_PATHS.animation }],
+    });
+    await persistSession(session);
+    return session;
+  }
+
+  if (
+    (detectQuoteKind(message) === 'animation' || detectQuoteKind(message) === 'ai-video') &&
+    generatedVideoDurationNeedsFollowUp(message) &&
+    !openPath
+  ) {
+    const kind = detectQuoteKind(message);
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: generatedVideoDurationFollowUpMessage(),
+      createdAt: new Date().toISOString(),
+      suggestions: ['Mach daraus ein 5 Sekunden Intro.', 'Mach mir ein 8-Sekunden KI-Video.'],
+      actions: [
+        {
+          id: randomUUID(),
+          tool: 'open_studio',
+          label: kind === 'ai-video' ? 'KI-Video Studio öffnen' : 'Animation Studio öffnen',
+          path: kind === 'ai-video' ? NEXTER_STUDIO_PATHS['ai-video'] : NEXTER_STUDIO_PATHS.animation,
+        },
+      ],
     });
     await persistSession(session);
     return session;
@@ -1803,6 +1845,27 @@ export async function nexterChat(
         return session;
       }
     }
+    if (quoteKind === 'animation' || quoteKind === 'ai-video') {
+      if (generatedVideoDurationNeedsFollowUp(message)) {
+        session.messages.push({
+          id: randomUUID(),
+          role: 'assistant',
+          content: generatedVideoDurationFollowUpMessage(),
+          createdAt: new Date().toISOString(),
+          suggestions: ['Mach daraus ein 5 Sekunden Intro.', 'Mach mir ein 8-Sekunden KI-Video.'],
+          actions: [
+            {
+              id: randomUUID(),
+              tool: 'open_studio',
+              label: quoteKind === 'ai-video' ? 'KI-Video Studio öffnen' : 'Animation Studio öffnen',
+              path: quoteKind === 'ai-video' ? NEXTER_STUDIO_PATHS['ai-video'] : NEXTER_STUDIO_PATHS.animation,
+            },
+          ],
+        });
+        await persistSession(session);
+        return session;
+      }
+    }
     if (quoteKind === 'mockup') {
       const parsed = parseMockupIntent(message, {
         lastLogoId: ctx.lastLogoId,
@@ -1865,7 +1928,13 @@ export async function nexterChat(
         : quoteKind === 'animation'
           ? { ...parseAnimationIntent(message), message }
           : quoteKind === 'ai-video'
-            ? { message }
+            ? (() => {
+                const parsedDur = parseGeneratedVideoDurationFromMessage(message);
+                return {
+                  message,
+                  ...(parsedDur.mentioned && parsedDur.ok ? { duration: parsedDur.durationSec } : {}),
+                };
+              })()
             : quoteKind === 'music'
             ? (() => {
                 const settings = parseMusicIntent(message, {

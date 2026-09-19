@@ -1,5 +1,5 @@
 import type { CreatorDNA, VideoFormatId, VideoEditPlan, VideoMetadata, VideoScene, VideoPause, AudioActivityBucket, VideoCrop, VideoFitMode, VideoAspectPreset, VideoPreviewState } from '@ucbs/shared';
-import { buildDnaPromptContext, getVideoFormatPreset, ffmpegScaleFilter, defaultEditPlan, clipSubtitlesToRange, ffmpegCropScaleFilter, isValidTrim, outputSizeForAspect, buildVideoPreviewState, isSupportedVideoTransition, isValidCaption, sanitizeCaptionText, captionsFromTranscript, MAX_TRANSITION_SEC, DEFAULT_TRANSITION_SEC, CoinSpendCategory } from '@ucbs/shared';
+import { ANIMATION_TYPES, buildDnaPromptContext, GENERATED_VIDEO_DURATION_DEFAULT_SEC, generatedVideoDurationFollowUpMessage, getVideoFormatPreset, ffmpegScaleFilter, defaultEditPlan, clipSubtitlesToRange, ffmpegCropScaleFilter, isValidTrim, outputSizeForAspect, buildVideoPreviewState, isSupportedVideoTransition, isValidCaption, sanitizeCaptionText, captionsFromTranscript, MAX_TRANSITION_SEC, DEFAULT_TRANSITION_SEC, CoinSpendCategory, validateGeneratedVideoDuration } from '@ucbs/shared';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
 import { uploadAssetFromBuffer, uploadAssetFromDataUrl, uploadAssetFromUrl } from '../lib/firebase-storage.js';
 import { buildPromptFromDNA, generateImage } from './ai.service.js';
@@ -14,6 +14,8 @@ import {
   clipVideoSegment,
   convertMp4ToGif,
   convertMp4ToWebm,
+  extractStillThumbnailJpegFromDataUrl,
+  extractVideoThumbnailJpeg,
   inferMusicMetadata,
   probeVideoMetadata,
   exportEditedVideo,
@@ -1038,14 +1040,17 @@ export async function runMediaJob(
           : type === 'short' || type === 'alert'
             ? '9:16'
             : '16:9';
+      const duration = resolveMediaJobVideoDuration(type, options?.duration);
+      const startImageUrl =
+        typeof options?.metadata?.logoUrl === 'string' ? options.metadata.logoUrl : undefined;
       const video = await generateVideo(job.prompt, {
         aspectRatio,
-        duration: options?.duration || (type === 'stinger' || type === 'alert' || type === 'logo-loop' ? 4 : type === 'intro' || type === 'outro' ? 6 : 10),
-        imageUrl: typeof options?.metadata?.logoUrl === 'string' ? options.metadata.logoUrl : undefined,
+        duration,
+        imageUrl: startImageUrl,
       });
       job.videoUrl = await persistVideo(userId, video.videoUrl);
       job.provider = video.provider;
-      job.duration = options?.duration || (type === 'intro' || type === 'outro' ? 6 : 10);
+      job.duration = duration;
       job.metadata = { ...job.metadata, format: aspectRatio };
 
       const mp4Buffer = await fetchVideoBufferForExport(job.videoUrl);
@@ -1072,20 +1077,7 @@ export async function runMediaJob(
       }
       job.metadata = { ...job.metadata, exports };
 
-      try {
-        const thumb = await generateImage({
-          module: 'ai-image',
-          dna,
-          customPrompt: `${job.prompt}, video thumbnail frame`,
-          size: type === 'short' ? '1024x1792' : '1792x1024',
-        });
-        job.thumbnailUrl = await persistGeneratedImage(userId, thumb);
-        job.imageUrl = job.thumbnailUrl;
-        job.metadata = { ...job.metadata, thumbnailProvider: thumb.provider };
-      } catch {
-        job.thumbnailUrl = job.videoUrl;
-        job.imageUrl = job.videoUrl;
-      }
+      await attachLocalVideoThumbnail(userId, job, mp4Buffer, startImageUrl);
 
       job.status = 'completed';
     } else if (type.startsWith('vtuber')) {
@@ -1135,6 +1127,87 @@ export async function runMediaJob(
 
   await saveMediaJob(job);
   return job;
+}
+
+function resolveMediaJobVideoDuration(type: MediaJobType, raw: unknown): number {
+  if (raw !== undefined && raw !== null && raw !== '') {
+    const check = validateGeneratedVideoDuration(raw);
+    if (!check.ok) {
+      throw new ServiceError(400, 'INVALID_DURATION', generatedVideoDurationFollowUpMessage());
+    }
+    return check.durationSec;
+  }
+  const preset = ANIMATION_TYPES.find((t) => String(t.id) === String(type))?.durationSec;
+  if (typeof preset === 'number') return preset;
+  return GENERATED_VIDEO_DURATION_DEFAULT_SEC;
+}
+
+async function persistLocalThumbnailJpeg(userId: string, jobId: string, jpeg: Buffer): Promise<string> {
+  return uploadAssetFromBuffer(userId, jpeg, {
+    folder: 'videos',
+    fileName: `${jobId}-thumb.jpg`,
+    contentType: 'image/jpeg',
+    extension: 'jpg',
+  });
+}
+
+/**
+ * Secondary derived asset. Must never fail a paid video job, refund coins,
+ * call an image provider, or trigger a second video generation.
+ */
+async function attachLocalVideoThumbnail(
+  userId: string,
+  job: MediaJob,
+  mp4Buffer: Buffer,
+  startImageUrl?: string
+): Promise<void> {
+  const markUnavailable = (reason: string) => {
+    job.metadata = {
+      ...job.metadata,
+      thumbnailStatus: 'unavailable',
+      thumbnailProvider: 'none',
+      thumbnailProviderCalls: 0,
+      thumbnailReason: reason,
+    };
+  };
+
+  try {
+    const jpeg = await extractVideoThumbnailJpeg(mp4Buffer);
+    const url = await persistLocalThumbnailJpeg(userId, job.id, jpeg);
+    job.thumbnailUrl = url;
+    job.imageUrl = url;
+    job.metadata = {
+      ...job.metadata,
+      thumbnailStatus: 'extracted',
+      thumbnailProvider: 'local-ffmpeg',
+      thumbnailProviderCalls: 0,
+      thumbnailSource: 'generated-video-frame',
+    };
+    return;
+  } catch (err) {
+    console.warn('[Media] video frame thumbnail failed:', err instanceof Error ? err.message : 'error');
+  }
+
+  if (typeof startImageUrl === 'string' && startImageUrl.startsWith('data:image/')) {
+    try {
+      const jpeg = await extractStillThumbnailJpegFromDataUrl(startImageUrl);
+      const url = await persistLocalThumbnailJpeg(userId, job.id, jpeg);
+      job.thumbnailUrl = url;
+      job.imageUrl = url;
+      job.metadata = {
+        ...job.metadata,
+        thumbnailStatus: 'from-source',
+        thumbnailProvider: 'local-ffmpeg',
+        thumbnailProviderCalls: 0,
+        thumbnailSource: 'start-image',
+      };
+      return;
+    } catch (err) {
+      console.warn('[Media] start-image thumbnail failed:', err instanceof Error ? err.message : 'error');
+    }
+  }
+
+  markUnavailable('local-thumbnail-failed');
 }
 
 async function persistGeneratedImage(

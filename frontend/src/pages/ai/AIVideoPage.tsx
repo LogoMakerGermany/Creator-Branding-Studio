@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { PageHeader, Badge, Button, NeonCard, Input, StatCard } from '@/components/ui';
 import { Video, Sparkles, CheckCircle2, Download, History } from 'lucide-react';
-import { COIN_COSTS, CoinSpendCategory } from '@ucbs/shared';
+import { COIN_COSTS, CoinSpendCategory, GENERATED_VIDEO_DURATION_DEFAULT_SEC, GENERATED_VIDEO_DURATION_MAX_SEC, GENERATED_VIDEO_DURATION_MIN_SEC } from '@ucbs/shared';
 import { useAuth } from '@/context/AuthContext';
 import { api, type MediaJob } from '@/services/api';
 import { formatCoins } from '@/lib/utils';
@@ -72,6 +72,7 @@ export function AIVideoPage() {
           />
           <p className="mt-2 text-xs text-zinc-500">
             Direkte Generierung ist gesperrt. Nexter erstellt ein Angebot zu {videoCost} Coins — ohne Bestätigung und ohne Provider passiert nichts.
+            Generierte KI-Videos: {GENERATED_VIDEO_DURATION_MIN_SEC}–{GENERATED_VIDEO_DURATION_MAX_SEC} Sekunden (ganze Zahlen, Standard {GENERATED_VIDEO_DURATION_DEFAULT_SEC}).
           </p>
           <Button
             className="mt-4 w-full gap-2"

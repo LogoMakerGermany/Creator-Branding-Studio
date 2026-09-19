@@ -1,3 +1,8 @@
+import {
+  GENERATED_VIDEO_DURATION_DEFAULT_SEC,
+  GENERATED_VIDEO_DURATION_MAX_SEC,
+  GENERATED_VIDEO_DURATION_MIN_SEC,
+} from '@ucbs/shared';
 import { getRunwayApiKey } from '../config/env.js';
 import { ServiceError } from './errors.js';
 import { isSafeAssetUrl } from './upload-validation.js';
@@ -21,9 +26,9 @@ export const RUNWAY_POLL_HTTP_TIMEOUT_MS = 20_000;
 export const RUNWAY_POLL_INTERVAL_MS = 5_000;
 export const RUNWAY_MAX_POLLS = 72;
 export const RUNWAY_PROMPT_MAX_CHARS = 1000;
-export const RUNWAY_DURATION_MIN_SEC = 2;
-export const RUNWAY_DURATION_MAX_SEC = 10;
-export const RUNWAY_DEFAULT_DURATION_SEC = 5;
+export const RUNWAY_DURATION_MIN_SEC = GENERATED_VIDEO_DURATION_MIN_SEC;
+export const RUNWAY_DURATION_MAX_SEC = GENERATED_VIDEO_DURATION_MAX_SEC;
+export const RUNWAY_DEFAULT_DURATION_SEC = GENERATED_VIDEO_DURATION_DEFAULT_SEC;
 export const RUNWAY_RATIO_16_9 = '1280:720' as const;
 export const RUNWAY_RATIO_9_16 = '720:1280' as const;
 

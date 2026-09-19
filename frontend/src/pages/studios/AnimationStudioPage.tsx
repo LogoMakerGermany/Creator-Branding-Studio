@@ -6,7 +6,11 @@ import {
   ANIMATION_TYPES,
   COIN_COSTS,
   CoinSpendCategory,
+  GENERATED_VIDEO_DURATION_DEFAULT_SEC,
+  GENERATED_VIDEO_DURATION_MAX_SEC,
+  GENERATED_VIDEO_DURATION_MIN_SEC,
   buildAnimationPreviewState,
+  validateGeneratedVideoDuration,
   type AnimationAspect,
   type AnimationConfig,
   type AnimationDirection,
@@ -39,13 +43,22 @@ function asEffect(v: string | null): AnimationEffectId {
   return ANIMATION_EFFECTS.some((e) => e.id === v) ? (v as AnimationEffectId) : 'fade-in';
 }
 
+function durationFromSearch(raw: string | null, fallback: number): number {
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  const check = validateGeneratedVideoDuration(parsed);
+  return check.ok ? check.durationSec : GENERATED_VIDEO_DURATION_DEFAULT_SEC;
+}
+
 export function AnimationStudioPage() {
   const { activeDna, user } = useAuth();
   const [search] = useSearchParams();
   const queueNexterPrompt = useNexterStore((s) => s.queueNexterPrompt);
   const [type, setType] = useState<AnimationTypeId>(asType(search.get('type')));
   const preset = ANIMATION_TYPES.find((t) => t.id === type)!;
-  const [durationSec, setDurationSec] = useState<number>(Number(search.get('duration')) || preset.durationSec);
+  const [durationSec, setDurationSec] = useState<number>(
+    durationFromSearch(search.get('duration'), preset.durationSec)
+  );
   const [aspectRatio, setAspectRatio] = useState<AnimationAspect>(
     (search.get('aspect') as AnimationAspect) || '16:9'
   );
@@ -297,12 +310,14 @@ export function AnimationStudioPage() {
 
             <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">4. Parameter</p>
             <label className="block text-xs text-zinc-400">
-              Dauer {durationSec}s
+              Dauer {durationSec}s ({GENERATED_VIDEO_DURATION_MIN_SEC}–{GENERATED_VIDEO_DURATION_MAX_SEC}, Standard{' '}
+              {GENERATED_VIDEO_DURATION_DEFAULT_SEC})
               <input
                 data-testid="animation-duration"
                 type="range"
-                min={1}
-                max={15}
+                min={GENERATED_VIDEO_DURATION_MIN_SEC}
+                max={GENERATED_VIDEO_DURATION_MAX_SEC}
+                step={1}
                 value={durationSec}
                 onChange={(e) => setDurationSec(Number(e.target.value))}
                 className="mt-1 w-full"

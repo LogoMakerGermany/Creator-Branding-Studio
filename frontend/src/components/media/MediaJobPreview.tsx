@@ -16,13 +16,21 @@ export function MediaJobPreview({
   }
 
   if (job.videoUrl) {
+    const thumbUnavailable = job.metadata?.thumbnailStatus === 'unavailable';
     return (
-      <video
-        src={job.videoUrl}
-        controls
-        className={`h-full w-full object-contain ${className}`}
-        poster={job.thumbnailUrl || job.imageUrl}
-      />
+      <div className="flex h-full w-full flex-col">
+        <video
+          src={job.videoUrl}
+          controls
+          className={`h-full w-full object-contain ${className}`}
+          poster={thumbUnavailable ? undefined : job.thumbnailUrl || job.imageUrl}
+        />
+        {thumbUnavailable && (
+          <p className="mt-1 text-xs text-zinc-500" data-testid="video-thumbnail-unavailable">
+            Vorschaubild nicht verfügbar
+          </p>
+        )}
+      </div>
     );
   }
 
