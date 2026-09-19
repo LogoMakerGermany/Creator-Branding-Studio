@@ -325,6 +325,61 @@ export function dnaUpdateConfirmationPrompt(message: string): string {
   return `Soll ich ${topic} nur für dieses Projekt verwenden oder als neue bevorzugte Einstellung in deiner Creator-DNA speichern? Ich ändere die DNA nicht automatisch.`;
 }
 
+/** Official aspect tokens NEXTER can honor from an explicit user request. */
+export const NEXTER_EXPLICIT_ASPECTS = ['16:9', '9:16', '1:1', '4:3', '4:5'] as const;
+export type NexterExplicitAspect = (typeof NEXTER_EXPLICIT_ASPECTS)[number];
+
+const EXPLICIT_ASPECT_SET = new Set<string>(NEXTER_EXPLICIT_ASPECTS);
+
+const PIXEL_TO_EXPLICIT_ASPECT: Record<string, NexterExplicitAspect> = {
+  '1920:1080': '16:9',
+  '1280:720': '16:9',
+  '1080:1920': '9:16',
+  '720:1280': '9:16',
+  '1080:1080': '1:1',
+  '1440:1080': '4:3',
+  '1080:1350': '4:5',
+};
+
+function tokenToExplicitAspect(widthOrRatio: number, heightOrRatio: number): NexterExplicitAspect | undefined {
+  const key = `${widthOrRatio}:${heightOrRatio}`;
+  if (EXPLICIT_ASPECT_SET.has(key)) return key as NexterExplicitAspect;
+  return PIXEL_TO_EXPLICIT_ASPECT[key];
+}
+
+function explicitAspectsInText(text: string): NexterExplicitAspect[] {
+  const found: NexterExplicitAspect[] = [];
+  const re = /(\d+)\s*[:x×]\s*(\d+)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const aspect = tokenToExplicitAspect(Number(match[1]), Number(match[2]));
+    if (aspect && !found.includes(aspect)) found.push(aspect);
+  }
+  return found;
+}
+
+/** First explicit aspect/dimension in the utterance, if any. */
+export function parseExplicitAspectFromMessage(message: string): NexterExplicitAspect | undefined {
+  if (typeof message !== 'string' || !message.trim()) return undefined;
+  return explicitAspectsInText(message)[0];
+}
+
+export function platformFormatHintContradictsExplicitAspect(
+  hint: string,
+  explicit: NexterExplicitAspect
+): boolean {
+  return explicitAspectsInText(hint).some((aspect) => aspect !== explicit);
+}
+
+/** Drop a platform FORMAT hint when the user already specified a conflicting aspect. */
+export function applyExplicitAspectToFormatHint(message: string, hint: string | null): string | null {
+  if (!hint) return null;
+  const explicit = parseExplicitAspectFromMessage(message);
+  if (!explicit) return hint;
+  if (platformFormatHintContradictsExplicitAspect(hint, explicit)) return null;
+  return hint;
+}
+
 export function platformFormatHint(platform: string, assetType?: string): string | null {
   const p = platform.toLowerCase();
   if (assetType === 'banner' && p in BANNER_PLATFORM_SPECS) {

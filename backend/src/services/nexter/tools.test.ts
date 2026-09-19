@@ -298,6 +298,17 @@ describe('nexter tools — memory and advice', () => {
   it('recommends 9:16 for shorts', () => {
     assert.match(recommendFormat('tiktok shorts') ?? '', /9:16/);
   });
+
+  it('explicit 16:9 overrides preferred TikTok 9:16 FORMAT hint', () => {
+    assert.equal(
+      recommendFormat('Erstelle ein KI-Video, 5 Sekunden, 16:9: Plasma.', { preferredPlatforms: ['tiktok'] }),
+      null
+    );
+    assert.match(
+      recommendFormat('Erstelle ein KI-Video, 5 Sekunden: Plasma.', { preferredPlatforms: ['tiktok'] }) ?? '',
+      /9:16/
+    );
+  });
 });
 
 describe('nexter context prompt', () => {

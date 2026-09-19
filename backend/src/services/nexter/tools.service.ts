@@ -14,6 +14,7 @@ import {
   detectCalendarPlanningIntent,
   detectSocialPlannerIntent,
   platformFormatHint,
+  applyExplicitAspectToFormatHint,
   parseVideoStudioPrep,
   parseVideoClosureCommand,
   isAiVideoQuoteIntent,
@@ -771,15 +772,18 @@ export function recommendFormat(
   ctx?: Pick<NexterContextSnapshot, 'preferredPlatforms'>
 ): string | null {
   const lower = message.toLowerCase();
-  if (/twitch/.test(lower)) return platformFormatHint('twitch') ?? 'Twitch-Banner 1200×480 und Overlay 1920×1080.';
-  if (/youtube/.test(lower)) return platformFormatHint('youtube', /banner/.test(lower) ? 'banner' : 'video');
-  if (/tiktok|shorts|reel/.test(lower)) return platformFormatHint('tiktok', 'short');
-  if (/discord/.test(lower)) return platformFormatHint('discord');
-  if (/instagram/.test(lower)) return platformFormatHint('instagram');
-  if (!messageImpliesFormatNeed(message)) return null;
-  const stored = ctx?.preferredPlatforms?.[0];
-  if (stored) return platformFormatHint(stored);
-  return null;
+  let hint: string | null = null;
+  if (/twitch/.test(lower)) hint = platformFormatHint('twitch') ?? 'Twitch-Banner 1200×480 und Overlay 1920×1080.';
+  else if (/youtube/.test(lower)) hint = platformFormatHint('youtube', /banner/.test(lower) ? 'banner' : 'video');
+  else if (/tiktok|shorts|reel/.test(lower)) hint = platformFormatHint('tiktok', 'short');
+  else if (/discord/.test(lower)) hint = platformFormatHint('discord');
+  else if (/instagram/.test(lower)) hint = platformFormatHint('instagram');
+  else if (!messageImpliesFormatNeed(message)) return null;
+  else {
+    const stored = ctx?.preferredPlatforms?.[0];
+    hint = stored ? platformFormatHint(stored) : null;
+  }
+  return applyExplicitAspectToFormatHint(message, hint);
 }
 
 export function formatStreamsetGapForPrompt(ctx: NexterContextSnapshot): string {
