@@ -4,6 +4,7 @@ import {
   GENERATED_VIDEO_DURATION_DEFAULT_SEC,
   generatedVideoDurationFollowUpMessage,
   parseGeneratedVideoDurationFromMessage,
+  parseGeneratedVideoAspectFromMessage,
   validateGeneratedVideoDuration,
   buildDnaPromptContext,
   type CreatorDNA,
@@ -87,6 +88,10 @@ export async function generateAiVideo(
       ? payload.prompt.trim()
       : message.replace(/^(erstell(?:e)? (mir )?ein( )?ki[- ]?video:?\s*)/i, '').trim() || message;
   const duration = resolveAiVideoDuration(payload);
+  const aspectRatio =
+    payload?.aspectRatio === '9:16' || payload?.aspectRatio === '16:9'
+      ? payload.aspectRatio
+      : parseGeneratedVideoAspectFromMessage(message) ?? '16:9';
   const dnaCtx = buildDnaPromptContext(dna);
   const prompt = [customPrompt || `Social promotional video for ${dna.name}`, dnaCtx].filter(Boolean).join('. ');
   const quoteId = typeof payload?.quoteId === 'string' ? payload.quoteId : undefined;
@@ -137,7 +142,7 @@ export async function generateAiVideo(
           metadata: {
             quoteId: quoteId ?? null,
             source: 'ai-video',
-            aspectRatio: '16:9',
+            aspectRatio,
           },
         });
       },

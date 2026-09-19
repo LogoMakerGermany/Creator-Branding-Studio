@@ -245,7 +245,8 @@ export function nexterStudioPathFromUtterance(message: string): string | null {
   if (/ich möchte shorts machen|shorts machen|clips für tiktok/.test(lower)) {
     return NEXTER_STUDIO_PATHS.shorts;
   }
-  const navigates = /öffne|open|geh(e)? zu|studio/.test(lower);
+  const navigates =
+    /öffne|open|geh(e)? zu|studio\s+öffnen|öffnen.*studio|zeig(?:e)? mir (das |den |die )?.{0,40}studio/.test(lower);
   if (!navigates) return null;
   if (/logo/.test(lower)) return NEXTER_STUDIO_PATHS.logo;
   if (/streamset/.test(lower)) return NEXTER_STUDIO_PATHS.streamset;

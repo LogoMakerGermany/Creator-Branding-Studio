@@ -389,11 +389,42 @@ function overlap(a: TimelineRange, b: TimelineRange): number {
   return union <= 0 ? 0 : inter / union;
 }
 
+/** Existing Video Studio / highlights / Shorts-from-source — not text-to-video create. */
+export function isExistingVideoEditIntent(message: string): boolean {
+  const lower = String(message ?? '').toLowerCase();
+  if (/(?:ki|ai)[- ]?video/.test(lower) && /(mach|erstell|generier|erzeug|brauche)/.test(lower)) {
+    return false;
+  }
+  return (
+    /schneid(?:e|en)?( den anfang| mein video| das video| dieses video)?|trimme|bearbeit(?:e|en)? mein|hochgelad|upload(?:e)? (ein )?video|finde highlights?|highlights? (in|aus|finden)|shorts? aus (meinem|diesem|dem)|analysier(?:e)? (dieses |mein )?video|transkrib|untertitel|\bcaptions?\b/.test(
+      lower
+    )
+  );
+}
+
+export function parseGeneratedVideoAspectFromMessage(message: string): '16:9' | '9:16' | undefined {
+  if (typeof message !== 'string' || !message.trim()) return undefined;
+  const match = message.match(/9\s*[:x]\s*16|16\s*[:x]\s*9/i);
+  if (!match) return undefined;
+  const token = match[0].replace(/\s+/g, '').toLowerCase().replace('x', ':');
+  return token.startsWith('9') ? '9:16' : '16:9';
+}
+
 export function isAiVideoQuoteIntent(message: string): boolean {
-  const lower = message.toLowerCase();
-  if (/analysier|transkrib|untertitel|\bcaptions?\b|\bshorts?\b/.test(lower)) return false;
-  if (!/(?:ki|ai)[- ]?video/.test(lower)) return false;
-  return /(mach|erstell|generier|brauche)/.test(lower);
+  const lower = String(message ?? '').toLowerCase();
+  if (/analysier|transkrib|untertitel|\bcaptions?\b/.test(lower)) return false;
+  if (/\bshorts?\b/.test(lower) && /\baus\b/.test(lower)) return false;
+  if (/öffne|open|geh(?:e)? zu/.test(lower) && /video/.test(lower) && !/(mach|erstell|generier|erzeug|brauche)/.test(lower)) {
+    return false;
+  }
+  const createVerb = /(mach|erstell|generier|erzeug|brauche)/.test(lower);
+  if (!createVerb) return false;
+  if (/(?:ki|ai)[- ]?video/.test(lower)) return true;
+  if (isExistingVideoEditIntent(message)) return false;
+  const mentionsVideo = /\bvideo\b/.test(lower);
+  const durationOrAspect =
+    parseGeneratedVideoDurationFromMessage(message).mentioned || Boolean(parseGeneratedVideoAspectFromMessage(message));
+  return mentionsVideo && durationOrAspect;
 }
 
 export function isAnimatedStreamScreenIntent(message: string): boolean {
@@ -664,8 +695,9 @@ export interface VideoStudioPrep {
   format?: 'tiktok' | 'shorts' | 'youtube';
 }
 
-/** Prepares Video/Shorts Studio. Never starts a paid job. */
+/** Prepares Video/Shorts Studio. Never starts a paid job. Aspect alone is not enough for a create request. */
 export function parseVideoStudioPrep(message: string): VideoStudioPrep | null {
+  if (isAiVideoQuoteIntent(message)) return null;
   const lower = message.toLowerCase();
   const tiktok = /tiktok|reel|reels/.test(lower) && /clip|kurz|mach|erstell|export/.test(lower);
   const shortish = /short/.test(lower) && /mach|erstell|clip/.test(lower);
@@ -673,8 +705,17 @@ export function parseVideoStudioPrep(message: string): VideoStudioPrep | null {
   const square = /1\s*[:x]\s*1|quadrat/.test(lower);
   const landscape = /16\s*[:x]\s*9/.test(lower);
   const best = lower.match(/besten\s+(\d+)\s*(s|sek)/i);
-  const cutStart = /schneide den anfang|anfang weg|trimme den anfang|cut (the )?start/i.test(lower);
+  const cutStart =
+    /schneide( den anfang| mein video| das video| dieses video)|anfang weg|trimme den anfang|cut (the )?start|bearbeite mein( hochgeladenes)? video/i.test(
+      lower
+    );
   const wantIntro = /f[uü]ge mein intro|intro davor|intro davor setzen|mit intro/i.test(lower);
+  const hasEditCue = tiktok || shortish || cutStart || wantIntro || Boolean(best) || /clip|export|highlight|mein video|hochgelad/.test(lower);
+  if (isExistingVideoEditIntent(message) && (cutStart || /highlight|short|schneid|bearbeit/.test(lower))) {
+    // keep going — existing-video edit belongs here
+  } else if ((vertical || square || landscape) && !hasEditCue) {
+    return null;
+  }
   if (!tiktok && !shortish && !vertical && !square && !landscape && !best && !cutStart && !wantIntro) {
     return null;
   }

@@ -36,7 +36,7 @@ export type NexterIntentDecision = {
 
 export type NexterIntentHistoryTurn = { role: string; content: string };
 
-const CREATE_VERB = /(mach|erstell|generier|ich brauche|ich möchte|need |create |make me)/i;
+const CREATE_VERB = /(mach|erstell|generier|erzeug|ich brauche|ich möchte|need |create |make me)/i;
 
 export function resolveNexterConversationIntent(
   message: string,
@@ -50,10 +50,6 @@ export function resolveNexterConversationIntent(
 
   if (isSmalltalkMessage(text) || isTopicResetMessage(text)) {
     return { intent: 'SMALLTALK', confidence: 'HIGH', reason: 'social-utterance' };
-  }
-
-  if (detectOpenStudio(text)) {
-    return { intent: 'NAVIGATION_ACTION', confidence: 'HIGH', reason: 'open-studio' };
   }
 
   if (isProjectAnalysisMessage(text)) {
@@ -79,6 +75,10 @@ export function resolveNexterConversationIntent(
   }
   if (quoteKind && /komplettset|streamset|3\s*teile/.test(text.toLowerCase())) {
     return { intent: 'CREATE_ASSET', confidence: 'HIGH', reason: 'streamset' };
+  }
+
+  if (detectOpenStudio(text)) {
+    return { intent: 'NAVIGATION_ACTION', confidence: 'HIGH', reason: 'open-studio' };
   }
 
   if (change) {

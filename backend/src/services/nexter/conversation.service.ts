@@ -8,6 +8,8 @@ import {
   generatedVideoDurationFollowUpMessage,
   generatedVideoDurationNeedsFollowUp,
   parseGeneratedVideoDurationFromMessage,
+  parseGeneratedVideoAspectFromMessage,
+  isAiVideoQuoteIntent,
   parseHighlightIndex,
   parseTextIntent,
   parseSocialIntent,
@@ -1118,7 +1120,15 @@ export async function nexterChat(
   }
 
   const videoPrep = parseVideoStudioPrep(message);
-  if (videoPrep && detectQuoteKind(message) !== 'sticker' && detectQuoteKind(message) !== 'mockup') {
+  const quoteKindForVideoPrep = detectQuoteKind(message);
+  if (
+    videoPrep &&
+    quoteKindForVideoPrep !== 'sticker' &&
+    quoteKindForVideoPrep !== 'mockup' &&
+    quoteKindForVideoPrep !== 'ai-video' &&
+    quoteKindForVideoPrep !== 'animation' &&
+    !isAiVideoQuoteIntent(message)
+  ) {
     const pid = ctx.videoProjectId;
     const studioPath = videoPrep.studio === 'shorts' ? NEXTER_STUDIO_PATHS.shorts : NEXTER_STUDIO_PATHS.video;
     const params = new URLSearchParams();
@@ -1930,9 +1940,11 @@ export async function nexterChat(
           : quoteKind === 'ai-video'
             ? (() => {
                 const parsedDur = parseGeneratedVideoDurationFromMessage(message);
+                const parsedAspect = parseGeneratedVideoAspectFromMessage(message);
                 return {
                   message,
                   ...(parsedDur.mentioned && parsedDur.ok ? { duration: parsedDur.durationSec } : {}),
+                  ...(parsedAspect ? { aspectRatio: parsedAspect } : {}),
                 };
               })()
             : quoteKind === 'music'

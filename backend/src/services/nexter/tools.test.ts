@@ -163,8 +163,13 @@ describe('nexter tools — open_studio', () => {
   it('maps KI-Video to ai-video quote and local video studio separately', () => {
     assert.equal(detectQuoteKind('Mach mir ein KI-Video'), 'ai-video');
     assert.equal(detectQuoteKind('Erstelle ein KI-Video: Hype-Trailer'), 'ai-video');
+    assert.equal(detectQuoteKind('Generiere ein Video, 5 Sekunden, 9:16: Neon-Studio'), 'ai-video');
+    assert.equal(detectQuoteKind('Mach mir ein 5 Sekunden KI-Video'), 'ai-video');
     assert.equal(detectQuoteKind('Mach mir ein Video'), null);
     assert.equal(detectQuoteKind('Analysiere dieses Video'), null);
+    assert.equal(detectQuoteKind('Schneide mein Video'), null);
+    assert.equal(detectQuoteKind('Finde Highlights in meinem Video'), null);
+    assert.equal(detectQuoteKind('Mach Shorts aus meinem Video'), null);
     assert.equal(coinCostForKind('ai-video'), COIN_COSTS[CoinSpendCategory.AI_VIDEO]);
     assert.equal(COIN_COSTS[CoinSpendCategory.AI_VIDEO], 25);
     assert.equal(detectOpenStudio('Öffne das Video Studio.'), NEXTER_STUDIO_PATHS.video);
@@ -407,7 +412,9 @@ describe('nexter tools — phase F video / animation', () => {
 
   it('show highlights and make short intents', () => {
     assert.equal(detectShowHighlights('Zeig mir die besten Stellen aus meinem Video'), true);
+    assert.equal(detectShowHighlights('Finde Highlights in meinem Video'), true);
     assert.equal(detectMakeShort('Mach Highlight 2 zu einem Short'), true);
+    assert.equal(detectMakeShort('Mach Shorts aus meinem Video'), true);
     assert.equal(detectAnalyzeVideo('Analysiere dieses Video'), true);
     assert.equal(detectQuoteKind('Analysiere dieses Video'), null);
     const tiktok = detectVideoStudioPrep('Mach daraus einen TikTok-Clip.');

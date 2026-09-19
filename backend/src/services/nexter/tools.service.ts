@@ -373,11 +373,14 @@ export function detectFakeDetectionRequest(message: string): string | null {
 }
 
 export function detectShowHighlights(message: string): boolean {
-  return /besten stellen|zeig(e)? mir (die )?highlights?|spannendsten (stellen|momente)/i.test(message);
+  return /besten stellen|zeig(e)? mir (die )?highlights?|finde highlights?|highlights? (in|aus) meinem video|spannendsten (stellen|momente)/i.test(
+    message
+  );
 }
 
 export function detectMakeShort(message: string): boolean {
-  return /highlight\s*\d+/i.test(message) && /short/i.test(message);
+  if (/highlight\s*\d+/i.test(message) && /short/i.test(message)) return true;
+  return /mach (mir )?(einen? )?shorts? aus (meinem|diesem|dem) video/i.test(message);
 }
 
 export function detectAnalyzeVideo(message: string): boolean {
