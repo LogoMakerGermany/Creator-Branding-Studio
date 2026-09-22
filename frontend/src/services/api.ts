@@ -1797,7 +1797,7 @@ export interface CreateDnaBody {
   animations?: string[];
   personalGuidelines?: string;
   fonts?: { name: string; role: 'primary' | 'secondary' | 'accent'; source: 'google' | 'custom' | 'system'; url?: string }[];
-  sourceAssets?: { id: string; type: 'logo' | 'profile' | 'banner' | 'reference'; url: string; analyzedAt?: string }[];
+  sourceAssets?: { id: string; type: 'logo' | 'profile' | 'banner' | 'reference'; url: string; fileId?: string; analyzedAt?: string }[];
   character?: {
     present: boolean;
     type?: string;

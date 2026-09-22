@@ -1,5 +1,42 @@
 /** Per-user Nexter personalization (app chrome + assistant). Distinct from Creator DNA. */
 
+export const PERSONALIZATION_STORE = {
+  creatorDna: 'creator_dna',
+  nexterPreferences: 'nexter_preferences',
+  ccdSidecar: 'ccd_sidecar',
+} as const;
+
+export type PersonalizationStore = (typeof PERSONALIZATION_STORE)[keyof typeof PERSONALIZATION_STORE];
+
+/**
+ * Explicit map: do not merge Nexter prefs into Creator DNA.
+ * Visual identity stays on DNA; assistant/app chrome stays on the user document.
+ */
+export const NEXTER_PREF_STORE: Record<string, PersonalizationStore> = {
+  language: PERSONALIZATION_STORE.nexterPreferences,
+  addressAs: PERSONALIZATION_STORE.nexterPreferences,
+  uiTheme: PERSONALIZATION_STORE.nexterPreferences,
+  accentPreset: PERSONALIZATION_STORE.nexterPreferences,
+  customPrimary: PERSONALIZATION_STORE.nexterPreferences,
+  customAccent: PERSONALIZATION_STORE.nexterPreferences,
+  voiceCatalogId: PERSONALIZATION_STORE.nexterPreferences,
+  voiceOutputEnabled: PERSONALIZATION_STORE.nexterPreferences,
+  creatorGoals: PERSONALIZATION_STORE.nexterPreferences,
+  creationInterests: PERSONALIZATION_STORE.nexterPreferences,
+  stylePreferences: PERSONALIZATION_STORE.nexterPreferences,
+  platforms: PERSONALIZATION_STORE.nexterPreferences,
+  name: PERSONALIZATION_STORE.creatorDna,
+  primaryColors: PERSONALIZATION_STORE.creatorDna,
+  secondaryColors: PERSONALIZATION_STORE.creatorDna,
+  styleDirection: PERSONALIZATION_STORE.creatorDna,
+  mascot: PERSONALIZATION_STORE.creatorDna,
+  platformOptimization: PERSONALIZATION_STORE.creatorDna,
+};
+
+export function personalizationStoreFor(field: string): PersonalizationStore | undefined {
+  return NEXTER_PREF_STORE[field];
+}
+
 export const NEXTER_UI_THEMES = ['dark', 'light', 'system'] as const;
 export type NexterUiTheme = (typeof NEXTER_UI_THEMES)[number];
 

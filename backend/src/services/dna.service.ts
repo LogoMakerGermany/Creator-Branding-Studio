@@ -9,8 +9,17 @@ import type {
   DnaTypography,
   DnaAtmosphere,
   DnaOutputPrefs,
+  SourceAsset,
 } from '@ucbs/shared';
-import { DNA_PLATFORMS, applyDnaLocks, mergeAnalysisIntoDna, pickDnaForRequest } from '@ucbs/shared';
+import {
+  DNA_PLATFORMS,
+  DNA_VERSION_RETENTION,
+  applyDnaLocks,
+  dnaContentKey,
+  mergeAnalysisIntoDna,
+  pickDnaForRequest,
+  sanitizeDnaSourceAssets,
+} from '@ucbs/shared';
 import { devStore, isDevMode } from '../lib/dev-store.js';
 import { getFirestore } from '../config/firebase.js';
 import { firestoreDocId, omitUndefinedFields } from '../lib/firestore-payload.js';
@@ -56,6 +65,7 @@ export function normalizeDna(raw: CreatorDNA): CreatorDNA {
     typography: raw.typography,
     atmosphere: raw.atmosphere,
     outputPrefs: raw.outputPrefs,
+    schemaVersion: raw.schemaVersion ?? 1,
     designLanguage: raw.designLanguage ?? {
       mood: [],
       keywords: [],
@@ -144,6 +154,27 @@ export interface DnaWriteInput {
   typography?: DnaTypography;
   atmosphere?: DnaAtmosphere;
   outputPrefs?: DnaOutputPrefs;
+}
+
+async function ownedSourceAssets(userId: string, assets: SourceAsset[] | undefined): Promise<SourceAsset[]> {
+  const sanitized = sanitizeDnaSourceAssets(assets);
+  const out: SourceAsset[] = [];
+  for (const asset of sanitized) {
+    const fileId = asset.fileId;
+    if (!fileId) {
+      out.push(asset);
+      continue;
+    }
+    try {
+      const { getFileRecordById } = await import('./file-cloud.service.js');
+      const file = await getFileRecordById(fileId);
+      if (file && file.userId !== userId) continue;
+      out.push(asset);
+    } catch {
+      continue;
+    }
+  }
+  return out;
 }
 
 function characterFromCcd(ccd: Awaited<ReturnType<typeof getCharacterDna>>, existing?: DnaCharacter): DnaCharacter {
@@ -338,7 +369,7 @@ function buildDnaDocument(
         visualElements: [],
         doNotUse: [],
       },
-    sourceAssets: input.sourceAssets ?? existing?.sourceAssets ?? [],
+    sourceAssets: sanitizeDnaSourceAssets(input.sourceAssets ?? existing?.sourceAssets ?? []),
     aiAnalysis: input.aiAnalysis ?? existing?.aiAnalysis,
     locks: input.locks ?? existing?.locks ?? {},
     lightingStyle: input.lightingStyle ?? existing?.lightingStyle ?? input.aiAnalysis?.lightingStyle,
@@ -353,6 +384,7 @@ function buildDnaDocument(
       ? { lighting: input.lightingStyle ?? existing?.lightingStyle }
       : undefined),
     outputPrefs: input.outputPrefs ?? existing?.outputPrefs,
+    schemaVersion: 2,
     version: existing ? existing.version + 1 : 1,
     isActive: type === 'creator',
     createdAt: existing?.createdAt ?? now,
@@ -365,7 +397,10 @@ async function saveVersionSnapshot(dna: CreatorDNA, changeDescription?: string):
     id: generateId(),
     dnaId: dna.id,
     version: dna.version,
-    snapshot: dna,
+    snapshot: {
+      ...dna,
+      sourceAssets: sanitizeDnaSourceAssets(dna.sourceAssets),
+    },
     changeDescription,
     createdAt: new Date().toISOString(),
   };
@@ -373,11 +408,33 @@ async function saveVersionSnapshot(dna: CreatorDNA, changeDescription?: string):
   if (isDevMode()) {
     const key = `dna_version:${version.id}`;
     devStore.saveDna(key, version as unknown as Record<string, unknown>);
+    const extras = Object.entries(devStore.getDnaList())
+      .filter(([, row]) => row.dnaId === dna.id)
+      .map(([id, row]) => ({ id, version: Number(row.version) || 0 }))
+      .sort((a, b) => b.version - a.version)
+      .slice(DNA_VERSION_RETENTION);
+    for (const extra of extras) {
+      devStore.deleteDna(extra.id);
+    }
     return;
   }
 
   const db = getFirestore();
   await db.collection('dna_versions').doc(firestoreDocId(version.id)).set(omitUndefinedFields(version));
+  const snap = await db
+    .collection('dna_versions')
+    .where('dnaId', '==', dna.id)
+    .orderBy('version', 'desc')
+    .limit(DNA_VERSION_RETENTION + 50)
+    .get();
+  const stale = snap.docs.slice(DNA_VERSION_RETENTION);
+  if (stale.length) {
+    const batch = db.batch();
+    for (const doc of stale) {
+      batch.delete(doc.ref);
+    }
+    await batch.commit();
+  }
 }
 
 async function persistDnaDocument(dna: CreatorDNA, userId: string): Promise<void> {
@@ -416,12 +473,16 @@ async function persistDnaDocument(dna: CreatorDNA, userId: string): Promise<void
  */
 export async function upsertDna(input: DnaWriteInput): Promise<CreatorDNA> {
   const existing = await getActiveDna(input.userId);
+  const nextInput: DnaWriteInput = {
+    ...input,
+    sourceAssets: await ownedSourceAssets(input.userId, input.sourceAssets),
+  };
   if (existing) {
-    return updateDna(existing.id, input.userId, input, 'DNA aktualisiert');
+    return updateDna(existing.id, input.userId, nextInput, 'DNA aktualisiert');
   }
 
   const id = generateId();
-  const dna = buildDnaDocument(id, input, undefined, 'creator');
+  const dna = buildDnaDocument(id, nextInput, undefined, 'creator');
 
   if (isDevMode()) {
     const all = await listDnaByUser(input.userId);
@@ -463,7 +524,10 @@ export async function createLinkedDna(
   type: 'team' | 'agency'
 ): Promise<CreatorDNA> {
   const id = generateId();
-  const dna = buildDnaDocument(id, input, undefined, type);
+  const dna = buildDnaDocument(id, {
+    ...input,
+    sourceAssets: await ownedSourceAssets(input.userId, input.sourceAssets),
+  }, undefined, type);
 
   if (isDevMode()) {
     devStore.saveDna(id, dna as unknown as Record<string, unknown>);
@@ -489,6 +553,8 @@ export async function updateDna(
   const existing = await getDnaById(id, userId);
   if (!existing) throw new Error('DNA not found');
 
+  const ownedAssets = await ownedSourceAssets(userId, input.sourceAssets ?? existing.sourceAssets);
+
   const proposed: Partial<CreatorDNA> = {
     name: input.name ?? existing.name,
     clanName: input.clanName ?? existing.clanName,
@@ -508,7 +574,7 @@ export async function updateDna(
     fonts: input.fonts ?? existing.fonts,
     brandingRules: input.brandingRules ?? existing.brandingRules,
     aiAnalysis: input.aiAnalysis ?? existing.aiAnalysis,
-    sourceAssets: input.sourceAssets ?? existing.sourceAssets,
+    sourceAssets: ownedAssets,
     targetAudience: input.targetAudience ?? existing.targetAudience,
     designLanguage: input.designLanguage ?? existing.designLanguage,
     locks: input.locks ?? existing.locks,
@@ -563,6 +629,9 @@ export async function updateDna(
   };
 
   const dna = buildDnaDocument(id, merged, existing);
+  if (dnaContentKey({ ...existing, schemaVersion: existing.schemaVersion ?? 1 }) === dnaContentKey(dna)) {
+    return existing;
+  }
   await persistDnaDocument(dna, userId);
   await saveVersionSnapshot(dna, changeDescription);
   await syncCharacterSidecar(dna);
@@ -632,7 +701,10 @@ export async function restoreDnaVersion(
   const found = versions.find((v) => v.id === versionId);
   if (!found?.snapshot) throw new Error('Version not found');
 
-  const snap = normalizeDna(found.snapshot);
+  const snap = normalizeDna({
+    ...found.snapshot,
+    sourceAssets: sanitizeDnaSourceAssets(found.snapshot.sourceAssets),
+  });
   if (snap.userId !== userId) throw new Error('DNA not found');
 
   const restored: CreatorDNA = {

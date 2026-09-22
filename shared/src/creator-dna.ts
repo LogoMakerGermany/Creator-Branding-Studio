@@ -32,8 +32,13 @@ export interface CreatorDNA {
   designLanguage: DesignLanguage;
   sourceAssets: SourceAsset[];
   aiAnalysis?: DNAAnalysis;
-  /** Locked traits must not be changed by generators or Nexter. */
+  /**
+   * Locked traits must not be persisted as DNA changes.
+   * Locks do not override an explicit current generation request.
+   */
   locks?: DnaLocks;
+  /** Lazy schema marker. Missing on legacy docs; readers treat absent as 1. */
+  schemaVersion?: number;
   lightingStyle?: string;
   dimension?: '2d' | '3d';
   projectId?: string;
@@ -190,7 +195,10 @@ export interface DesignLanguage {
 export interface SourceAsset {
   id: string;
   type: 'logo' | 'profile' | 'banner' | 'reference';
+  /** Prefer `file:<fileId>` or omit. Data URLs must not be persisted. */
   url: string;
+  /** Owned `files` document id. Resolve only if file.userId === dna.userId. */
+  fileId?: string;
   analyzedAt?: string;
 }
 
@@ -321,7 +329,7 @@ export function characterPromptFromDna(dna: CreatorDNA): string | null {
 }
 
 /** Compact DNA fragment for every AI prompt — generators must append this. */
-export function buildDnaPromptContext(dna: CreatorDNA): string {
+export function buildDnaPromptContext(dna: CreatorDNA, opts?: { requestText?: string }): string {
   const colors = [
     ...dna.primaryColors,
     ...dna.secondaryColors,
@@ -337,8 +345,16 @@ export function buildDnaPromptContext(dna: CreatorDNA): string {
     .map((r) => r.rule)
     .slice(0, 4);
   const character = characterPromptFromDna(dna);
+  const avoid = activeAvoidList(opts?.requestText, dna.designLanguage?.doNotUse ?? []);
+  const hasLocks =
+    Boolean(dna.locks?.name) ||
+    Boolean(dna.locks?.colors) ||
+    isCharacterLocked(dna) ||
+    Boolean(dna.locks?.style) ||
+    isTypographyLocked(dna);
 
   const parts = [
+    'Saved Creator DNA is personalization context. The current user request takes precedence',
     `Creator: ${dna.name}`,
     dna.slogan ? `Slogan: ${dna.slogan}` : null,
     dna.usagePurpose ? `Usage: ${dna.usagePurpose}` : null,
@@ -367,15 +383,11 @@ export function buildDnaPromptContext(dna: CreatorDNA): string {
     dna.atmosphere?.lighting ? `Atmosphere lighting: ${dna.atmosphere.lighting}` : null,
     dna.atmosphere?.mood ? `Atmosphere mood: ${dna.atmosphere.mood}` : null,
     dna.atmosphere?.effects?.length ? `Effects: ${dna.atmosphere.effects.join(', ')}` : null,
-    dna.designLanguage?.doNotUse?.length
-      ? `Avoid: ${dna.designLanguage.doNotUse.join(', ')}`
-      : null,
+    avoid.length ? `Avoid unless the current request asks for it: ${avoid.join(', ')}` : null,
     dna.lightingStyle ? `Lighting: ${dna.lightingStyle}` : null,
-    dna.locks?.name ? 'LOCKED: do not change the creator/brand name' : null,
-    dna.locks?.colors ? 'LOCKED: do not change brand colors' : null,
-    isCharacterLocked(dna) ? 'LOCKED: keep the mascot/character unchanged' : null,
-    dna.locks?.style ? 'LOCKED: keep the visual style unchanged' : null,
-    isTypographyLocked(dna) ? 'LOCKED: keep typography unchanged' : null,
+    hasLocks
+      ? 'Profile locks freeze stored Creator DNA; do not persist different values. The current request still wins for this generation'
+      : null,
     rules.length ? `Rules: ${rules.join('; ')}` : null,
   ].filter(Boolean);
 
@@ -389,19 +401,167 @@ export interface LogoLockPatch {
   magikCharacter?: string;
 }
 
-/** Generators must not silently replace locked DNA traits. */
+function hasExplicitText(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function hasExplicitList(value: unknown): boolean {
+  return Array.isArray(value) && value.some((item) => hasExplicitText(item) || item != null);
+}
+
+/**
+ * Apply explicit Creator DNA only where the current request is silent.
+ * Locks freeze stored DNA; they must not overwrite an explicit request
+ * such as "make this logo red".
+ */
 export function applyLockedDnaToGeneration<T extends LogoLockPatch>(dna: CreatorDNA, opts: T): T {
   const out = { ...opts };
-  if (dna.locks?.name) out.logoName = dna.name;
-  if (dna.locks?.colors) {
-    if (dna.primaryColors.length) {
-      out.selectedColors = dna.primaryColors;
-      out.primaryColor = dna.primaryColors[0];
-    }
+  const requestName = hasExplicitText(out.logoName);
+  const requestColors = hasExplicitText(out.primaryColor) || hasExplicitList(out.selectedColors);
+  const requestCharacter = hasExplicitText(out.magikCharacter);
+
+  if (!requestName && dna.name) out.logoName = dna.name;
+  if (!requestColors && dna.primaryColors.length) {
+    out.selectedColors = dna.primaryColors;
+    out.primaryColor = dna.primaryColors[0];
   }
-  if (isCharacterLocked(dna)) {
+  if (!requestCharacter) {
     const phrase = dna.character?.description || dna.mascot;
     if (phrase) out.magikCharacter = phrase;
   }
   return out;
+}
+
+export const DNA_PRECEDENCE = [
+  'current_request',
+  'explicit_dna',
+  'learned_dna',
+  'platform_default',
+  'system_default',
+] as const;
+
+export type PreferenceAuthority = (typeof DNA_PRECEDENCE)[number];
+
+export function isPreferenceValuePresent(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+/** Central reusable rule: current request > explicit DNA > learned DNA > platform > system. */
+export function resolvePreference<T>(layers: {
+  request?: T;
+  explicit?: T;
+  learned?: T;
+  platform?: T;
+  system?: T;
+}): { value: T | undefined; source: PreferenceAuthority | 'none' } {
+  if (isPreferenceValuePresent(layers.request)) {
+    return { value: layers.request, source: 'current_request' };
+  }
+  if (isPreferenceValuePresent(layers.explicit)) {
+    return { value: layers.explicit, source: 'explicit_dna' };
+  }
+  if (isPreferenceValuePresent(layers.learned)) {
+    return { value: layers.learned, source: 'learned_dna' };
+  }
+  if (isPreferenceValuePresent(layers.platform)) {
+    return { value: layers.platform, source: 'platform_default' };
+  }
+  if (isPreferenceValuePresent(layers.system)) {
+    return { value: layers.system, source: 'system_default' };
+  }
+  return { value: undefined, source: 'none' };
+}
+
+export function requestOverridesAvoidTerm(requestText: string | undefined, term: string): boolean {
+  const needle = term.trim().toLowerCase();
+  if (!needle) return false;
+  return (requestText ?? '').toLowerCase().includes(needle);
+}
+
+/** Negative DNA prefs apply only when the current request does not mention them. */
+export function activeAvoidList(requestText: string | undefined, avoid: string[]): string[] {
+  return avoid.filter((term) => term.trim() && !requestOverridesAvoidTerm(requestText, term));
+}
+
+export const DNA_VERSION_RETENTION = 20;
+export const DNA_SOURCE_ASSET_LIMIT = 12;
+const DNA_SOURCE_URL_MAX = 2048;
+const FILE_REF = /^file:([A-Za-z0-9_-]+)$/;
+
+export function isPersistedDnaDataUrl(url: string): boolean {
+  return /^data:/i.test(url.trim());
+}
+
+/** Strip data URLs and normalize owned file references. Does not look up Firestore. */
+export function sanitizeDnaSourceAssets(assets: SourceAsset[] | undefined | null): SourceAsset[] {
+  const out: SourceAsset[] = [];
+  for (const asset of assets ?? []) {
+    if (!asset?.id || !asset.type) continue;
+    const fileFromUrl = FILE_REF.exec((asset.url ?? '').trim())?.[1];
+    const fileId = (asset.fileId || fileFromUrl || '').trim();
+    if (fileId) {
+      out.push({
+        id: asset.id,
+        type: asset.type,
+        url: `file:${fileId}`,
+        fileId,
+        analyzedAt: asset.analyzedAt,
+      });
+      continue;
+    }
+    const url = (asset.url ?? '').trim();
+    if (!url || isPersistedDnaDataUrl(url) || url.length > DNA_SOURCE_URL_MAX) continue;
+    if (!/^https?:\/\//i.test(url)) continue;
+    out.push({
+      id: asset.id,
+      type: asset.type,
+      url,
+      analyzedAt: asset.analyzedAt,
+    });
+  }
+  return out.slice(0, DNA_SOURCE_ASSET_LIMIT);
+}
+
+/** Canonical explicit-field key used to skip no-op DNA version snapshots. */
+export function dnaContentKey(dna: CreatorDNA): string {
+  return JSON.stringify({
+    id: dna.id,
+    userId: dna.userId,
+    name: dna.name,
+    type: dna.type,
+    clanName: dna.clanName ?? '',
+    mascot: dna.mascot ?? '',
+    primaryColors: dna.primaryColors ?? [],
+    secondaryColors: dna.secondaryColors ?? [],
+    accentColors: dna.accentColors ?? [],
+    backgroundColors: dna.backgroundColors ?? [],
+    styleDirection: dna.styleDirection,
+    favoriteGenres: dna.favoriteGenres ?? [],
+    gamingStyle: dna.gamingStyle ?? '',
+    brandingStyle: dna.brandingStyle ?? '',
+    promptStyle: dna.promptStyle ?? '',
+    visualLanguage: dna.visualLanguage ?? '',
+    animations: dna.animations ?? [],
+    personalGuidelines: dna.personalGuidelines ?? '',
+    fonts: dna.fonts ?? [],
+    brandingRules: dna.brandingRules ?? [],
+    platformOptimization: dna.platformOptimization ?? [],
+    targetAudience: dna.targetAudience,
+    designLanguage: dna.designLanguage,
+    sourceAssets: sanitizeDnaSourceAssets(dna.sourceAssets),
+    locks: dna.locks ?? {},
+    lightingStyle: dna.lightingStyle ?? '',
+    dimension: dna.dimension ?? '',
+    projectId: dna.projectId ?? '',
+    slogan: dna.slogan ?? '',
+    usagePurpose: dna.usagePurpose ?? '',
+    character: dna.character ?? null,
+    typography: dna.typography ?? null,
+    atmosphere: dna.atmosphere ?? null,
+    outputPrefs: dna.outputPrefs ?? null,
+    schemaVersion: dna.schemaVersion ?? 1,
+  });
 }

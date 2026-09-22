@@ -16,7 +16,6 @@ import {
   saveEvolutionProposal,
   getEvolutionProposal,
   updateEvolutionProposal,
-  getCcdLearningSignals,
 } from './ccd-storage.service.js';
 
 export async function getCcdPromptContext(userId: string, projectId?: string) {
@@ -89,10 +88,9 @@ export async function processLogoGenerationCcd(
   jobId: string,
   imageUrl?: string
 ) {
-  const [existing, prefsExisting, signals] = await Promise.all([
+  const [existing, prefsExisting] = await Promise.all([
     getCharacterDna(userId),
     getCreatorPreferences(userId),
-    getCcdLearningSignals(),
   ]);
 
   const character = buildCharacterDNA({
@@ -109,37 +107,10 @@ export async function processLogoGenerationCcd(
     creatorDna,
     opts,
     prefsExisting,
-    signals
+    []
   );
 
   await Promise.all([saveCharacterDna(character), saveCreatorPreferences(preferences)]);
-
-  if (!creatorDna.locks?.character && !creatorDna.locks?.mascot) {
-    const emptyCharacter = !creatorDna.character?.description && !creatorDna.mascot;
-    if (emptyCharacter) {
-      const { updateDna } = await import('../dna.service.js');
-      await updateDna(
-        creatorDna.id,
-        userId,
-        {
-          userId,
-          name: creatorDna.name,
-          mascot: character.figure,
-          character: {
-            present: true,
-            type: character.figure,
-            description: character.figure,
-            clothing: character.visual.armor || character.visual.clothing,
-            hair: character.visual.hair,
-            face: character.visual.mask || character.visual.helmet,
-            accessories: character.visual.jewelry,
-            ccdCharacterId: character.id,
-          },
-        },
-        'Character aus Logo übernommen'
-      ).catch(() => undefined);
-    }
-  }
 
   const evolution = proposeCharacterEvolution(character, {
     jobId,

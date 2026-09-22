@@ -167,7 +167,7 @@ export function CreatorDNAPage() {
         : null,
     ].filter(Boolean) as NonNullable<Parameters<typeof api.dna.create>[0]['fonts']>;
 
-    const sourceAssets = previewUrl
+    const sourceAssets = previewUrl && !previewUrl.startsWith('data:')
       ? [
           {
             id: crypto.randomUUID(),

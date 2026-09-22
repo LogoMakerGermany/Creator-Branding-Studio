@@ -30,7 +30,8 @@ const styleEnum = z.enum(STYLE_DIRECTIONS as [StyleDirection, ...StyleDirection[
 const sourceAssetSchema = z.object({
   id: z.string(),
   type: z.enum(['logo', 'profile', 'banner', 'reference']),
-  url: z.string().min(1),
+  url: z.string().min(1).max(2048),
+  fileId: z.string().min(1).max(80).optional(),
   analyzedAt: z.string().optional(),
 });
 

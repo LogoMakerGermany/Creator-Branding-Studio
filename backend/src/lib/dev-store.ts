@@ -89,6 +89,12 @@ export const devStore = {
     return this.getDnaList()[id] ?? null;
   },
 
+  deleteDna(id: string): void {
+    const all = this.getDnaList();
+    delete all[id];
+    writeJson('dna', all);
+  },
+
   getDnaByUser(userId: string): Record<string, unknown>[] {
     return Object.values(this.getDnaList()).filter((d) => d.userId === userId);
   },

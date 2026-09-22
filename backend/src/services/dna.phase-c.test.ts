@@ -115,7 +115,7 @@ describe('phase C — locks are server-side', () => {
     assert.equal(next.locks?.colors, true);
   });
 
-  it('generator helper forces locked DNA onto logo options', () => {
+  it('explicit current request overrides locked DNA colors and name', () => {
     const dna = oldDna({
       locks: { colors: true, name: true, character: true },
       name: 'NightWolf',
@@ -128,10 +128,24 @@ describe('phase C — locks are server-side', () => {
       selectedColors: ['#ff0000'],
       magikCharacter: 'Dragon',
     });
-    assert.equal(forced.logoName, 'NightWolf');
-    assert.equal(forced.primaryColor, '#1E40AF');
-    assert.deepEqual(forced.selectedColors, ['#1E40AF']);
-    assert.equal(forced.magikCharacter, 'Cyber-Wolf');
+    assert.equal(forced.logoName, 'RedBrand');
+    assert.equal(forced.primaryColor, '#ff0000');
+    assert.deepEqual(forced.selectedColors, ['#ff0000']);
+    assert.equal(forced.magikCharacter, 'Dragon');
+  });
+
+  it('locked DNA fills generation options only when the request is silent', () => {
+    const dna = oldDna({
+      locks: { colors: true, name: true, character: true },
+      name: 'NightWolf',
+      primaryColors: ['#1E40AF'],
+      mascot: 'Cyber-Wolf',
+    });
+    const filled = applyLockedDnaToGeneration(dna, {});
+    assert.equal(filled.logoName, 'NightWolf');
+    assert.equal(filled.primaryColor, '#1E40AF');
+    assert.deepEqual(filled.selectedColors, ['#1E40AF']);
+    assert.equal(filled.magikCharacter, 'Cyber-Wolf');
   });
 });
 
@@ -249,6 +263,14 @@ describe('phase C — dna service persistence', () => {
     assert.equal(lockedWrite.mascot, 'Cyber-Wolf');
     assert.equal(lockedWrite.styleDirection, 'gaming');
     assert.equal(lockedWrite.character?.description, 'Cyber-Wolf with violet eyes');
+    assert.equal(lockedWrite.version, created.version);
+
+    const sloganWrite = await updateDna(created.id, userA, {
+      userId: userA,
+      slogan: 'New night slogan',
+    });
+    assert.equal(sloganWrite.slogan, 'New night slogan');
+    assert.ok(sloganWrite.version > created.version);
 
     const project = await createProject(userA, {
       name: 'NightWolf Launch',
@@ -263,7 +285,7 @@ describe('phase C — dna service persistence', () => {
     assert.equal(fallback.source, 'active');
     assert.equal(fallback.dna?.id, created.id);
 
-    const beforeRestore = lockedWrite.version;
+    const beforeRestore = sloganWrite.version;
     const versions = await listDnaVersions(created.id, userA);
     assert.ok(versions.length >= 2);
     const oldest = versions[versions.length - 1];

@@ -333,6 +333,7 @@ export async function applyLogoToCreatorDna(
       id: job.id,
       type: 'logo' as const,
       url: job.fileId ? `file:${job.fileId}` : job.imageUrl || '',
+      fileId: job.fileId,
       analyzedAt: new Date().toISOString(),
     },
   ];

@@ -53,16 +53,8 @@ export async function updateEvolutionProposal(proposal: CharacterEvolutionPropos
   await saveEvolutionProposal(proposal);
 }
 
-/** Lernsignale aus MAGIK-Events für CCD Creator Preferences. */
-export async function getCcdLearningSignals(): Promise<CcdLearningSignal[]> {
-  const events = await dsList('magik_learning_events', { orderBy: 'createdAt', order: 'desc', limit: 500 });
-  return events.map((e) => ({
-    eventType: e.eventType as CcdLearningSignal['eventType'],
-    style: e.profile && typeof e.profile === 'object' ? (e.profile as { magikStyle?: string }).magikStyle : undefined,
-    game: e.profile && typeof e.profile === 'object' ? (e.profile as { game?: string }).game : undefined,
-    background:
-      e.profile && typeof e.profile === 'object'
-        ? (e.profile as { magikBackground?: string }).magikBackground
-        : undefined,
-  }));
+/** MAGIK events are anonymous. Do not mix a global pool into per-user CCD prefs. */
+export async function getCcdLearningSignals(userId?: string): Promise<CcdLearningSignal[]> {
+  void userId;
+  return [];
 }
