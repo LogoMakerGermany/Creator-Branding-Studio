@@ -1829,6 +1829,56 @@ export interface CreateDnaBody {
   };
   lightingStyle?: string;
   dimension?: '2d' | '3d';
+  designLanguage?: {
+    mood?: string[];
+    keywords?: string[];
+    visualElements?: string[];
+    doNotUse?: string[];
+  };
+  identity?: {
+    alias?: string;
+    bio?: string;
+    creatorCategory?: string;
+    languages?: string[];
+  };
+  contentCategories?: string[];
+  dislikedColors?: string[];
+  visualStyles?: string[];
+  preferredShapes?: string[];
+  stream?: {
+    preferredLayout?: string;
+    facecamPreference?: string;
+    chatPreference?: string;
+    alertStyle?: string;
+    overlayStyle?: string;
+    startingScreenStyle?: string;
+    endingScreenStyle?: string;
+  };
+  video?: {
+    preferredAspectRatios?: string[];
+    editingStyle?: string[];
+    subtitlePreference?: string;
+    transitionStyle?: string;
+    pacingPreference?: string;
+  };
+  audio?: {
+    musicStyle?: string[];
+    voicePreference?: string;
+    soundEffectStyle?: string[];
+  };
+  assistant?: {
+    assistantTone?: string;
+    assistantVerbosity?: string;
+    proactiveSuggestions?: boolean;
+    askBeforeMajorChanges?: boolean;
+    preferredWorkflow?: string;
+  };
+  brand?: {
+    logoAssetId?: string;
+    mascotAssetId?: string;
+    recurringSymbols?: string[];
+    slogans?: string[];
+  };
 }
 
 export interface CoinPackage {

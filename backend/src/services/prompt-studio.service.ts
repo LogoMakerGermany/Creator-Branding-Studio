@@ -35,7 +35,7 @@ function baseCreativeBrief(dna: CreatorDNA, purpose: string, topic?: string): st
   const topicLine = topic?.trim() || purpose;
   return [
     `Create ${topicLine} for creator brand "${dna.name}"`,
-    buildDnaPromptContext(dna),
+    buildDnaPromptContext(dna, { consumer: 'chat' }),
     dna.promptStyle ? `Prompt style preference: ${dna.promptStyle}` : null,
   ]
     .filter(Boolean)

@@ -523,7 +523,7 @@ export async function createShortFromHighlight(
 
   const format = getVideoFormatPreset(formatOverride ?? project.format ?? 'shorts');
   const clipEnd = Math.min(highlight.end, highlight.start + format.maxDurationSec);
-  const dnaCtx = buildDnaPromptContext(dna);
+  const dnaCtx = buildDnaPromptContext(dna, { consumer: 'video' });
   const title = `${dna.name} · ${format.label} · ${highlight.label}`;
 
   const job: MediaJob = {
@@ -983,7 +983,7 @@ export async function runMediaJob(
     projectId?: string;
   }
 ): Promise<MediaJob> {
-  const dnaCtx = buildDnaPromptContext(dna);
+  const dnaCtx = buildDnaPromptContext(dna, { consumer: 'video' });
   const prompts: Record<string, string> = {
     intro: `Epic stream intro animation for ${dna.name}, ${dna.styleDirection} style, logo reveal, dynamic. ${dnaCtx}`,
     outro: `Stream outro/end screen for ${dna.name}, ${dna.styleDirection}, subscribe reminder, branded. ${dnaCtx}`,

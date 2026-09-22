@@ -280,7 +280,7 @@ export async function generateAnimation(
     throw new ServiceError(400, 'NO_SOURCE', 'Bitte ein eigenes Logo- oder Bild-Asset wählen');
   }
 
-  const dnaCtx = buildDnaPromptContext(dna);
+  const dnaCtx = buildDnaPromptContext(dna, { consumer: 'overlay' });
   const preview = buildAnimationPreviewState(plan);
   const prompt = [
     `${plan.type} animation for ${dna.name}`,

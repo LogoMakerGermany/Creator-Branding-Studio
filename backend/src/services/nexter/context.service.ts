@@ -1,5 +1,5 @@
 import type { NexterContextSnapshot } from '@ucbs/shared';
-import { missingStreamsetLabels, nexterAddressName, presentStreamsetLabels } from '@ucbs/shared';
+import { buildCreatorProfileContext, missingStreamsetLabels, nexterAddressName, presentStreamsetLabels } from '@ucbs/shared';
 import { resolveDnaForRequest } from '../dna.service.js';
 import { listProjects } from '../project.service.js';
 import { getJobsByUser, type GenerationJob } from '../ai.service.js';
@@ -145,6 +145,14 @@ export async function buildNexterContext(
     mascot: dna?.mascot || dna?.character?.description,
     characterDescription: dna?.character?.description || dna?.mascot,
     slogan: dna?.slogan,
+    dnaAlias: dna?.identity?.alias,
+    creatorCategory: dna?.identity?.creatorCategory,
+    contentCategories: dna?.contentCategories,
+    visualStyles: dna?.visualStyles,
+    dnaPlatforms: dna?.platformOptimization?.map((p) => p.platform),
+    assistantTone: dna?.assistant?.assistantTone,
+    assistantVerbosity: dna?.assistant?.assistantVerbosity,
+    dnaProfile: dna ? buildCreatorProfileContext(dna, { consumer: 'chat', maxChars: 900 }) : undefined,
     locks: dna?.locks,
     projectCount: projects.length,
     projectNames: projects.slice(0, 8).map((p) => p.name),

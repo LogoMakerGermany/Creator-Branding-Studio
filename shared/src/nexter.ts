@@ -158,6 +158,14 @@ export interface NexterContextSnapshot {
   mascot?: string;
   characterDescription?: string;
   slogan?: string;
+  dnaAlias?: string;
+  creatorCategory?: string;
+  contentCategories?: string[];
+  visualStyles?: string[];
+  dnaPlatforms?: string[];
+  assistantTone?: string;
+  assistantVerbosity?: string;
+  dnaProfile?: string;
   locks?: import('./creator-dna').DnaLocks;
   projectCount: number;
   projectNames: string[];

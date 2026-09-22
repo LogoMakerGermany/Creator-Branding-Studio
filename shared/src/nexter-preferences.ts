@@ -31,6 +31,15 @@ export const NEXTER_PREF_STORE: Record<string, PersonalizationStore> = {
   styleDirection: PERSONALIZATION_STORE.creatorDna,
   mascot: PERSONALIZATION_STORE.creatorDna,
   platformOptimization: PERSONALIZATION_STORE.creatorDna,
+  identity: PERSONALIZATION_STORE.creatorDna,
+  contentCategories: PERSONALIZATION_STORE.creatorDna,
+  visualStyles: PERSONALIZATION_STORE.creatorDna,
+  stream: PERSONALIZATION_STORE.creatorDna,
+  video: PERSONALIZATION_STORE.creatorDna,
+  audio: PERSONALIZATION_STORE.creatorDna,
+  assistant: PERSONALIZATION_STORE.creatorDna,
+  brand: PERSONALIZATION_STORE.creatorDna,
+  learned: PERSONALIZATION_STORE.creatorDna,
 };
 
 export function personalizationStoreFor(field: string): PersonalizationStore | undefined {

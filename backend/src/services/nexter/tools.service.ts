@@ -899,6 +899,13 @@ export function formatContextForPrompt(
           .join('; ')}.`
       : 'Keine offenen Coin-Angebote.',
     includeDna ? dna : '',
+    includeDna && ctx.dnaAlias ? `Creator-Alias: ${ctx.dnaAlias}.` : '',
+    includeDna && ctx.creatorCategory ? `Creator-Kategorie: ${ctx.creatorCategory}.` : '',
+    includeDna && ctx.contentCategories?.length ? `Themen: ${ctx.contentCategories.join(', ')}.` : '',
+    includeDna && ctx.dnaPlatforms?.length ? `DNA-Plattformen: ${ctx.dnaPlatforms.join(', ')}.` : '',
+    includeDna && ctx.assistantTone
+      ? `Assistent-Stil: ${ctx.assistantTone}${ctx.assistantVerbosity ? `, ${ctx.assistantVerbosity}` : ''}.`
+      : '',
     includeDna ? locks : '',
     includeProjects ? projects : '',
     includeInventory ? `Dateien: ${ctx.fileCount}.` : '',

@@ -35,8 +35,8 @@ function colorList(dna: CreatorDNA, custom?: string[]): string {
   return merged.length ? merged.join(', ') : 'brand accent colors';
 }
 
-function dnaTail(dna: CreatorDNA): string {
-  return buildDnaPromptContext(dna);
+function dnaTail(dna: CreatorDNA, consumer: import('@ucbs/shared').DnaContextConsumer = 'logo'): string {
+  return buildDnaPromptContext(dna, { consumer });
 }
 
 function qualityFor(dna: CreatorDNA, styleOverride?: string) {
@@ -59,7 +59,7 @@ export function buildBannerPrompt(dna: CreatorDNA, opts: BannerGenerationOptions
   });
   return buildStructuredStudioPrompt({
     assetType: 'banner',
-    creatorDna: dnaTail(dna),
+    creatorDna: dnaTail(dna, 'banner'),
     userRequest: opts.title || `creator: ${dna.name}`,
     style: q.style,
     composition: bannerPromptComposition(config),
@@ -86,7 +86,7 @@ export function buildFacecamPrompt(dna: CreatorDNA, opts: FacecamGenerationOptio
   });
   return buildStructuredStudioPrompt({
     assetType: 'facecam',
-    creatorDna: dnaTail(dna),
+    creatorDna: dnaTail(dna, 'facecam'),
     userRequest: opts.decorations || `webcam overlay frame for ${config.platform}`,
     style: q.style,
     composition: facecamPromptComposition(config),
@@ -116,7 +116,7 @@ export function buildOverlayPrompt(dna: CreatorDNA, opts: OverlayGenerationOptio
   });
   return buildStructuredStudioPrompt({
     assetType: 'overlay',
-    creatorDna: dnaTail(dna),
+    creatorDna: dnaTail(dna, 'overlay'),
     userRequest: opts.decorations || `${config.layoutPreset} stream overlay for ${config.platform}`,
     style: q.style,
     composition: overlayPromptComposition(config),
@@ -146,7 +146,7 @@ export function buildStickerPrompt(dna: CreatorDNA, opts: StickerGenerationOptio
   });
   return buildStructuredStudioPrompt({
     assetType: config.kind === 'badge' ? 'badge' : 'sticker',
-    creatorDna: dnaTail(dna),
+    creatorDna: dnaTail(dna, 'logo'),
     userRequest: opts.text || opts.name || `${config.kind} for ${config.platform}`,
     style: q.style,
     composition: stickerPromptComposition(config),
@@ -167,7 +167,7 @@ export function buildMockupPrompt(dna: CreatorDNA, config: MockupConfig): string
   const q = qualityFor(dna, config.scene);
   return buildStructuredStudioPrompt({
     assetType: 'mockup',
-    creatorDna: dnaTail(dna),
+    creatorDna: dnaTail(dna, 'logo'),
     userRequest: `lifestyle product photo of a ${config.colorId} ${config.category} with the creator artwork printed on it`,
     style: q.style,
     composition: mockupPromptComposition(config),
@@ -189,7 +189,7 @@ export function buildBrandingPackPrompt(dna: CreatorDNA, module: string): string
   const prompts: Record<string, string> = {
     'profile-pic': buildStructuredStudioPrompt({
       assetType: 'logo',
-      creatorDna: dnaTail(dna),
+      creatorDna: dnaTail(dna, 'logo'),
       userRequest: `square creator profile avatar icon for ${dna.name}`,
       style: q.style,
       colors: colorList(dna),
@@ -203,7 +203,7 @@ export function buildBrandingPackPrompt(dna: CreatorDNA, module: string): string
     'stream-start': buildOverlayPrompt(dna, { overlayType: 'starting-soon', transparentBackground: false }),
     'stream-end': buildStructuredStudioPrompt({
       assetType: 'outro',
-      creatorDna: dnaTail(dna),
+      creatorDna: dnaTail(dna, 'overlay'),
       userRequest: `stream ending / thank you screen for ${dna.name}`,
       style: q.style,
       colors: colorList(dna),
@@ -213,7 +213,7 @@ export function buildBrandingPackPrompt(dna: CreatorDNA, module: string): string
     }),
     offline: buildStructuredStudioPrompt({
       assetType: 'overlay',
-      creatorDna: dnaTail(dna),
+      creatorDna: dnaTail(dna, 'overlay'),
       userRequest: `stream offline screen for ${dna.name}`,
       style: q.style,
       colors: colorList(dna),
@@ -228,7 +228,7 @@ export function buildBrandingPackPrompt(dna: CreatorDNA, module: string): string
     prompts[module] ??
     buildStructuredStudioPrompt({
       assetType: module,
-      creatorDna: dnaTail(dna),
+      creatorDna: dnaTail(dna, 'streamset'),
       style: q.style,
       colors: colorList(dna),
       quality: q.quality,

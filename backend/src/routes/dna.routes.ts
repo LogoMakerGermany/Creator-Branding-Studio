@@ -21,6 +21,34 @@ import {
 } from '../services/dna.service.js';
 import { recordContentRightsAck, assertCurrentContentRightsAck } from '../services/content-rights.service.js';
 
+function asDesignLanguage(value?: {
+  mood?: string[];
+  keywords?: string[];
+  visualElements?: string[];
+  doNotUse?: string[];
+}) {
+  if (!value) return undefined;
+  return {
+    mood: value.mood ?? [],
+    keywords: value.keywords ?? [],
+    visualElements: value.visualElements ?? [],
+    doNotUse: value.doNotUse ?? [],
+  };
+}
+
+function asLearned(
+  rows?: Array<{ path: string; value: string | string[] | boolean | number; confidence: number; updatedAt?: string }>
+) {
+  if (!rows) return undefined;
+  const now = new Date().toISOString();
+  return rows.map((row) => ({
+    path: row.path,
+    value: row.value,
+    confidence: row.confidence,
+    updatedAt: row.updatedAt ?? now,
+  }));
+}
+
 export const dnaRoutes = Router();
 
 dnaRoutes.use(authenticate);
@@ -49,12 +77,12 @@ const dnaBodySchema = z.object({
   slogan: z.string().max(160).optional(),
   usagePurpose: z.string().max(200).optional(),
   styleDirection: styleEnum.optional(),
-  primaryColors: z.array(z.string()).optional(),
-  secondaryColors: z.array(z.string()).optional(),
-  accentColors: z.array(z.string()).optional(),
-  backgroundColors: z.array(z.string()).optional(),
-  targetPlatforms: z.array(z.string()).optional(),
-  favoriteGenres: z.array(z.string().max(60)).max(20).optional(),
+  primaryColors: z.array(z.string().max(32)).max(8).optional(),
+  secondaryColors: z.array(z.string().max(32)).max(8).optional(),
+  accentColors: z.array(z.string().max(32)).max(8).optional(),
+  backgroundColors: z.array(z.string().max(32)).max(8).optional(),
+    targetPlatforms: z.array(z.string().max(40)).max(8).optional(),
+    favoriteGenres: z.array(z.string().max(60)).max(20).optional(),
   gamingStyle: z.string().max(200).optional(),
   brandingStyle: z.string().max(200).optional(),
   promptStyle: z.string().max(500).optional(),
@@ -114,6 +142,91 @@ const dnaBodySchema = z.object({
     .optional(),
   lightingStyle: z.string().max(80).optional(),
   dimension: z.enum(['2d', '3d']).optional(),
+  designLanguage: z
+    .object({
+      mood: z.array(z.string().max(80)).max(12).optional(),
+      keywords: z.array(z.string().max(80)).max(20).optional(),
+      visualElements: z.array(z.string().max(80)).max(12).optional(),
+      doNotUse: z.array(z.string().max(80)).max(20).optional(),
+    })
+    .optional(),
+  identity: z
+    .object({
+      alias: z.string().max(80).optional(),
+      bio: z.string().max(400).optional(),
+      creatorCategory: z.string().max(80).optional(),
+      languages: z.array(z.string().max(24)).max(8).optional(),
+    })
+    .optional(),
+  contentCategories: z.array(z.string().max(80)).max(12).optional(),
+  dislikedColors: z.array(z.string().max(32)).max(8).optional(),
+  visualStyles: z.array(z.string().max(80)).max(12).optional(),
+  preferredShapes: z.array(z.string().max(80)).max(12).optional(),
+  stream: z
+    .object({
+      preferredLayout: z.string().max(200).optional(),
+      facecamPreference: z.string().max(200).optional(),
+      chatPreference: z.string().max(200).optional(),
+      alertStyle: z.string().max(200).optional(),
+      overlayStyle: z.string().max(200).optional(),
+      startingScreenStyle: z.string().max(200).optional(),
+      endingScreenStyle: z.string().max(200).optional(),
+    })
+    .optional(),
+  video: z
+    .object({
+      preferredAspectRatios: z.array(z.string().max(20)).max(8).optional(),
+      editingStyle: z.array(z.string().max(80)).max(12).optional(),
+      subtitlePreference: z.string().max(200).optional(),
+      transitionStyle: z.string().max(200).optional(),
+      pacingPreference: z.string().max(200).optional(),
+    })
+    .optional(),
+  audio: z
+    .object({
+      musicStyle: z.array(z.string().max(80)).max(12).optional(),
+      voicePreference: z.string().max(200).optional(),
+      soundEffectStyle: z.array(z.string().max(80)).max(12).optional(),
+    })
+    .optional(),
+  assistant: z
+    .object({
+      assistantTone: z.string().max(80).optional(),
+      assistantVerbosity: z.string().max(80).optional(),
+      proactiveSuggestions: z.boolean().optional(),
+      askBeforeMajorChanges: z.boolean().optional(),
+      preferredWorkflow: z.string().max(200).optional(),
+    })
+    .optional(),
+  brand: z
+    .object({
+      logoAssetId: z.string().max(80).optional(),
+      mascotAssetId: z.string().max(80).optional(),
+      recurringSymbols: z.array(z.string().max(80)).max(12).optional(),
+      slogans: z.array(z.string().max(160)).max(8).optional(),
+    })
+    .optional(),
+  preferenceSources: z
+    .record(
+      z.string().max(80),
+      z.object({
+        source: z.enum(['explicit', 'learned', 'system']),
+        confidence: z.number().min(0).max(1).optional(),
+        updatedAt: z.string().max(40).optional(),
+      })
+    )
+    .optional(),
+  learned: z
+    .array(
+      z.object({
+        path: z.string().max(80),
+        value: z.union([z.string().max(200), z.array(z.string().max(80)).max(8), z.boolean(), z.number()]),
+        confidence: z.number().min(0).max(1),
+        updatedAt: z.string().max(40).optional(),
+      })
+    )
+    .max(40)
+    .optional(),
 });
 
 dnaRoutes.get(
@@ -218,6 +331,19 @@ dnaRoutes.post(
       locks: body.locks,
       lightingStyle: body.lightingStyle,
       dimension: body.dimension,
+      designLanguage: asDesignLanguage(body.designLanguage),
+      identity: body.identity,
+      contentCategories: body.contentCategories,
+      dislikedColors: body.dislikedColors,
+      visualStyles: body.visualStyles,
+      preferredShapes: body.preferredShapes,
+      stream: body.stream,
+      video: body.video,
+      audio: body.audio,
+      assistant: body.assistant,
+      brand: body.brand,
+      preferenceSources: body.preferenceSources,
+      learned: asLearned(body.learned),
       aiAnalysis,
     });
 
@@ -268,6 +394,19 @@ dnaRoutes.patch(
       locks: body.locks,
       lightingStyle: body.lightingStyle,
       dimension: body.dimension,
+      designLanguage: asDesignLanguage(body.designLanguage),
+      identity: body.identity,
+      contentCategories: body.contentCategories,
+      dislikedColors: body.dislikedColors,
+      visualStyles: body.visualStyles,
+      preferredShapes: body.preferredShapes,
+      stream: body.stream,
+      video: body.video,
+      audio: body.audio,
+      assistant: body.assistant,
+      brand: body.brand,
+      preferenceSources: body.preferenceSources,
+      learned: asLearned(body.learned),
     });
     sendSuccess(res, { dna });
   })

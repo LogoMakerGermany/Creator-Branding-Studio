@@ -10,15 +10,29 @@ import type {
   DnaAtmosphere,
   DnaOutputPrefs,
   SourceAsset,
+  DnaIdentityV2,
+  DnaStreamPrefs,
+  DnaVideoPrefs,
+  DnaAudioPrefs,
+  DnaAssistantPrefs,
+  DnaBrandV2,
+  DnaPreferenceMeta,
+  DnaLearnedPreference,
 } from '@ucbs/shared';
 import {
+  DNA_BOUNDS,
   DNA_PLATFORMS,
   DNA_VERSION_RETENTION,
   applyDnaLocks,
   dnaContentKey,
   mergeAnalysisIntoDna,
+  normalizeDnaColors,
+  normalizeDnaPlatforms,
   pickDnaForRequest,
+  sanitizeDnaAssetId,
   sanitizeDnaSourceAssets,
+  sanitizeDnaV2Fields,
+  uniqueDnaList,
 } from '@ucbs/shared';
 import { devStore, isDevMode } from '../lib/dev-store.js';
 import { getFirestore } from '../config/firebase.js';
@@ -35,7 +49,7 @@ function generateId(): string {
 
 /** Ensure older Firestore docs satisfy the current CreatorDNA shape. */
 export function normalizeDna(raw: CreatorDNA): CreatorDNA {
-  return {
+  const base: CreatorDNA = {
     ...raw,
     type: raw.type ?? 'creator',
     clanName: raw.clanName ?? '',
@@ -66,6 +80,18 @@ export function normalizeDna(raw: CreatorDNA): CreatorDNA {
     atmosphere: raw.atmosphere,
     outputPrefs: raw.outputPrefs,
     schemaVersion: raw.schemaVersion ?? 1,
+    identity: raw.identity,
+    contentCategories: raw.contentCategories ?? [],
+    dislikedColors: raw.dislikedColors ?? [],
+    visualStyles: raw.visualStyles ?? [],
+    preferredShapes: raw.preferredShapes ?? [],
+    stream: raw.stream,
+    video: raw.video,
+    audio: raw.audio,
+    assistant: raw.assistant,
+    brand: raw.brand,
+    preferenceSources: raw.preferenceSources ?? {},
+    learned: raw.learned ?? [],
     designLanguage: raw.designLanguage ?? {
       mood: [],
       keywords: [],
@@ -80,6 +106,7 @@ export function normalizeDna(raw: CreatorDNA): CreatorDNA {
       description: '',
     },
   };
+  return sanitizeDnaV2Fields(base);
 }
 
 export async function listDnaByUser(userId: string): Promise<CreatorDNA[]> {
@@ -154,6 +181,18 @@ export interface DnaWriteInput {
   typography?: DnaTypography;
   atmosphere?: DnaAtmosphere;
   outputPrefs?: DnaOutputPrefs;
+  identity?: DnaIdentityV2;
+  contentCategories?: string[];
+  dislikedColors?: string[];
+  visualStyles?: string[];
+  preferredShapes?: string[];
+  stream?: DnaStreamPrefs;
+  video?: DnaVideoPrefs;
+  audio?: DnaAudioPrefs;
+  assistant?: DnaAssistantPrefs;
+  brand?: DnaBrandV2;
+  preferenceSources?: Record<string, DnaPreferenceMeta>;
+  learned?: DnaLearnedPreference[];
 }
 
 async function ownedSourceAssets(userId: string, assets: SourceAsset[] | undefined): Promise<SourceAsset[]> {
@@ -175,6 +214,29 @@ async function ownedSourceAssets(userId: string, assets: SourceAsset[] | undefin
     }
   }
   return out;
+}
+
+async function ownedAssetId(userId: string, fileId: string | undefined): Promise<string | undefined> {
+  const id = sanitizeDnaAssetId(fileId);
+  if (!id) return undefined;
+  try {
+    const { getFileRecordById } = await import('./file-cloud.service.js');
+    const file = await getFileRecordById(id);
+    if (file && file.userId !== userId) return undefined;
+    return id;
+  } catch {
+    return id;
+  }
+}
+
+async function resolveOwnedBrand(userId: string, brand: DnaBrandV2 | undefined, existing?: DnaBrandV2): Promise<DnaBrandV2 | undefined> {
+  const merged: DnaBrandV2 = {
+    ...(existing ?? {}),
+    ...(brand ?? {}),
+  };
+  merged.logoAssetId = await ownedAssetId(userId, merged.logoAssetId);
+  merged.mascotAssetId = await ownedAssetId(userId, merged.mascotAssetId);
+  return merged;
 }
 
 function characterFromCcd(ccd: Awaited<ReturnType<typeof getCharacterDna>>, existing?: DnaCharacter): DnaCharacter {
@@ -302,8 +364,10 @@ function buildPlatformConfig(platforms: string[]): CreatorDNA['platformOptimizat
     youtube: { ratios: ['2560x1440', '800x800'], opts: ['Banner safe area', 'Thumbnail-ready'] },
     tiktok: { ratios: ['1080x1920'], opts: ['Vertical-first', 'Bold typography'] },
     instagram: { ratios: ['1080x1080', '1080x1920'], opts: ['Feed & Stories'] },
+    kick: { ratios: ['1920x1080', '1080x1920'], opts: ['Kick overlay', 'Vertical clips'] },
     discord: { ratios: ['960x540', '128x128'], opts: ['Server banner', 'Icon'] },
     facebook: { ratios: ['1640x856', '180x180'], opts: ['Cover photo', 'Profile'] },
+    other: { ratios: ['1920x1080'], opts: ['Generic 16:9'] },
   };
 
   for (const p of platforms) {
@@ -326,31 +390,66 @@ function buildDnaDocument(
   type: CreatorDNA['type'] = 'creator'
 ): CreatorDNA {
   const now = new Date().toISOString();
-  const platforms = input.targetPlatforms ?? existing?.platformOptimization.map((p) => p.platform) ?? [
-    'twitch',
-    'youtube',
-  ];
+  const platforms = normalizeDnaPlatforms(
+    input.targetPlatforms ?? existing?.platformOptimization.map((p) => p.platform) ?? ['twitch', 'youtube']
+  );
   const style = input.styleDirection ?? existing?.styleDirection ?? 'gaming';
-  const genres = input.favoriteGenres ?? existing?.favoriteGenres ?? [];
+  const genres = uniqueDnaList(input.favoriteGenres ?? existing?.favoriteGenres ?? [], {
+    max: DNA_BOUNDS.games,
+    maxLen: 60,
+  });
+  const disliked = normalizeDnaColors(input.dislikedColors ?? existing?.dislikedColors);
+  const designLanguage = {
+    mood: uniqueDnaList(input.designLanguage?.mood ?? existing?.designLanguage?.mood ?? [], {
+      max: DNA_BOUNDS.styles,
+      maxLen: DNA_BOUNDS.stringShort,
+    }),
+    keywords: uniqueDnaList(
+      input.designLanguage?.keywords ?? existing?.designLanguage?.keywords ?? [style, ...genres.slice(0, 3)],
+      { max: DNA_BOUNDS.keywords, maxLen: DNA_BOUNDS.stringShort }
+    ),
+    visualElements: uniqueDnaList(
+      input.designLanguage?.visualElements ?? existing?.designLanguage?.visualElements ?? [],
+      { max: DNA_BOUNDS.symbols, maxLen: DNA_BOUNDS.stringShort }
+    ),
+    doNotUse: uniqueDnaList(
+      [...(input.designLanguage?.doNotUse ?? existing?.designLanguage?.doNotUse ?? []), ...disliked],
+      { max: DNA_BOUNDS.excluded, maxLen: DNA_BOUNDS.stringShort }
+    ),
+  };
+  const outputPrefs = {
+    platform: input.outputPrefs?.platform ?? existing?.outputPrefs?.platform ?? platforms[0],
+    aspectRatios: uniqueDnaList(
+      input.outputPrefs?.aspectRatios ?? existing?.outputPrefs?.aspectRatios ?? [],
+      { max: 8, maxLen: 20 }
+    ),
+    outputKinds: uniqueDnaList(
+      input.outputPrefs?.outputKinds ?? existing?.outputPrefs?.outputKinds ?? [],
+      { max: 8, maxLen: 40 }
+    ),
+  };
 
-  return {
+  return sanitizeDnaV2Fields({
     id,
     userId: input.userId,
-    name: input.name,
+    name: input.name.trim().slice(0, DNA_BOUNDS.name),
     type,
     clanName: input.clanName ?? existing?.clanName ?? '',
     mascot: input.mascot ?? existing?.mascot ?? '',
-    primaryColors: input.primaryColors ?? existing?.primaryColors ?? [],
-    secondaryColors: input.secondaryColors ?? existing?.secondaryColors ?? [],
-    accentColors: input.accentColors ?? existing?.accentColors ?? [],
+    primaryColors: normalizeDnaColors(input.primaryColors ?? existing?.primaryColors),
+    secondaryColors: normalizeDnaColors(input.secondaryColors ?? existing?.secondaryColors),
+    accentColors: normalizeDnaColors(input.accentColors ?? existing?.accentColors),
     styleDirection: style,
     favoriteGenres: genres,
     gamingStyle: input.gamingStyle ?? existing?.gamingStyle ?? '',
     brandingStyle: input.brandingStyle ?? existing?.brandingStyle ?? style,
     promptStyle: input.promptStyle ?? existing?.promptStyle ?? '',
     visualLanguage: input.visualLanguage ?? existing?.visualLanguage ?? '',
-    animations: input.animations ?? existing?.animations ?? [],
-    personalGuidelines: input.personalGuidelines ?? existing?.personalGuidelines ?? '',
+    animations: uniqueDnaList(input.animations ?? existing?.animations ?? [], {
+      max: DNA_BOUNDS.effects,
+      maxLen: 80,
+    }),
+    personalGuidelines: (input.personalGuidelines ?? existing?.personalGuidelines ?? '').slice(0, 2000),
     fonts: input.fonts ?? existing?.fonts ?? [],
     brandingRules: buildBrandingRules(input),
     platformOptimization: buildPlatformConfig(platforms),
@@ -362,13 +461,7 @@ function buildDnaDocument(
         tone: '',
         description: '',
       },
-    designLanguage: input.designLanguage ??
-      existing?.designLanguage ?? {
-        mood: [],
-        keywords: [style, ...genres.slice(0, 3)],
-        visualElements: [],
-        doNotUse: [],
-      },
+    designLanguage,
     sourceAssets: sanitizeDnaSourceAssets(input.sourceAssets ?? existing?.sourceAssets ?? []),
     aiAnalysis: input.aiAnalysis ?? existing?.aiAnalysis,
     locks: input.locks ?? existing?.locks ?? {},
@@ -377,19 +470,31 @@ function buildDnaDocument(
     projectId: input.projectId ?? existing?.projectId,
     slogan: input.slogan ?? existing?.slogan ?? '',
     usagePurpose: input.usagePurpose ?? existing?.usagePurpose ?? '',
-    backgroundColors: input.backgroundColors ?? existing?.backgroundColors ?? [],
+    backgroundColors: normalizeDnaColors(input.backgroundColors ?? existing?.backgroundColors),
     character: input.character ?? existing?.character ?? { present: Boolean(input.mascot ?? existing?.mascot) },
     typography: input.typography ?? existing?.typography,
     atmosphere: input.atmosphere ?? existing?.atmosphere ?? (input.lightingStyle || existing?.lightingStyle
       ? { lighting: input.lightingStyle ?? existing?.lightingStyle }
       : undefined),
-    outputPrefs: input.outputPrefs ?? existing?.outputPrefs,
+    outputPrefs,
+    identity: input.identity ?? existing?.identity,
+    contentCategories: input.contentCategories ?? existing?.contentCategories,
+    dislikedColors: disliked,
+    visualStyles: input.visualStyles ?? existing?.visualStyles,
+    preferredShapes: input.preferredShapes ?? existing?.preferredShapes,
+    stream: input.stream ?? existing?.stream,
+    video: input.video ?? existing?.video,
+    audio: input.audio ?? existing?.audio,
+    assistant: input.assistant ?? existing?.assistant,
+    brand: input.brand ?? existing?.brand,
+    preferenceSources: input.preferenceSources ?? existing?.preferenceSources,
+    learned: input.learned ?? existing?.learned,
     schemaVersion: 2,
     version: existing ? existing.version + 1 : 1,
     isActive: type === 'creator',
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
-  };
+  });
 }
 
 async function saveVersionSnapshot(dna: CreatorDNA, changeDescription?: string): Promise<void> {
@@ -397,10 +502,10 @@ async function saveVersionSnapshot(dna: CreatorDNA, changeDescription?: string):
     id: generateId(),
     dnaId: dna.id,
     version: dna.version,
-    snapshot: {
+    snapshot: sanitizeDnaV2Fields({
       ...dna,
       sourceAssets: sanitizeDnaSourceAssets(dna.sourceAssets),
-    },
+    }),
     changeDescription,
     createdAt: new Date().toISOString(),
   };
@@ -476,6 +581,7 @@ export async function upsertDna(input: DnaWriteInput): Promise<CreatorDNA> {
   const nextInput: DnaWriteInput = {
     ...input,
     sourceAssets: await ownedSourceAssets(input.userId, input.sourceAssets),
+    brand: await resolveOwnedBrand(input.userId, input.brand, existing?.brand),
   };
   if (existing) {
     return updateDna(existing.id, input.userId, nextInput, 'DNA aktualisiert');
@@ -527,6 +633,7 @@ export async function createLinkedDna(
   const dna = buildDnaDocument(id, {
     ...input,
     sourceAssets: await ownedSourceAssets(input.userId, input.sourceAssets),
+    brand: await resolveOwnedBrand(input.userId, input.brand),
   }, undefined, type);
 
   if (isDevMode()) {
@@ -554,6 +661,7 @@ export async function updateDna(
   if (!existing) throw new Error('DNA not found');
 
   const ownedAssets = await ownedSourceAssets(userId, input.sourceAssets ?? existing.sourceAssets);
+  const ownedBrand = await resolveOwnedBrand(userId, input.brand, existing.brand);
 
   const proposed: Partial<CreatorDNA> = {
     name: input.name ?? existing.name,
@@ -587,6 +695,18 @@ export async function updateDna(
     typography: input.typography ?? existing.typography,
     atmosphere: input.atmosphere ?? existing.atmosphere,
     outputPrefs: input.outputPrefs ?? existing.outputPrefs,
+    identity: input.identity ?? existing.identity,
+    contentCategories: input.contentCategories ?? existing.contentCategories,
+    dislikedColors: input.dislikedColors ?? existing.dislikedColors,
+    visualStyles: input.visualStyles ?? existing.visualStyles,
+    preferredShapes: input.preferredShapes ?? existing.preferredShapes,
+    stream: input.stream ?? existing.stream,
+    video: input.video ?? existing.video,
+    audio: input.audio ?? existing.audio,
+    assistant: input.assistant ?? existing.assistant,
+    brand: ownedBrand ?? existing.brand,
+    preferenceSources: input.preferenceSources ?? existing.preferenceSources,
+    learned: input.learned ?? existing.learned,
   };
 
   const locked = applyDnaLocks(existing, proposed);
@@ -626,6 +746,18 @@ export async function updateDna(
     typography: locked.typography ?? existing.typography,
     atmosphere: locked.atmosphere ?? existing.atmosphere,
     outputPrefs: locked.outputPrefs ?? existing.outputPrefs,
+    identity: locked.identity ?? existing.identity,
+    contentCategories: locked.contentCategories ?? existing.contentCategories,
+    dislikedColors: locked.dislikedColors ?? existing.dislikedColors,
+    visualStyles: locked.visualStyles ?? existing.visualStyles,
+    preferredShapes: locked.preferredShapes ?? existing.preferredShapes,
+    stream: locked.stream ?? existing.stream,
+    video: locked.video ?? existing.video,
+    audio: locked.audio ?? existing.audio,
+    assistant: locked.assistant ?? existing.assistant,
+    brand: locked.brand ?? existing.brand,
+    preferenceSources: locked.preferenceSources ?? existing.preferenceSources,
+    learned: locked.learned ?? existing.learned,
   };
 
   const dna = buildDnaDocument(id, merged, existing);

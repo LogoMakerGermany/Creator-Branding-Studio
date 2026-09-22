@@ -5,6 +5,7 @@ import {
   STYLE_DIRECTIONS,
   DNA_PLATFORMS,
   DNA_CHARACTER_TYPES,
+  DNA_CREATOR_CATEGORIES,
   type StyleDirection,
   type DNAVersion,
 } from '@ucbs/shared';
@@ -90,6 +91,37 @@ export function CreatorDNAPage() {
   const [editing, setEditing] = useState(false);
   const [locks, setLocks] = useState<LockState>(EMPTY_LOCKS);
   const [versions, setVersions] = useState<DNAVersion[]>([]);
+  const [alias, setAlias] = useState('');
+  const [bio, setBio] = useState('');
+  const [creatorCategory, setCreatorCategory] = useState('gaming');
+  const [languages, setLanguages] = useState('de, en');
+  const [contentCategories, setContentCategories] = useState('');
+  const [dislikedColors, setDislikedColors] = useState('');
+  const [visualStyles, setVisualStyles] = useState('');
+  const [preferredShapes, setPreferredShapes] = useState('');
+  const [excludedElements, setExcludedElements] = useState('');
+  const [symbols, setSymbols] = useState('');
+  const [extraSlogans, setExtraSlogans] = useState('');
+  const [streamLayout, setStreamLayout] = useState('');
+  const [facecamPref, setFacecamPref] = useState('');
+  const [chatPref, setChatPref] = useState('');
+  const [alertStyle, setAlertStyle] = useState('');
+  const [overlayStyle, setOverlayStyle] = useState('');
+  const [startStyle, setStartStyle] = useState('');
+  const [endStyle, setEndStyle] = useState('');
+  const [videoRatios, setVideoRatios] = useState('');
+  const [editingStyle, setEditingStyle] = useState('');
+  const [subtitlePref, setSubtitlePref] = useState('');
+  const [transitionStyle, setTransitionStyle] = useState('');
+  const [pacingPref, setPacingPref] = useState('');
+  const [musicStyle, setMusicStyle] = useState('');
+  const [voicePref, setVoicePref] = useState('');
+  const [sfxStyle, setSfxStyle] = useState('');
+  const [assistantTone, setAssistantTone] = useState('');
+  const [assistantVerbosity, setAssistantVerbosity] = useState('');
+  const [askBeforeMajor, setAskBeforeMajor] = useState(true);
+  const [proactive, setProactive] = useState(false);
+  const [workflow, setWorkflow] = useState('');
 
   useEffect(() => {
     if (!activeDna) return;
@@ -127,6 +159,37 @@ export function CreatorDNAPage() {
     setAtmSmoke(Boolean(activeDna.atmosphere?.smoke));
     setOutputPlatform(activeDna.outputPrefs?.platform ?? '');
     setOutputRatios((activeDna.outputPrefs?.aspectRatios ?? []).join(', '));
+    setAlias(activeDna.identity?.alias ?? '');
+    setBio(activeDna.identity?.bio ?? '');
+    setCreatorCategory(activeDna.identity?.creatorCategory ?? 'gaming');
+    setLanguages((activeDna.identity?.languages ?? []).join(', '));
+    setContentCategories((activeDna.contentCategories ?? []).join(', '));
+    setDislikedColors((activeDna.dislikedColors ?? []).join(', '));
+    setVisualStyles((activeDna.visualStyles ?? []).join(', '));
+    setPreferredShapes((activeDna.preferredShapes ?? []).join(', '));
+    setExcludedElements((activeDna.designLanguage?.doNotUse ?? []).join(', '));
+    setSymbols((activeDna.brand?.recurringSymbols ?? []).join(', '));
+    setExtraSlogans((activeDna.brand?.slogans ?? []).join(', '));
+    setStreamLayout(activeDna.stream?.preferredLayout ?? '');
+    setFacecamPref(activeDna.stream?.facecamPreference ?? '');
+    setChatPref(activeDna.stream?.chatPreference ?? '');
+    setAlertStyle(activeDna.stream?.alertStyle ?? '');
+    setOverlayStyle(activeDna.stream?.overlayStyle ?? '');
+    setStartStyle(activeDna.stream?.startingScreenStyle ?? '');
+    setEndStyle(activeDna.stream?.endingScreenStyle ?? '');
+    setVideoRatios((activeDna.video?.preferredAspectRatios ?? activeDna.outputPrefs?.aspectRatios ?? []).join(', '));
+    setEditingStyle((activeDna.video?.editingStyle ?? []).join(', '));
+    setSubtitlePref(activeDna.video?.subtitlePreference ?? '');
+    setTransitionStyle(activeDna.video?.transitionStyle ?? '');
+    setPacingPref(activeDna.video?.pacingPreference ?? '');
+    setMusicStyle((activeDna.audio?.musicStyle ?? []).join(', '));
+    setVoicePref(activeDna.audio?.voicePreference ?? '');
+    setSfxStyle((activeDna.audio?.soundEffectStyle ?? []).join(', '));
+    setAssistantTone(activeDna.assistant?.assistantTone ?? '');
+    setAssistantVerbosity(activeDna.assistant?.assistantVerbosity ?? '');
+    setAskBeforeMajor(activeDna.assistant?.askBeforeMajorChanges !== false);
+    setProactive(Boolean(activeDna.assistant?.proactiveSuggestions));
+    setWorkflow(activeDna.assistant?.preferredWorkflow ?? '');
     setStyle(activeDna.styleDirection);
     setDimension(activeDna.dimension === '3d' ? '3d' : '2d');
     setColors(
@@ -227,8 +290,56 @@ export function CreatorDNAPage() {
       lightingStyle: atmLighting.trim() || undefined,
       outputPrefs: {
         platform: outputPlatform.trim() || platforms[0],
-        aspectRatios: parseList(outputRatios),
+        aspectRatios: parseList(outputRatios) || parseList(videoRatios),
         outputKinds: ['logo', 'streamset'],
+      },
+      identity: {
+        alias: alias.trim() || undefined,
+        bio: bio.trim() || undefined,
+        creatorCategory: creatorCategory.trim() || undefined,
+        languages: parseList(languages),
+      },
+      contentCategories: parseList(contentCategories),
+      dislikedColors: parseList(dislikedColors),
+      visualStyles: parseList(visualStyles).length ? parseList(visualStyles) : [style],
+      preferredShapes: parseList(preferredShapes),
+      designLanguage: {
+        mood: [],
+        keywords: parseList(genres).slice(0, 8),
+        visualElements: parseList(symbols),
+        doNotUse: [...parseList(excludedElements), ...parseList(dislikedColors)],
+      },
+      stream: {
+        preferredLayout: streamLayout.trim() || undefined,
+        facecamPreference: facecamPref.trim() || undefined,
+        chatPreference: chatPref.trim() || undefined,
+        alertStyle: alertStyle.trim() || undefined,
+        overlayStyle: overlayStyle.trim() || undefined,
+        startingScreenStyle: startStyle.trim() || undefined,
+        endingScreenStyle: endStyle.trim() || undefined,
+      },
+      video: {
+        preferredAspectRatios: parseList(videoRatios) || parseList(outputRatios),
+        editingStyle: parseList(editingStyle),
+        subtitlePreference: subtitlePref.trim() || undefined,
+        transitionStyle: transitionStyle.trim() || undefined,
+        pacingPreference: pacingPref.trim() || undefined,
+      },
+      audio: {
+        musicStyle: parseList(musicStyle),
+        voicePreference: voicePref.trim() || undefined,
+        soundEffectStyle: parseList(sfxStyle),
+      },
+      assistant: {
+        assistantTone: assistantTone.trim() || undefined,
+        assistantVerbosity: assistantVerbosity.trim() || undefined,
+        askBeforeMajorChanges: askBeforeMajor,
+        proactiveSuggestions: proactive,
+        preferredWorkflow: workflow.trim() || undefined,
+      },
+      brand: {
+        recurringSymbols: parseList(symbols),
+        slogans: parseList(extraSlogans),
       },
       locks: {
         name: locks.name,
@@ -337,7 +448,7 @@ export function CreatorDNAPage() {
       <div>
         <PageHeader
           title="Creator DNA"
-          description="Zentrale Stil- und Identitätsquelle für Nexter und alle Studios"
+          description="So versteht der Assistent deinen Creator-Stil — für Logos, Stream-Assets und Chat."
           badge={<Badge variant="success">Aktiv · v{activeDna.version}</Badge>}
           backTo="/settings"
           backLabel="Einstellungen"
@@ -370,6 +481,13 @@ export function CreatorDNAPage() {
               </div>
               <dl className="grid gap-3 text-sm sm:grid-cols-2">
                 <div>
+                  <dt className="text-zinc-500">Identität</dt>
+                  <dd className="text-zinc-300">
+                    {activeDna.identity?.alias || activeDna.name}
+                    {activeDna.identity?.creatorCategory ? ` · ${activeDna.identity.creatorCategory}` : ''}
+                  </dd>
+                </div>
+                <div>
                   <dt className="text-zinc-500">Figur</dt>
                   <dd className="text-zinc-300">{activeDna.character?.description || activeDna.mascot || '—'}</dd>
                 </div>
@@ -389,6 +507,26 @@ export function CreatorDNAPage() {
                   <dt className="text-zinc-500">Plattformen</dt>
                   <dd className="text-zinc-300 capitalize">
                     {activeDna.platformOptimization?.map((p) => p.platform).join(', ') || '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Content</dt>
+                  <dd className="text-zinc-300">
+                    {(activeDna.contentCategories ?? activeDna.favoriteGenres ?? []).join(', ') || '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Vermeiden</dt>
+                  <dd className="text-zinc-300">
+                    {[...(activeDna.dislikedColors ?? []), ...(activeDna.designLanguage?.doNotUse ?? [])]
+                      .filter(Boolean)
+                      .join(', ') || '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Assistent</dt>
+                  <dd className="text-zinc-300">
+                    {activeDna.assistant?.assistantTone || activeDna.assistant?.assistantVerbosity || '—'}
                   </dd>
                 </div>
               </dl>
@@ -436,7 +574,7 @@ export function CreatorDNAPage() {
     <div>
       <PageHeader
         title={activeDna ? 'Creator DNA bearbeiten' : 'Creator DNA erstellen'}
-        description="Jeder Creator hat genau eine DNA — Nexter und alle Studios greifen darauf zu"
+        description="So versteht der Assistent deinen Creator-Stil. Erweiterte Felder sind optional."
         badge={<Badge variant="brand">NEXTER</Badge>}
         backTo="/settings"
         backLabel="Einstellungen"
@@ -797,6 +935,99 @@ export function CreatorDNAPage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <Input label="Alias" value={alias} onChange={(e) => setAlias(e.target.value)} />
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-zinc-300">Creator-Kategorie</label>
+              <select
+                value={creatorCategory}
+                onChange={(e) => setCreatorCategory(e.target.value)}
+                className="w-full rounded-lg border border-zinc-700 bg-surface-900 px-4 py-2.5 text-sm text-zinc-100"
+              >
+                {DNA_CREATOR_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Input label="Sprachen" placeholder="de, en" value={languages} onChange={(e) => setLanguages(e.target.value)} />
+            <Input
+              label="Kurzbio"
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              placeholder="optional"
+            />
+            <Input
+              label="Content-Kategorien"
+              placeholder="education, music, …"
+              value={contentCategories}
+              onChange={(e) => setContentCategories(e.target.value)}
+            />
+            <Input
+              label="Visuelle Stile"
+              placeholder="cinematic, dark"
+              value={visualStyles}
+              onChange={(e) => setVisualStyles(e.target.value)}
+            />
+            <Input
+              label="Formen"
+              placeholder="shield, circle"
+              value={preferredShapes}
+              onChange={(e) => setPreferredShapes(e.target.value)}
+            />
+            <Input
+              label="Unbeliebte Farben"
+              placeholder="red, neon"
+              value={dislikedColors}
+              onChange={(e) => setDislikedColors(e.target.value)}
+            />
+            <Input
+              label="Nicht verwenden"
+              placeholder="skulls, blood, text"
+              value={excludedElements}
+              onChange={(e) => setExcludedElements(e.target.value)}
+            />
+            <Input label="Symbole" value={symbols} onChange={(e) => setSymbols(e.target.value)} />
+            <Input label="Weitere Slogans" value={extraSlogans} onChange={(e) => setExtraSlogans(e.target.value)} />
+            <Input label="Stream-Layout" value={streamLayout} onChange={(e) => setStreamLayout(e.target.value)} />
+            <Input label="Facecam" value={facecamPref} onChange={(e) => setFacecamPref(e.target.value)} />
+            <Input label="Chat-Darstellung" value={chatPref} onChange={(e) => setChatPref(e.target.value)} />
+            <Input label="Alert-Stil" value={alertStyle} onChange={(e) => setAlertStyle(e.target.value)} />
+            <Input label="Overlay-Stil" value={overlayStyle} onChange={(e) => setOverlayStyle(e.target.value)} />
+            <Input label="Starting-Screen" value={startStyle} onChange={(e) => setStartStyle(e.target.value)} />
+            <Input label="Ending-Screen" value={endStyle} onChange={(e) => setEndStyle(e.target.value)} />
+            <Input
+              label="Video-Formate"
+              placeholder="16:9, 9:16"
+              value={videoRatios}
+              onChange={(e) => setVideoRatios(e.target.value)}
+            />
+            <Input label="Schnittstil" value={editingStyle} onChange={(e) => setEditingStyle(e.target.value)} />
+            <Input label="Untertitel" value={subtitlePref} onChange={(e) => setSubtitlePref(e.target.value)} />
+            <Input label="Transitions" value={transitionStyle} onChange={(e) => setTransitionStyle(e.target.value)} />
+            <Input label="Pacing" value={pacingPref} onChange={(e) => setPacingPref(e.target.value)} />
+            <Input label="Musikstil (nur Preference)" value={musicStyle} onChange={(e) => setMusicStyle(e.target.value)} />
+            <Input label="Voice-Preference" value={voicePref} onChange={(e) => setVoicePref(e.target.value)} />
+            <Input label="SFX-Stil" value={sfxStyle} onChange={(e) => setSfxStyle(e.target.value)} />
+            <Input label="Assistent-Ton" placeholder="concise" value={assistantTone} onChange={(e) => setAssistantTone(e.target.value)} />
+            <Input
+              label="Assistent-Länge"
+              placeholder="short"
+              value={assistantVerbosity}
+              onChange={(e) => setAssistantVerbosity(e.target.value)}
+            />
+            <Input label="Workflow" value={workflow} onChange={(e) => setWorkflow(e.target.value)} />
+            <label className="flex items-center gap-2 text-sm text-zinc-300">
+              <input type="checkbox" checked={askBeforeMajor} onChange={(e) => setAskBeforeMajor(e.target.checked)} />
+              Vor großen Änderungen nachfragen
+            </label>
+            <label className="flex items-center gap-2 text-sm text-zinc-300">
+              <input type="checkbox" checked={proactive} onChange={(e) => setProactive(e.target.checked)} />
+              Proaktive Vorschläge erlauben
+            </label>
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">

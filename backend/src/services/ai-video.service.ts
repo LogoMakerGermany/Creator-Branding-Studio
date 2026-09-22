@@ -92,7 +92,7 @@ export async function generateAiVideo(
     payload?.aspectRatio === '9:16' || payload?.aspectRatio === '16:9'
       ? payload.aspectRatio
       : parseGeneratedVideoAspectFromMessage(message) ?? '16:9';
-  const dnaCtx = buildDnaPromptContext(dna);
+  const dnaCtx = buildDnaPromptContext(dna, { consumer: 'video' });
   const prompt = [customPrompt || `Social promotional video for ${dna.name}`, dnaCtx].filter(Boolean).join('. ');
   const quoteId = typeof payload?.quoteId === 'string' ? payload.quoteId : undefined;
 

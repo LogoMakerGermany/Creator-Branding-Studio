@@ -1,3 +1,21 @@
+import type {
+  DnaAssistantPrefs,
+  DnaAudioPrefs,
+  DnaBrandV2,
+  DnaIdentityV2,
+  DnaLearnedPreference,
+  DnaPreferenceMeta,
+  DnaStreamPrefs,
+  DnaVideoPrefs,
+} from './creator-dna-v2';
+import {
+  buildCreatorProfileContext,
+  dnaV2ContentFragment,
+  sanitizeDnaV2Fields,
+} from './creator-dna-v2';
+
+export * from './creator-dna-v2';
+
 export interface CreatorDNA {
   id: string;
   userId: string;
@@ -49,6 +67,18 @@ export interface CreatorDNA {
   typography?: DnaTypography;
   atmosphere?: DnaAtmosphere;
   outputPrefs?: DnaOutputPrefs;
+  identity?: DnaIdentityV2;
+  contentCategories?: string[];
+  dislikedColors?: string[];
+  visualStyles?: string[];
+  preferredShapes?: string[];
+  stream?: DnaStreamPrefs;
+  video?: DnaVideoPrefs;
+  audio?: DnaAudioPrefs;
+  assistant?: DnaAssistantPrefs;
+  brand?: DnaBrandV2;
+  preferenceSources?: Record<string, DnaPreferenceMeta>;
+  learned?: DnaLearnedPreference[];
   version: number;
   isActive: boolean;
   createdAt: string;
@@ -143,9 +173,11 @@ export const DNA_PLATFORMS = [
   'twitch',
   'youtube',
   'tiktok',
+  'kick',
   'instagram',
   'discord',
   'facebook',
+  'other',
 ] as const;
 
 export interface FontConfig {
@@ -269,10 +301,17 @@ export function applyDnaLocks(existing: CreatorDNA, incoming: Partial<CreatorDNA
     if (incoming.secondaryColors !== undefined) out.secondaryColors = existing.secondaryColors;
     if (incoming.accentColors !== undefined) out.accentColors = existing.accentColors;
     if (incoming.backgroundColors !== undefined) out.backgroundColors = existing.backgroundColors;
+    if (incoming.dislikedColors !== undefined) out.dislikedColors = existing.dislikedColors;
   }
   if (still('character') || still('mascot')) {
     if (incoming.mascot !== undefined) out.mascot = existing.mascot;
     if (incoming.character !== undefined) out.character = existing.character;
+    if (incoming.brand !== undefined) {
+      out.brand = {
+        ...(incoming.brand ?? {}),
+        mascotAssetId: existing.brand?.mascotAssetId,
+      };
+    }
   }
   if (still('style') && incoming.styleDirection !== undefined) {
     out.styleDirection = existing.styleDirection;
@@ -329,69 +368,15 @@ export function characterPromptFromDna(dna: CreatorDNA): string | null {
 }
 
 /** Compact DNA fragment for every AI prompt — generators must append this. */
-export function buildDnaPromptContext(dna: CreatorDNA, opts?: { requestText?: string }): string {
-  const colors = [
-    ...dna.primaryColors,
-    ...dna.secondaryColors,
-    ...dna.accentColors,
-    ...(dna.backgroundColors ?? []),
-  ]
-    .filter(Boolean)
-    .slice(0, 8);
-  const fonts = dna.fonts.map((f) => `${f.name} (${f.role})`).filter(Boolean);
-  const platforms = dna.platformOptimization.map((p) => p.platform);
-  const rules = dna.brandingRules
-    .filter((r) => r.priority === 'required')
-    .map((r) => r.rule)
-    .slice(0, 4);
-  const character = characterPromptFromDna(dna);
-  const avoid = activeAvoidList(opts?.requestText, dna.designLanguage?.doNotUse ?? []);
-  const hasLocks =
-    Boolean(dna.locks?.name) ||
-    Boolean(dna.locks?.colors) ||
-    isCharacterLocked(dna) ||
-    Boolean(dna.locks?.style) ||
-    isTypographyLocked(dna);
-
-  const parts = [
-    'Saved Creator DNA is personalization context. The current user request takes precedence',
-    `Creator: ${dna.name}`,
-    dna.slogan ? `Slogan: ${dna.slogan}` : null,
-    dna.usagePurpose ? `Usage: ${dna.usagePurpose}` : null,
-    dna.clanName ? `Clan: ${dna.clanName}` : null,
-    dna.mascot ? `Mascot: ${dna.mascot}` : null,
-    character ? `Character: ${character}` : null,
-    `Style: ${dna.styleDirection}`,
-    dna.dimension ? `Dimension: ${dna.dimension}` : null,
-    dna.brandingStyle ? `Branding style: ${dna.brandingStyle}` : null,
-    dna.gamingStyle ? `Gaming style: ${dna.gamingStyle}` : null,
-    dna.promptStyle ? `Prompt style: ${dna.promptStyle}` : null,
-    dna.visualLanguage ? `Visual language: ${dna.visualLanguage}` : null,
-    colors.length ? `Colors: ${colors.join(', ')}` : null,
-    fonts.length ? `Fonts: ${fonts.join(', ')}` : null,
-    dna.typography?.character ? `Typography: ${dna.typography.character}` : null,
-    dna.typography?.nameTreatment ? `Name treatment: ${dna.typography.nameTreatment}` : null,
-    dna.favoriteGenres?.length ? `Genres: ${dna.favoriteGenres.join(', ')}` : null,
-    platforms.length ? `Platforms: ${platforms.join(', ')}` : null,
-    dna.outputPrefs?.platform ? `Preferred platform: ${dna.outputPrefs.platform}` : null,
-    dna.outputPrefs?.aspectRatios?.length
-      ? `Aspect ratios: ${dna.outputPrefs.aspectRatios.join(', ')}`
-      : null,
-    dna.animations?.length ? `Animations: ${dna.animations.join(', ')}` : null,
-    dna.personalGuidelines ? `Guidelines: ${dna.personalGuidelines}` : null,
-    dna.designLanguage?.mood?.length ? `Mood: ${dna.designLanguage.mood.join(', ')}` : null,
-    dna.atmosphere?.lighting ? `Atmosphere lighting: ${dna.atmosphere.lighting}` : null,
-    dna.atmosphere?.mood ? `Atmosphere mood: ${dna.atmosphere.mood}` : null,
-    dna.atmosphere?.effects?.length ? `Effects: ${dna.atmosphere.effects.join(', ')}` : null,
-    avoid.length ? `Avoid unless the current request asks for it: ${avoid.join(', ')}` : null,
-    dna.lightingStyle ? `Lighting: ${dna.lightingStyle}` : null,
-    hasLocks
-      ? 'Profile locks freeze stored Creator DNA; do not persist different values. The current request still wins for this generation'
-      : null,
-    rules.length ? `Rules: ${rules.join('; ')}` : null,
-  ].filter(Boolean);
-
-  return parts.join('. ') + '.';
+export function buildDnaPromptContext(
+  dna: CreatorDNA,
+  opts?: { requestText?: string; consumer?: import('./creator-dna-v2').DnaContextConsumer }
+): string {
+  return buildCreatorProfileContext(dna, {
+    requestText: opts?.requestText,
+    consumer: opts?.consumer ?? 'chat',
+    maxChars: 1600,
+  });
 }
 
 export interface LogoLockPatch {
@@ -476,9 +461,22 @@ export function resolvePreference<T>(layers: {
 }
 
 export function requestOverridesAvoidTerm(requestText: string | undefined, term: string): boolean {
-  const needle = term.trim().toLowerCase();
+  const needle = term.trim().toLowerCase().replace(/^(no|avoid)\s+/, '');
   if (!needle) return false;
-  return (requestText ?? '').toLowerCase().includes(needle);
+  const req = (requestText ?? '').toLowerCase();
+  if (!req) return false;
+  if (new RegExp(`\\b(no|kein|ohne|not use|do not use|don't use|nicht)\\b.{0,24}${escapeRegExp(needle)}`).test(req)) {
+    return false;
+  }
+  if (req.includes(needle)) return true;
+  if ((needle === 'text' || needle === 'schrift') && /\b(put|schreib|lettering|titel|in the logo|ins logo)\b/i.test(req)) {
+    return true;
+  }
+  return false;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** Negative DNA prefs apply only when the current request does not mention them. */
@@ -527,6 +525,7 @@ export function sanitizeDnaSourceAssets(assets: SourceAsset[] | undefined | null
 
 /** Canonical explicit-field key used to skip no-op DNA version snapshots. */
 export function dnaContentKey(dna: CreatorDNA): string {
+  const v2 = dnaV2ContentFragment(sanitizeDnaV2Fields(dna));
   return JSON.stringify({
     id: dna.id,
     userId: dna.userId,
@@ -563,5 +562,6 @@ export function dnaContentKey(dna: CreatorDNA): string {
     atmosphere: dna.atmosphere ?? null,
     outputPrefs: dna.outputPrefs ?? null,
     schemaVersion: dna.schemaVersion ?? 1,
+    ...v2,
   });
 }

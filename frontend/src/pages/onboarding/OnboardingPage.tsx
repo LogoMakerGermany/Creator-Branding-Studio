@@ -7,28 +7,42 @@ import { Button, Input } from '@/components/ui';
 const DRAFT_KEY = 'nexter-onboarding-draft';
 
 const PLATFORMS = ['Twitch', 'YouTube', 'TikTok', 'Kick', 'Instagram'];
-const STYLES = ['gaming', 'streaming', 'esports', 'neon', 'minimal', 'anime'] as const;
+const STYLES = ['gaming', 'streaming', 'esports', 'neon', 'minimal', 'anime', 'cinematic', 'dark'] as const;
+const CATEGORIES = ['gaming', 'variety', 'music', 'art', 'lifestyle', 'education', 'entertainment', 'other'] as const;
+const ASSISTANT_TONES = [
+  { id: 'concise', label: 'Kurz und direkt' },
+  { id: 'balanced', label: 'Ausgewogen' },
+  { id: 'detailed', label: 'Ausführlich' },
+] as const;
 
 type Draft = {
   step: number;
   displayName: string;
+  alias: string;
   purpose: string;
+  category: (typeof CATEGORIES)[number];
+  topics: string;
   platforms: string[];
   primary: string;
   secondary: string;
   style: (typeof STYLES)[number];
   mascot: string;
+  assistantTone: (typeof ASSISTANT_TONES)[number]['id'];
 };
 
 const DEFAULTS: Draft = {
   step: 0,
   displayName: '',
+  alias: '',
   purpose: 'Streaming',
+  category: 'gaming',
+  topics: '',
   platforms: ['Twitch'],
   primary: '#1E40AF',
   secondary: '#22D3EE',
   style: 'gaming',
   mascot: '',
+  assistantTone: 'balanced',
 };
 
 function loadDraft(name: string): Draft {
@@ -89,6 +103,18 @@ export function OnboardingPage() {
           secondaryColors: [draft.secondary],
           targetPlatforms: draft.platforms.map((p) => p.toLowerCase()),
           brandingStyle: draft.purpose,
+          favoriteGenres: draft.topics
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+          identity: {
+            alias: draft.alias.trim() || undefined,
+            creatorCategory: draft.category,
+          },
+          contentCategories: [draft.category],
+          visualStyles: [draft.style],
+          outputPrefs: { platform: draft.platforms[0]?.toLowerCase() },
+          assistant: { assistantTone: draft.assistantTone, askBeforeMajorChanges: true },
         });
       }
       await api.auth.completeOnboarding(name);
@@ -119,20 +145,46 @@ export function OnboardingPage() {
       )}
 
       {draft.step === 0 && (
-        <Input
-          id="onboarding-name"
-          label="Name"
-          value={draft.displayName}
-          onChange={(e) => setDraft({ ...draft, displayName: e.target.value })}
-        />
+        <div className="space-y-4">
+          <Input
+            id="onboarding-name"
+            label="Creator-Name"
+            value={draft.displayName}
+            onChange={(e) => setDraft({ ...draft, displayName: e.target.value })}
+          />
+          <Input
+            id="onboarding-alias"
+            label="Alias / Anzeigename (optional)"
+            value={draft.alias}
+            onChange={(e) => setDraft({ ...draft, alias: e.target.value })}
+          />
+        </div>
       )}
       {draft.step === 1 && (
-        <Input
-          id="onboarding-purpose"
-          label="Creator-/Plattform-Ziel"
-          value={draft.purpose}
-          onChange={(e) => setDraft({ ...draft, purpose: e.target.value })}
-        />
+        <div className="space-y-4">
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium text-zinc-300">Was machst du hauptsächlich?</legend>
+            <div className="flex flex-wrap gap-2">
+              {CATEGORIES.map((c) => (
+                <label key={c} className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm capitalize text-zinc-200">
+                  <input
+                    type="radio"
+                    name="category"
+                    checked={draft.category === c}
+                    onChange={() => setDraft({ ...draft, category: c, purpose: c })}
+                  />
+                  {c}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <Input
+            id="onboarding-purpose"
+            label="Games / Themen (optional, kommagetrennt)"
+            value={draft.topics}
+            onChange={(e) => setDraft({ ...draft, topics: e.target.value, purpose: e.target.value || draft.category })}
+          />
+        </div>
       )}
       {draft.step === 2 && (
         <fieldset>
@@ -214,11 +266,27 @@ export function OnboardingPage() {
         />
       )}
       {draft.step === 6 && (
-        <div className="space-y-2 text-sm text-zinc-300">
-          <p>Creator DNA wird mit Name, Farben, Stil und Plattformen angelegt.</p>
+        <div className="space-y-4 text-sm text-zinc-300">
+          <p>Creator DNA wird mit Name, Plattformen, Farben und Stil angelegt — kurz, nicht als Fragebogen.</p>
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium text-zinc-300">Wie soll Nexter mit dir arbeiten?</legend>
+            <div className="flex flex-wrap gap-2">
+              {ASSISTANT_TONES.map((tone) => (
+                <label key={tone.id} className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-zinc-200">
+                  <input
+                    type="radio"
+                    name="assistantTone"
+                    checked={draft.assistantTone === tone.id}
+                    onChange={() => setDraft({ ...draft, assistantTone: tone.id })}
+                  />
+                  {tone.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <p className="text-xs text-zinc-500">
-            Danach lernen wir uns kurz kennen: Ansprache, Sprache, Stimme, App-Farben und deine Creator-Ziele. DNA-Farben
-            bleiben für Logos.
+            Danach stimmen wir nur noch App-Ansprache und Stimme ab. DNA-Farben bleiben für Logos. Bestehende Accounts
+            werden nicht erneut durch Onboarding gezwungen.
           </p>
         </div>
       )}

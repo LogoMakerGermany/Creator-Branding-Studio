@@ -176,7 +176,7 @@ export interface GenerateImageOptions {
 }
 
 export function buildPromptFromDNA(dna: CreatorDNA, module: string, customPrompt?: string): string {
-  const dnaCtx = buildDnaPromptContext(dna);
+  const dnaCtx = buildDnaPromptContext(dna, { consumer: 'logo' });
 
   const modulePrompts: Record<string, string> = {
     logo: `Professional ${dna.styleDirection} logo design, bold icon, clean vector style`,
