@@ -64,6 +64,13 @@ import {
   isValidCaption,
   defaultEditPlan,
   classifyContentRightsRisk,
+  parseProjectCommand,
+  analyzeProjectMissingAssets,
+  currentAssetsByRole,
+  explainProjectAwareSource,
+  resolvedProjectAwareSpec,
+  projectMemoryFromProject,
+  inferProjectAssetRole,
   type NexterChatMessage,
   type NexterQuoteKind,
   type NexterSession,
@@ -136,6 +143,7 @@ import { listSocialPosts, updateSocialPost } from '../social.service.js';
 import { getRecentUserFiles, getUserFile, listUserFiles } from '../file-cloud.service.js';
 import { applyNexterLayoutCommand } from '../layout.service.js';
 import { listProjects } from '../project.service.js';
+import { listProjectAssets, resolveNexterProject } from '../project-memory.service.js';
 import {
   formatPlanningDigest,
   getUpcomingPlanningItems,
@@ -338,8 +346,68 @@ export async function nexterChat(
     createdAt: now,
   });
 
-  const ctx = await buildNexterContext(userId, meta?.projectId);
-  if (meta?.projectId && !ctx.projectId) {
+  const command = parseProjectCommand(message);
+  const resolved = await resolveNexterProject(userId, {
+    message,
+    requestProjectId: meta?.projectId,
+    sessionProjectId: session.activeProjectId,
+  });
+
+  if (command.action === 'open' || command.action === 'use') {
+    if (resolved.status === 'ambiguous') {
+      const names = (resolved.candidates ?? []).map((c) => `„${c.name}“`).join(', ');
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content: `Welches Projekt meinst du? ${names}. Ich rate nicht.`,
+        createdAt: new Date().toISOString(),
+        actions: [{ id: randomUUID(), tool: 'open_studio', label: 'Projekte öffnen', path: NEXTER_STUDIO_PATHS.projects }],
+      });
+      await persistSession(session);
+      return session;
+    }
+    if (resolved.status !== 'resolved' || !resolved.project) {
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content:
+          resolved.status === 'foreign'
+            ? 'Dieses Projekt gehört nicht zu deinem Konto. Nexter arbeitet nur mit eigenen Projekten.'
+            : 'Ich finde kein eigenes Projekt mit diesem Namen. Ich rate keins.',
+        createdAt: new Date().toISOString(),
+        actions: [{ id: randomUUID(), tool: 'open_studio', label: 'Projekte öffnen', path: NEXTER_STUDIO_PATHS.projects }],
+      });
+      await persistSession(session);
+      return session;
+    }
+    session.activeProjectId = resolved.project.id;
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: `Ich nutze jetzt das Projekt „${resolved.project.name}“. Es wird nichts generiert und nichts abgebucht.`,
+      createdAt: new Date().toISOString(),
+      actions: [
+        {
+          id: randomUUID(),
+          tool: 'open_studio',
+          label: 'Projekt öffnen',
+          path: `/projects/${resolved.project.id}`,
+          autoNavigate: command.action === 'open',
+        },
+      ],
+    });
+    await persistSession(session);
+    return session;
+  }
+
+  const boundProjectId =
+    resolved.status === 'resolved' ? resolved.project?.id : command.action ? undefined : resolved.project?.id;
+  const ctx = await buildNexterContext(userId, boundProjectId);
+  ctx.projectResolutionSource = resolved.source;
+  if (resolved.status === 'resolved' && resolved.project && resolved.source !== 'session') {
+    session.activeProjectId = resolved.project.id;
+  }
+  if (meta?.projectId && resolved.status === 'foreign') {
     session.messages.push({
       id: randomUUID(),
       role: 'assistant',
@@ -351,6 +419,108 @@ export async function nexterChat(
     await persistSession(session);
     return session;
   }
+
+  if (
+    command.action === 'inspect_current' ||
+    command.action === 'inspect_assets' ||
+    command.action === 'inspect_missing'
+  ) {
+    if (resolved.status === 'ambiguous') {
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content: `Welches Projekt meinst du? ${(resolved.candidates ?? []).map((c) => `„${c.name}“`).join(', ')}. Ich rate nicht.`,
+        createdAt: new Date().toISOString(),
+      });
+      await persistSession(session);
+      return session;
+    }
+    if (resolved.status !== 'resolved' || !resolved.project) {
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content:
+          'Kein Projekt ist ausgewählt. Ich erinnere kein Projekt, das nicht gespeichert oder in dieser Session gewählt ist.',
+        createdAt: new Date().toISOString(),
+        actions: [{ id: randomUUID(), tool: 'open_studio', label: 'Projekte öffnen', path: NEXTER_STUDIO_PATHS.projects }],
+      });
+      await persistSession(session);
+      return session;
+    }
+    const assets = await listProjectAssets(userId, resolved.project.id);
+    const project = { ...resolved.project, assets };
+    if (command.action === 'inspect_current') {
+      const role = command.role ?? 'logo';
+      const current = currentAssetsByRole(assets).get(role);
+      const line = current
+        ? current.availability === 'unavailable'
+          ? `Das aktuelle ${role} in „${project.name}“ ist gespeichert, aber die Datei ist nicht verfügbar. Ich ersetze es nicht still.`
+          : `Aktuelles ${role} in „${project.name}“: ${current.name} (verfügbar).`
+        : `In „${project.name}“ ist kein aktuelles ${role} gespeichert.`;
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content: line,
+        createdAt: new Date().toISOString(),
+      });
+      await persistSession(session);
+      return session;
+    }
+    if (command.action === 'inspect_missing') {
+      const gaps = analyzeProjectMissingAssets(project);
+      const missing = gaps.filter((g) => g.status !== 'available');
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content: missing.length
+          ? `In „${project.name}“: ${missing.map((g) => `${g.role} ${g.status}`).join(', ')}. Das ist kein ungültiges Projekt.`
+          : `In „${project.name}“ sind die bekannten Streamset-Rollen verfügbar.`,
+        createdAt: new Date().toISOString(),
+      });
+      await persistSession(session);
+      return session;
+    }
+    const lines = assets.slice(0, 12).map((a) => {
+      const role = a.role || inferProjectAssetRole(a);
+      return `- ${role}: ${a.name} (${a.isCurrent ? 'aktuell' : 'historisch'}, ${a.availability ?? 'available'})`;
+    });
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: lines.length
+        ? `Assets in „${project.name}“:\n${lines.join('\n')}`
+        : `„${project.name}“ hat noch keine verknüpften Assets.`,
+      createdAt: new Date().toISOString(),
+    });
+    await persistSession(session);
+    return session;
+  }
+
+  if (command.action === 'explain' && resolved.status === 'resolved' && resolved.project) {
+    const spec = resolvedProjectAwareSpec({
+      dna: ctx.hasDna ? { name: ctx.dnaName ?? '', mascot: ctx.mascot, styleDirection: ctx.styleDirection, primaryColors: ctx.primaryColors } : null,
+      project: projectMemoryFromProject(resolved.project),
+      requestText: session.messages.filter((m) => m.role === 'user').slice(-2, -1)[0]?.content ?? '',
+    });
+    const source = String(spec.mascotSource || spec.visualSource || spec.colorSource || 'none') as
+      | 'current_request'
+      | 'project_explicit'
+      | 'explicit_dna'
+      | 'project_suggested'
+      | 'learned_dna'
+      | 'platform_default'
+      | 'system_default'
+      | 'none';
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: explainProjectAwareSource(source, 'diese Wahl', spec.mascot || spec.visual || spec.colors),
+      createdAt: new Date().toISOString(),
+    });
+    await persistSession(session);
+    return session;
+  }
+
   const pref = extractPreference(message);
   if (pref) {
     const skipColorPref = pref.key === 'preferredColor' && ctx.locks?.colors;
@@ -738,9 +908,7 @@ export async function nexterChat(
     }
 
     if (/welche dateien gehören|dateien .*projekt/.test(lower)) {
-      const projects = await listProjects(userId);
-      const named = projects.find((p) => lower.includes(p.name.toLowerCase()));
-      const project = named || (ctx.projectId ? projects.find((p) => p.id === ctx.projectId) : undefined);
+      const project = ctx.projectId ? (await listProjects(userId)).find((p) => p.id === ctx.projectId) : undefined;
       if (!project) {
         session.messages.push({
           id: randomUUID(),

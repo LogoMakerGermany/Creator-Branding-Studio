@@ -55,6 +55,7 @@ export function ProjectsHubPage() {
   const [error, setError] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [showTrash, setShowTrash] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ id: string; name: string; kind: 'delete' | 'purge' } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -67,7 +68,7 @@ export function ProjectsHubPage() {
         q: query.trim() || undefined,
         type: typeFilter || undefined,
         sort,
-        filter: 'active',
+        filter: showArchived ? 'archived' : 'active',
         limit: 50,
       });
       setProjects(active.projects);
@@ -88,7 +89,7 @@ export function ProjectsHubPage() {
 
   useEffect(() => {
     void refresh();
-  }, [user?.id, query, typeFilter, sort]);
+  }, [user?.id, query, typeFilter, sort, showArchived]);
 
   async function handleCreate() {
     if (!name.trim()) {
@@ -339,10 +340,32 @@ export function ProjectsHubPage() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button variant={!showTrash ? 'secondary' : 'outline'} onClick={() => setShowTrash(false)}>
-          Aktiv ({total})
+        <Button
+          variant={!showTrash && !showArchived ? 'secondary' : 'outline'}
+          onClick={() => {
+            setShowTrash(false);
+            setShowArchived(false);
+          }}
+        >
+          Aktiv ({showArchived ? projects.length : total})
         </Button>
-        <Button variant={showTrash ? 'secondary' : 'outline'} onClick={() => setShowTrash(true)}>
+        <Button
+          variant={!showTrash && showArchived ? 'secondary' : 'outline'}
+          data-testid="projects-archived"
+          onClick={() => {
+            setShowTrash(false);
+            setShowArchived(true);
+          }}
+        >
+          Archiv
+        </Button>
+        <Button
+          variant={showTrash ? 'secondary' : 'outline'}
+          onClick={() => {
+            setShowTrash(true);
+            setShowArchived(false);
+          }}
+        >
           Papierkorb ({trash.length})
         </Button>
       </div>

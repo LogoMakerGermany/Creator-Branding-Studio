@@ -461,7 +461,7 @@ export function taskOmitsIrrelevantDna(task: DnaTaskKind, haystack: string): boo
 }
 
 export function explainPreferenceSource(
-  source: PreferenceResolutionSource,
+  source: PreferenceResolutionSource | 'project_explicit' | 'project_suggested',
   label: string,
   value?: unknown
 ): string {
@@ -469,8 +469,12 @@ export function explainPreferenceSource(
   switch (source) {
     case 'current_request':
       return `Ich habe ${shown} genommen, weil du das in dieser Anfrage so vorgegeben hast.`;
+    case 'project_explicit':
+      return `Ich habe ${shown} genommen, weil das Teil der gespeicherten Projektgestaltung ist.`;
     case 'explicit_dna':
       return `Ich habe ${shown} genommen, weil das in deiner Creator DNA gespeichert ist.`;
+    case 'project_suggested':
+      return `Ich habe ${shown} als projektbezogenen Vorschlag verwendet — nicht als feste Vorgabe.`;
     case 'learned_dna':
       return `Ich habe ${shown} genommen, weil das als gelernte Vorliebe gespeichert ist.`;
     case 'platform_default':

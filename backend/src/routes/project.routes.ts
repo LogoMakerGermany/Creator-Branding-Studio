@@ -18,10 +18,16 @@ import {
   purgeProject,
   importProjectZip,
   duplicateProject,
+  archiveProject,
 } from '../services/project.service.js';
 import { exportProjectZip } from '../services/project-export.service.js';
 import { getProjectOverview } from '../services/project-overview.service.js';
-import { detachAssetFromProject } from '../services/project-assets.service.js';
+import {
+  linkAssetToProject,
+  listProjectAssets,
+  setCurrentProjectAsset,
+  unlinkAssetFromProject,
+} from '../services/project-memory.service.js';
 
 export const projectRoutes = Router();
 projectRoutes.use(authenticate, requirePermission(Permission.MANAGE_PROJECTS));
@@ -40,6 +46,47 @@ const projectType = z.enum([
   'shorts',
   'social',
   'text',
+]);
+
+const memoryFields = {
+  platform: z.string().max(40).optional(),
+  contentTopic: z.string().max(80).optional(),
+  game: z.string().max(80).optional(),
+  visualStyle: z.string().max(80).optional(),
+  colors: z.array(z.string().max(80)).max(8).optional(),
+  mascotChoice: z.string().max(80).optional(),
+  aspectRatio: z.string().max(16).optional(),
+  layoutPreference: z.string().max(80).optional(),
+  notes: z.array(z.string().max(280)).max(8).optional(),
+  decisions: z
+    .array(
+      z.object({
+        id: z.string().max(80).optional(),
+        text: z.string().min(1).max(280),
+        createdAt: z.string().optional(),
+      })
+    )
+    .max(12)
+    .optional(),
+};
+
+const assetRole = z.enum([
+  'logo',
+  'banner',
+  'facecam',
+  'overlay',
+  'starting_screen',
+  'ending_screen',
+  'pause_screen',
+  'intro',
+  'outro',
+  'video',
+  'thumbnail',
+  'sticker',
+  'badge',
+  'audio',
+  'layout',
+  'other',
 ]);
 
 projectRoutes.get(
@@ -107,6 +154,7 @@ projectRoutes.post(
         description: z.string().max(1000).optional(),
         type: projectType.default('custom'),
         dnaId: z.string().min(1).max(80).optional(),
+        ...memoryFields,
       })
       .parse(req.body);
 
@@ -158,6 +206,7 @@ projectRoutes.patch(
           .enum(['draft', 'in_progress', 'review', 'revision', 'completed', 'archived'])
           .optional(),
         dnaId: z.string().min(1).max(80).optional(),
+        ...memoryFields,
       })
       .parse(req.body);
 
@@ -204,11 +253,82 @@ projectRoutes.delete(
   })
 );
 
+projectRoutes.post(
+  '/:id/archive',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    try {
+      const project = await archiveProject(String(req.params.id), req.user!.uid);
+      sendSuccess(res, { project });
+    } catch (err) {
+      if (err instanceof ServiceError) throw new AppError(err.statusCode, err.code, err.message);
+      throw new AppError(404, 'NOT_FOUND', err instanceof Error ? err.message : 'Projekt nicht gefunden');
+    }
+  })
+);
+
+projectRoutes.get(
+  '/:id/assets',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    try {
+      const assets = await listProjectAssets(req.user!.uid, String(req.params.id));
+      sendSuccess(res, { assets });
+    } catch (err) {
+      if (err instanceof ServiceError) throw new AppError(err.statusCode, err.code, err.message);
+      throw new AppError(404, 'NOT_FOUND', err instanceof Error ? err.message : 'Projekt nicht gefunden');
+    }
+  })
+);
+
+projectRoutes.post(
+  '/:id/assets',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const body = z
+      .object({
+        name: z.string().min(1).max(120),
+        type: z.string().max(40).optional(),
+        url: z.string().max(500).optional(),
+        fileId: z.string().min(1).max(80).optional(),
+        jobId: z.string().min(1).max(80).optional(),
+        module: z.string().max(40).optional(),
+        assetKey: z.string().max(80).optional(),
+        role: assetRole.optional(),
+        makeCurrent: z.boolean().optional(),
+      })
+      .parse(req.body);
+    try {
+      const asset = await linkAssetToProject(req.user!.uid, String(req.params.id), body);
+      sendSuccess(res, { asset }, 201);
+    } catch (err) {
+      if (err instanceof ServiceError) throw new AppError(err.statusCode, err.code, err.message);
+      throw new AppError(400, 'LINK_FAILED', err instanceof Error ? err.message : 'Verknüpfung fehlgeschlagen');
+    }
+  })
+);
+
+projectRoutes.post(
+  '/:id/assets/:assetId/current',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const body = z.object({ role: assetRole.optional() }).parse(req.body ?? {});
+    try {
+      const project = await setCurrentProjectAsset(
+        req.user!.uid,
+        String(req.params.id),
+        String(req.params.assetId),
+        body.role
+      );
+      sendSuccess(res, { project });
+    } catch (err) {
+      if (err instanceof ServiceError) throw new AppError(err.statusCode, err.code, err.message);
+      throw new AppError(404, 'NOT_FOUND', err instanceof Error ? err.message : 'Projekt nicht gefunden');
+    }
+  })
+);
+
 projectRoutes.delete(
   '/:id/assets/:assetId',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     try {
-      const project = await detachAssetFromProject(
+      const project = await unlinkAssetFromProject(
         req.user!.uid,
         String(req.params.id),
         String(req.params.assetId)

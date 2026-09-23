@@ -425,6 +425,10 @@ export async function runGenerationJob(
     downloadName?: string;
   }
 ): Promise<GenerationJob> {
+  if (genOptions?.projectId) {
+    const { assertOwnedProjectId } = await import('./project.service.js');
+    await assertOwnedProjectId(userId, genOptions.projectId);
+  }
   const job: GenerationJob = {
     id: randomUUID(),
     userId,

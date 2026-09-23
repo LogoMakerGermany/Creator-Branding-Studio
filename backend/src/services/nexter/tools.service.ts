@@ -907,9 +907,15 @@ export function formatContextForPrompt(
   const locks = lockBits.length
     ? `Gesperrte Merkmale (verbindlich, nicht eigenmächtig ändern): ${lockBits.join(', ')}.`
     : 'Keine DNA-Sperren.';
-  const projects = ctx.projectNames.length
-    ? `Projekte: ${ctx.projectNames.join(', ')}.`
-    : 'Keine Projekte.';
+  const projects = ctx.projectMemory
+    ? ctx.projectMemory
+    : ctx.hasProjectMemory
+      ? 'PROJECT CONTEXT — USER DATA is present.'
+      : includeProjects && ctx.projectNames.length
+        ? `Projekte: ${ctx.projectNames.join(', ')}.`
+        : includeProjects
+          ? 'Keine Projekte. Rate kein Projekt. Behaupte kein Projektgedächtnis.'
+          : '';
   const missing = formatStreamsetGapForPrompt(ctx);
   const highlights = ctx.videoHighlights?.length
     ? `Video-Highlights: ${ctx.videoHighlights

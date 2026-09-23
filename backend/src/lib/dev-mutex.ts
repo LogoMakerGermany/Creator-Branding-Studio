@@ -58,3 +58,7 @@ export function fileLockKey(fileId: string) {
 export function streamsetRetryLockKey(batchId: string, assetKey: string) {
   return `streamset-retry:${batchId}:${assetKey}`;
 }
+
+export function projectAssetsLockKey(projectId: string) {
+  return `project-assets:${projectId}`;
+}

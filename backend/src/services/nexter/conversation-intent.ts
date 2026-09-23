@@ -14,6 +14,7 @@ import {
   looksLikeAssetEditFollowUp,
   looksLikeWorkflowResume,
 } from './conversation-intent-patterns.js';
+import { isProjectMemoryUtterance, parseProjectCommand } from '@ucbs/shared';
 
 export type NexterConversationIntent =
   | 'SMALLTALK'
@@ -54,6 +55,14 @@ export function resolveNexterConversationIntent(
 
   if (isProjectAnalysisMessage(text)) {
     return { intent: 'PROJECT_ANALYSIS', confidence: 'HIGH', reason: 'gap-or-inventory' };
+  }
+
+  if (isProjectMemoryUtterance(text)) {
+    const action = parseProjectCommand(text).action;
+    if (action === 'open' || action === 'use') {
+      return { intent: 'NAVIGATION_ACTION', confidence: 'HIGH', reason: 'project-select' };
+    }
+    return { intent: 'PROJECT_ANALYSIS', confidence: 'HIGH', reason: 'project-memory' };
   }
 
   if (isCreatorAdviceMessage(text)) {

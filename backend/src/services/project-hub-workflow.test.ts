@@ -11,6 +11,7 @@ import {
   createProject,
   getProject,
   listProjects,
+  listTrash,
   queryProjects,
   sanitizeProjectName,
   softDeleteProject,
@@ -115,7 +116,9 @@ describe('projects hub local closure — ownership, crud, list', () => {
     const active = await queryProjects(user.id, { filter: 'active' });
     assert.equal(active.projects.some((p) => p.id === project.id), false);
     const archived = await queryProjects(user.id, { filter: 'archived' });
-    assert.equal(archived.projects.some((p) => p.id === project.id), true);
+    assert.equal(archived.projects.some((p) => p.id === project.id), false);
+    const trash = await listTrash(user.id);
+    assert.equal(trash.some((p) => p.id === project.id), true);
     assert.ok(await getUserFile(file.id, user.id));
     assert.ok(await getActiveDna(user.id).then((d) => d === null || d.userId === user.id));
   });

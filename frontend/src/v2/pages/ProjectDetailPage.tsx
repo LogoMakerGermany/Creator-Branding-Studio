@@ -329,6 +329,20 @@ export function ProjectDetailPage() {
               <Button size="sm" variant="outline" className="min-h-11 gap-1" onClick={() => void load()}>
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Neu laden
               </Button>
+              {project.status !== 'archived' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="min-h-11"
+                  data-testid="project-archive"
+                  onClick={() => {
+                    if (!projectId) return;
+                    void api.projects.archive(projectId).then(() => load());
+                  }}
+                >
+                  Archivieren
+                </Button>
+              )}
               <Link to="/creator-dna" className="inline-flex min-h-11 items-center text-sm text-[var(--ucbs-accent-cyan)] hover:underline">
                 DNA ansehen
               </Link>
@@ -445,7 +459,12 @@ export function ProjectDetailPage() {
                         <AssetPreview name={a.name} src={a.previewUrl} fileId={a.fileId} />
                         <p className="font-medium text-zinc-100">{a.name}</p>
                         <p className="text-xs text-zinc-500">
-                          {a.type} · {a.createdAt.slice(0, 10)}
+                          {a.role || a.type}
+                          {a.isCurrent ? ' · aktuell' : ''}
+                          {a.available === false || a.availability === 'unavailable' ? ' · nicht verfügbar' : ''}
+                          {a.availability === 'missing' ? ' · fehlt' : ''}
+                          {' · '}
+                          {a.createdAt.slice(0, 10)}
                           {a.version > 1 ? ` · Version ${a.version}` : ''}
                           {a.jobId ? ` · Job ${a.jobId.slice(0, 8)}` : ''}
                         </p>

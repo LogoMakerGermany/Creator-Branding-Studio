@@ -1,7 +1,15 @@
 import type { NexterContextSnapshot } from '@ucbs/shared';
-import { buildCreatorProfileContext, missingStreamsetLabels, nexterAddressName, presentStreamsetLabels } from '@ucbs/shared';
+import {
+  buildCreatorProfileContext,
+  buildProjectMemoryContext,
+  missingStreamsetLabels,
+  nexterAddressName,
+  presentStreamsetLabels,
+  projectHasMemory,
+  projectMemoryFromProject,
+} from '@ucbs/shared';
 import { resolveDnaForRequest } from '../dna.service.js';
-import { listProjects } from '../project.service.js';
+import { getProject, listProjects } from '../project.service.js';
 import { getJobsByUser, type GenerationJob } from '../ai.service.js';
 import { listUserFiles } from '../file-cloud.service.js';
 import { listLayouts } from '../layout.service.js';
@@ -37,7 +45,13 @@ export async function buildNexterContext(
   userId: string,
   projectId?: string
 ): Promise<NexterContextSnapshot> {
-  const [user, resolved, projects, jobs, files, coinBalance, videoProjects, textJobs, lastShort, mockups, animations, musicJobs, voiceJobs, layouts, quotes] =
+  const boundPromise = projectId
+    ? getProject(projectId, userId).catch(() => null)
+    : Promise.resolve(null);
+  const listPromise = projectId
+    ? Promise.resolve([])
+    : listProjects(userId).catch(() => []);
+  const [user, resolved, boundProject, projects, jobs, files, coinBalance, videoProjects, textJobs, lastShort, mockups, animations, musicJobs, voiceJobs, layouts, quotes] =
     await Promise.all([
       getUserById(userId).catch(() => null),
       resolveDnaForRequest(userId, projectId).catch(() => ({
@@ -45,7 +59,8 @@ export async function buildNexterContext(
         source: 'none' as const,
         projectName: undefined as string | undefined,
       })),
-      listProjects(userId).catch(() => []),
+      boundPromise,
+      listPromise,
       getJobsByUser(userId).catch(() => []),
       listUserFiles(userId).catch(() => []),
       getCoinBalance(userId).catch(() => 0),
@@ -61,7 +76,9 @@ export async function buildNexterContext(
     ]);
 
   const dna = resolved.dna;
-  const boundProject = projectId ? projects.find((p) => p.id === projectId) : undefined;
+  const ownedBound = boundProject && !boundProject.deletedAt ? boundProject : undefined;
+  const prefs = ownedBound ? projectMemoryFromProject(ownedBound) : undefined;
+  const memoryBlock = ownedBound ? buildProjectMemoryContext(ownedBound) : '';
 
   const scopedJobs = projectId ? jobs.filter((j) => j.projectId === projectId) : jobs;
   const missingAssets = missingStreamsetLabels(scopedJobs);
@@ -102,12 +119,12 @@ export async function buildNexterContext(
   if (voicePool.some((v) => v.status === 'completed')) inventory.push('Voice');
   if (latestPackage) inventory.push('Content-Paket');
   if (lastShort?.short.id) inventory.push('Short');
-  const boundAssets = boundProject?.assets.length ?? 0;
+  const boundAssets = ownedBound?.assets.length ?? 0;
   if (boundAssets) inventory.push(`${boundAssets} ProjectAssets`);
 
   const scopedVideo = projectId
     ? videoProjects.find((v) =>
-        (boundProject?.assets ?? []).some((a) => a.url && (a.url === v.renderUrl || v.shorts.some((s) => s.videoUrl === a.url)))
+        (ownedBound?.assets ?? []).some((a) => a.url && (a.url === v.renderUrl || v.shorts.some((s) => s.videoUrl === a.url)))
       ) ?? videoProjects[0]
     : videoProjects[0];
 
@@ -135,9 +152,15 @@ export async function buildNexterContext(
     dnaName: dna?.name,
     dnaVersion: dna?.version,
     dnaSource: resolved.source,
-    projectId: boundProject?.id,
-    projectName: boundProject?.name ?? resolved.projectName,
-    projectDnaId: boundProject?.dnaId,
+    projectId: ownedBound?.id,
+    projectName: ownedBound?.name ?? resolved.projectName,
+    projectDnaId: ownedBound?.dnaId,
+    hasProjectMemory: Boolean(ownedBound && projectHasMemory(ownedBound)),
+    projectMemory: memoryBlock || undefined,
+    projectPlatform: prefs?.platform,
+    projectVisualStyle: prefs?.visualStyle,
+    projectColors: prefs?.colors,
+    projectMascot: prefs?.mascotChoice,
     styleDirection: dna?.styleDirection,
     primaryColors: dna?.primaryColors ?? [],
     secondaryColors: dna?.secondaryColors,
@@ -164,8 +187,8 @@ export async function buildNexterContext(
     assistantVerbosity: dna?.assistant?.assistantVerbosity,
     dnaProfile: dna ? buildCreatorProfileContext(dna, { consumer: 'chat', maxChars: 700 }) : undefined,
     locks: dna?.locks,
-    projectCount: projects.length,
-    projectNames: projects.slice(0, 8).map((p) => p.name),
+    projectCount: ownedBound ? 1 : projects.length,
+    projectNames: ownedBound ? [ownedBound.name] : projects.slice(0, 8).map((p) => p.name),
     fileCount: projectId ? files.filter((f) => f.projectId === projectId).length : files.length,
     recentJobs: scopedJobs.slice(0, 8).map((j) => ({
       id: j.id,

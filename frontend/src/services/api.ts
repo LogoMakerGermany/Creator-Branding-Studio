@@ -393,6 +393,9 @@ export const api = {
           assetKey?: string;
           expiresAt?: string;
           available?: boolean;
+          availability?: 'available' | 'missing' | 'unavailable';
+          role?: string;
+          isCurrent?: boolean;
           studioPath?: string;
         }>;
         files: UserFile[];
@@ -491,11 +494,30 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify({ name }),
       }),
-    update: (id: string, body: { name?: string; dnaId?: string; status?: string; type?: string }) =>
+    update: (id: string, body: { name?: string; dnaId?: string; status?: string; type?: string; platform?: string; visualStyle?: string; colors?: string[]; mascotChoice?: string; notes?: string[] }) =>
       request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
       }),
+    archive: (id: string) =>
+      request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}/archive`, {
+        method: 'POST',
+      }),
+    linkAsset: (
+      id: string,
+      body: { name: string; fileId?: string; jobId?: string; role?: string; makeCurrent?: boolean; type?: string; module?: string }
+    ) =>
+      request<{ asset: import('@ucbs/shared').ProjectAsset }>(`/api/v1/projects/${id}/assets`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    setCurrentAsset: (id: string, assetId: string, role?: string) =>
+      request<{ project: import('@ucbs/shared').Project }>(`/api/v1/projects/${id}/assets/${assetId}/current`, {
+        method: 'POST',
+        body: JSON.stringify({ role }),
+      }),
+    listAssets: (id: string) =>
+      request<{ assets: import('@ucbs/shared').ProjectAsset[] }>(`/api/v1/projects/${id}/assets`),
   },
   pricing: {
     components: () =>

@@ -34,6 +34,9 @@ export interface AggregatedProjectAsset {
   expiresAt?: string;
   available?: boolean;
   studioPath?: string;
+  role?: string;
+  isCurrent?: boolean;
+  availability?: 'available' | 'missing' | 'unavailable';
 }
 
 export interface ProjectJobItem {
@@ -147,9 +150,13 @@ function fromProjectAsset(a: ProjectAsset): AggregatedProjectAsset {
     sourceType: a.sourceType,
     mimeType: a.mimeType,
     assetKey: a.assetKey,
-    previewUrl: a.url.startsWith('content:') ? undefined : a.url,
+    previewUrl: a.url?.startsWith('content:') ? undefined : a.url || undefined,
     downloadable: downloadableUrl(a.url),
     changeSupported: Boolean(a.jobId && IMAGE_CHANGE_MODULES.has(a.module || type)),
+    available: a.availability !== 'unavailable' && a.availability !== 'missing',
+    role: a.role,
+    isCurrent: a.isCurrent,
+    availability: a.availability,
   });
 }
 
@@ -184,7 +191,9 @@ async function settle<T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } |
 async function secureAsset(userId: string, asset: AggregatedProjectAsset): Promise<AggregatedProjectAsset | null> {
   if (!asset.fileId) return asset;
   const owned = await getUserFile(asset.fileId, userId);
-  if (!owned) return null;
+  if (!owned) {
+    return { ...asset, previewUrl: undefined, downloadable: false, available: false, availability: 'unavailable', url: '' };
+  }
   try {
     const issued = await issueFileDownloadUrl(asset.fileId, userId);
     if (!issued) {

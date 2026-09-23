@@ -106,6 +106,8 @@ export interface NexterSession {
   messages: NexterChatMessage[];
   createdAt: string;
   updatedAt: string;
+  /** Session-scoped active project. Never shared across users. */
+  activeProjectId?: string;
 }
 
 export interface NexterMemoryEntry {
@@ -137,6 +139,13 @@ export interface NexterContextSnapshot {
   projectId?: string;
   projectName?: string;
   projectDnaId?: string;
+  hasProjectMemory?: boolean;
+  projectMemory?: string;
+  projectPlatform?: string;
+  projectVisualStyle?: string;
+  projectColors?: string[];
+  projectMascot?: string;
+  projectResolutionSource?: 'explicit_id' | 'explicit_name' | 'request' | 'session' | 'none';
   styleDirection?: string;
   primaryColors: string[];
   secondaryColors?: string[];

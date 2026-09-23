@@ -15,6 +15,17 @@ export interface Project {
   feedback: ProjectFeedback[];
   /** Soft-delete timestamp — present when in trash */
   deletedAt?: string;
+  /** Optional project-scoped memory (U.0). Absent on legacy documents. */
+  platform?: string;
+  contentTopic?: string;
+  game?: string;
+  visualStyle?: string;
+  colors?: string[];
+  mascotChoice?: string;
+  aspectRatio?: string;
+  layoutPreference?: string;
+  notes?: string[];
+  decisions?: Array<{ id: string; text: string; createdAt: string }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,6 +78,9 @@ export interface ProjectAsset {
   size?: number;
   assetKey?: string;
   parentAssetId?: string;
+  role?: string;
+  isCurrent?: boolean;
+  availability?: 'available' | 'missing' | 'unavailable';
 }
 
 export interface ProjectExportAssetMeta {

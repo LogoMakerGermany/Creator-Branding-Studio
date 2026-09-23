@@ -5,7 +5,9 @@ import type {
   ProjectAsset,
   CreatorDNA,
   StyleDirection,
+  ProjectMemoryPrefs,
 } from '@ucbs/shared';
+import { PROJECT_MEMORY_BOUNDS, sanitizeProjectMemoryPrefs } from '@ucbs/shared';
 import { STYLE_DIRECTIONS } from '@ucbs/shared';
 import { randomUUID } from 'node:crypto';
 import { dsDelete, dsGet, dsListWhere, dsSet } from '../lib/data-store.js';
@@ -31,6 +33,16 @@ export interface ProjectWriteInput {
   type: ProjectType;
   dnaId?: string;
   status?: ProjectStatus;
+  platform?: string;
+  contentTopic?: string;
+  game?: string;
+  visualStyle?: string;
+  colors?: string[];
+  mascotChoice?: string;
+  aspectRatio?: string;
+  layoutPreference?: string;
+  notes?: string[];
+  decisions?: Array<{ id?: string; text: string; createdAt?: string }>;
 }
 
 export function sanitizeProjectName(name: string): string {
@@ -84,8 +96,10 @@ export async function queryProjects(
   const sort: ProjectListSort = opts?.sort ?? 'updated';
   const limit = Math.min(PROJECT_LIST_MAX_LIMIT, Math.max(1, opts?.limit ?? PROJECT_LIST_DEFAULT_LIMIT));
   const offset = Math.max(0, opts?.offset ?? 0);
-  const includeDeleted = filter === 'archived';
-  let rows = includeDeleted ? await listTrash(userId) : await listProjects(userId);
+  let rows =
+    filter === 'archived'
+      ? (await listProjects(userId)).filter((p) => p.status === 'archived')
+      : (await listProjects(userId)).filter((p) => p.status !== 'archived');
   if (opts?.type) {
     rows = rows.filter((p) => p.type === opts.type);
   }
@@ -111,12 +125,39 @@ export async function getProject(id: string, userId: string): Promise<Project | 
   return normalizeProject(row as unknown as Project);
 }
 
+/** Owner-scoped project check. Client-provided owner IDs are ignored. */
+export async function assertOwnedProjectId(userId: string, projectId?: string | null): Promise<string | undefined> {
+  if (typeof projectId !== 'string' || !projectId.trim()) return undefined;
+  const project = await getProject(projectId.trim(), userId);
+  if (!project || project.deletedAt) {
+    throw new ServiceError(404, 'PROJECT_NOT_FOUND', 'Projekt nicht gefunden');
+  }
+  return project.id;
+}
+
+function memoryPatch(input: Partial<ProjectWriteInput>): ProjectMemoryPrefs {
+  return sanitizeProjectMemoryPrefs({
+    platform: input.platform,
+    contentTopic: input.contentTopic,
+    game: input.game,
+    visualStyle: input.visualStyle,
+    colors: input.colors,
+    mascotChoice: input.mascotChoice,
+    aspectRatio: input.aspectRatio,
+    layoutPreference: input.layoutPreference,
+    notes: input.notes,
+    decisions: input.decisions,
+  });
+}
+
 export async function createProject(userId: string, input: ProjectWriteInput): Promise<Project> {
   const now = new Date().toISOString();
+  const memory = memoryPatch(input);
+  const description = input.description?.trim().slice(0, PROJECT_MEMORY_BOUNDS.description);
   const project: Project = {
     id: randomUUID(),
     name: sanitizeProjectName(input.name),
-    description: input.description?.trim(),
+    description: description || undefined,
     status: input.status ?? 'draft',
     type: input.type,
     ownerId: userId,
@@ -124,6 +165,7 @@ export async function createProject(userId: string, input: ProjectWriteInput): P
     assignedTo: [],
     assets: [],
     feedback: [],
+    ...memory,
     createdAt: now,
     updatedAt: now,
   };
@@ -154,18 +196,37 @@ export async function updateProject(
     throw new Error('Projekt ist im Papierkorb');
   }
 
+  const memory = memoryPatch(patch);
   const updated: Project = {
     ...existing,
     name: patch.name !== undefined ? sanitizeProjectName(patch.name) : existing.name,
-    description: patch.description ?? existing.description,
+    description:
+      patch.description !== undefined
+        ? patch.description.trim().slice(0, PROJECT_MEMORY_BOUNDS.description) || undefined
+        : existing.description,
     type: patch.type ?? existing.type,
     status: patch.status ?? existing.status,
     dnaId: patch.dnaId ?? existing.dnaId,
     assets: patch.assets ?? existing.assets,
+    platform: memory.platform ?? existing.platform,
+    contentTopic: memory.contentTopic ?? existing.contentTopic,
+    game: memory.game ?? existing.game,
+    visualStyle: memory.visualStyle ?? existing.visualStyle,
+    colors: memory.colors ?? existing.colors,
+    mascotChoice: memory.mascotChoice ?? existing.mascotChoice,
+    aspectRatio: memory.aspectRatio ?? existing.aspectRatio,
+    layoutPreference: memory.layoutPreference ?? existing.layoutPreference,
+    notes: memory.notes ?? existing.notes,
+    decisions: memory.decisions ?? existing.decisions,
+    ownerId: existing.ownerId,
     updatedAt: new Date().toISOString(),
   };
   await dsSet(COLLECTION, id, updated as unknown as Record<string, unknown>);
   return updated;
+}
+
+export async function archiveProject(id: string, userId: string): Promise<Project> {
+  return updateProject(id, userId, { status: 'archived' });
 }
 
 export async function softDeleteProject(id: string, userId: string): Promise<Project> {

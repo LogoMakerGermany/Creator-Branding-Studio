@@ -73,6 +73,15 @@ export async function createQuote(
       throw new ServiceError(400, 'INVALID_DURATION', generatedVideoDurationFollowUpMessage());
     }
   }
+  let ownedProjectId: string | undefined;
+  if (typeof projectId === 'string' && projectId.trim()) {
+    if (kind === 'captions') {
+      ownedProjectId = projectId.trim();
+    } else {
+      const { assertOwnedProjectId } = await import('../project.service.js');
+      ownedProjectId = await assertOwnedProjectId(userId, projectId);
+    }
+  }
   const quote: NexterQuote = {
     id: randomUUID(),
     userId,
@@ -82,9 +91,7 @@ export async function createQuote(
     createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + NEXTER_QUOTE_TTL_MS).toISOString(),
   };
-  if (typeof projectId === 'string' && projectId.trim()) {
-    quote.projectId = projectId.trim();
-  }
+  if (ownedProjectId) quote.projectId = ownedProjectId;
   const classified = classifyContentRightsRisk('', resolvedPayload ?? payload ?? undefined);
   resolvedPayload = attachRightsSafetyToPayload(resolvedPayload ?? payload ?? {}, classified);
   quote.payload = omitUndefinedFields(resolvedPayload);
@@ -1545,6 +1552,10 @@ async function confirmQuoteUnlocked(userId: string, quoteId: string): Promise<{
   const quote = await getQuote(userId, quoteId);
   if (!quote) throw new ServiceError(404, 'QUOTE_NOT_FOUND', 'Angebot nicht gefunden');
   await assertCurrentContentRightsAck(userId);
+  if (quote.projectId && quote.kind !== 'captions') {
+    const { assertOwnedProjectId } = await import('../project.service.js');
+    await assertOwnedProjectId(userId, quote.projectId);
+  }
 
   if (quote.kind === 'streamset') {
     return confirmStreamsetQuote(userId, quoteId);

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Project, ProjectAsset, ProjectAssetSourceType } from '@ucbs/shared';
+import { inferProjectAssetRole, isForbiddenProjectAssetUrl, sanitizeProjectAssetUrl } from '@ucbs/shared';
 import { getProject, updateProject } from './project.service.js';
 import { getUserFile } from './file-cloud.service.js';
 import { ServiceError } from '../lib/errors.js';
@@ -44,7 +45,10 @@ export async function attachAssetToProject(
   projectId: string,
   input: AttachAssetInput
 ): Promise<ProjectAsset | null> {
-  if (!projectId || !input.url) return null;
+  if (!projectId) return null;
+  const storedUrl = sanitizeProjectAssetUrl(input.url);
+  if (!storedUrl && !input.fileId && !input.jobId && !input.name) return null;
+  if (input.url && isForbiddenProjectAssetUrl(input.url) && !input.fileId && !input.jobId && !input.name) return null;
   const project = await getProject(projectId, userId);
   if (!project || project.deletedAt) return null;
 
@@ -54,16 +58,22 @@ export async function attachAssetToProject(
   }
 
   const existing = findAttachedAsset(project, input);
+  const role = inferProjectAssetRole({
+    type: input.type,
+    module: input.module,
+    assetKey: input.assetKey,
+  });
   if (existing) {
-    if (existing.url !== input.url || (input.version && existing.version !== input.version)) {
+    if (existing.url !== storedUrl || (input.version && existing.version !== input.version)) {
       const next = project.assets.map((a) =>
         a.id === existing.id
           ? {
               ...a,
-              url: input.url,
+              url: storedUrl,
               version: input.version ?? a.version,
               mimeType: input.mimeType ?? a.mimeType,
               fileId: input.fileId ?? a.fileId,
+              role: existing.role ?? role,
             }
           : a
       );
@@ -73,11 +83,12 @@ export async function attachAssetToProject(
     return existing;
   }
 
+  const hasCurrent = project.assets.some((a) => (a.role ?? inferProjectAssetRole(a)) === role && a.isCurrent);
   const asset: ProjectAsset = {
     id: randomUUID(),
     name: input.name,
     type: input.type,
-    url: input.url,
+    url: storedUrl,
     version: input.version ?? 1,
     createdAt: new Date().toISOString(),
     ...(input.jobId ? { jobId: input.jobId } : {}),
@@ -89,6 +100,9 @@ export async function attachAssetToProject(
     size: input.size,
     assetKey: input.assetKey,
     parentAssetId: input.parentAssetId,
+    role,
+    availability: 'available',
+    isCurrent: !hasCurrent,
   };
 
   await updateProject(projectId, userId, { assets: [...project.assets, asset] });
