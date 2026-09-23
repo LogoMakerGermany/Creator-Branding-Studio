@@ -118,6 +118,13 @@ describe('nexter conversation intelligence — intent classes', () => {
     assert.equal(resolveNexterConversationIntent('Wie kann ich meine Nexter-Farben ändern?').intent, 'ACCOUNT_OR_SETTINGS');
     assert.equal(resolveNexterConversationIntent('Mach mal.').intent, 'AMBIGUOUS');
     assert.equal(resolveNexterConversationIntent('Ändere das.').intent, 'AMBIGUOUS');
+    assert.equal(resolveNexterConversationIntent('Open my Twitch project.').intent, 'NAVIGATION_ACTION');
+    assert.equal(resolveNexterConversationIntent('Which banner is current?').intent, 'PROJECT_ANALYSIS');
+    assert.equal(resolveNexterConversationIntent('Set logo version 2 as current.').intent, 'PROJECT_ACTION');
+    assert.equal(resolveNexterConversationIntent('What is missing?').intent, 'PROJECT_ANALYSIS');
+    assert.equal(resolveNexterConversationIntent('Make a new banner for this project.').intent, 'CREATE_ASSET');
+    assert.equal(resolveNexterConversationIntent('Change the current banner.').intent, 'MODIFY_ASSET');
+    assert.equal(resolveNexterConversationIntent('banner').intent, 'AMBIGUOUS');
     assert.equal(isSmalltalkMessage('wie geht es dir?'), true);
     assert.equal(looksLikeConstraintFollowUp('wie geht es dir?'), false);
     assert.equal(looksLikeConstraintFollowUp('Blau und Grün.'), true);

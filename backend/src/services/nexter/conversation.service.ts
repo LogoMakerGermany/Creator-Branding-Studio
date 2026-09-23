@@ -65,12 +65,18 @@ import {
   defaultEditPlan,
   classifyContentRightsRisk,
   parseProjectCommand,
-  analyzeProjectMissingAssets,
-  currentAssetsByRole,
   explainProjectAwareSource,
   resolvedProjectAwareSpec,
   projectMemoryFromProject,
   inferProjectAssetRole,
+  buildProjectSummary,
+  formatProjectInventory,
+  queryCurrentAssetState,
+  buildMatchProjectContext,
+  wantsCurrentLogoReference,
+  extractExplicitRequestOverrides,
+  resolveProjectAwarePreference,
+  parseProjectAssetRoleFromText,
   type NexterChatMessage,
   type NexterQuoteKind,
   type NexterSession,
@@ -142,8 +148,15 @@ import { generateCompositeMockup, getMockup } from '../mockup.service.js';
 import { listSocialPosts, updateSocialPost } from '../social.service.js';
 import { getRecentUserFiles, getUserFile, listUserFiles } from '../file-cloud.service.js';
 import { applyNexterLayoutCommand } from '../layout.service.js';
-import { listProjects } from '../project.service.js';
-import { listProjectAssets, resolveNexterProject } from '../project-memory.service.js';
+import { listProjects, getProject } from '../project.service.js';
+import {
+  listProjectAssets,
+  resolveNexterProject,
+  setCurrentProjectAsset,
+  resolveProjectAssetReference,
+  findProjectAssetByVersion,
+} from '../project-memory.service.js';
+import { nexterSessionLockKey, withDevLock } from '../../lib/dev-mutex.js';
 import {
   formatPlanningDigest,
   getUpcomingPlanningItems,
@@ -219,7 +232,10 @@ function capSessionMessages(session: NexterSession): void {
 async function persistSession(session: NexterSession): Promise<void> {
   capSessionMessages(session);
   session.updatedAt = new Date().toISOString();
-  await dsSet(COLLECTION, session.id, session as unknown as Record<string, unknown>);
+  await dsSet(COLLECTION, session.id, {
+    ...(session as unknown as Record<string, unknown>),
+    activeProjectId: session.activeProjectId ?? null,
+  });
 }
 
 function quoteUiExtras(quote: { expiresAt: string; coinCost?: number }, coinBalance: number) {
@@ -331,6 +347,27 @@ export async function appendAssistantMessage(
   return session;
 }
 
+export async function setNexterActiveProject(
+  userId: string,
+  projectId: string | null
+): Promise<{ session: NexterSession; archived: boolean; projectName?: string }> {
+  const session = await getOrCreateNexterSession(userId);
+  return withDevLock(nexterSessionLockKey(session.id), async () => {
+    if (!projectId) {
+      delete session.activeProjectId;
+      await persistSession(session);
+      return { session, archived: false };
+    }
+    const project = await getProject(projectId, userId);
+    if (!project || project.deletedAt) {
+      throw new ServiceError(404, 'PROJECT_NOT_FOUND', 'Projekt nicht gefunden');
+    }
+    session.activeProjectId = project.id;
+    await persistSession(session);
+    return { session, archived: project.status === 'archived', projectName: project.name };
+  });
+}
+
 export async function nexterChat(
   userId: string,
   message: string,
@@ -347,19 +384,45 @@ export async function nexterChat(
   });
 
   const command = parseProjectCommand(message);
+  const earlyIntent = resolveNexterConversationIntent(message, session.messages.slice(0, -1));
+  const skipSessionProject =
+    !command.action &&
+    (earlyIntent.intent === 'SMALLTALK' ||
+      earlyIntent.intent === 'APP_HELP' ||
+      earlyIntent.intent === 'ACCOUNT_OR_SETTINGS');
   const resolved = await resolveNexterProject(userId, {
     message,
-    requestProjectId: meta?.projectId,
-    sessionProjectId: session.activeProjectId,
+    requestProjectId: skipSessionProject ? undefined : meta?.projectId,
+    sessionProjectId: skipSessionProject ? undefined : session.activeProjectId,
   });
 
-  if (command.action === 'open' || command.action === 'use') {
+  if (resolved.status === 'stale' && session.activeProjectId) {
+    delete session.activeProjectId;
+  }
+
+  const askWhichProject = () => {
+    const names = (resolved.candidates ?? []).map((c) => `„${c.name}“`).join(', ');
+    return `Welches Projekt meinst du? ${names}. Ich rate nicht.`;
+  };
+
+  if (command.action === 'clear') {
+    delete session.activeProjectId;
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: 'Ich arbeite jetzt ohne Projektkontext. Das Projekt selbst bleibt unverändert.',
+      createdAt: new Date().toISOString(),
+    });
+    await persistSession(session);
+    return session;
+  }
+
+  if (command.action === 'open' || command.action === 'use' || command.action === 'switch') {
     if (resolved.status === 'ambiguous') {
-      const names = (resolved.candidates ?? []).map((c) => `„${c.name}“`).join(', ');
       session.messages.push({
         id: randomUUID(),
         role: 'assistant',
-        content: `Welches Projekt meinst du? ${names}. Ich rate nicht.`,
+        content: askWhichProject(),
         createdAt: new Date().toISOString(),
         actions: [{ id: randomUUID(), tool: 'open_studio', label: 'Projekte öffnen', path: NEXTER_STUDIO_PATHS.projects }],
       });
@@ -381,10 +444,11 @@ export async function nexterChat(
       return session;
     }
     session.activeProjectId = resolved.project.id;
+    const archivedNote = resolved.archived ? ' Es ist archiviert — ich reaktiviere es nicht still.' : '';
     session.messages.push({
       id: randomUUID(),
       role: 'assistant',
-      content: `Ich nutze jetzt das Projekt „${resolved.project.name}“. Es wird nichts generiert und nichts abgebucht.`,
+      content: `Ich nutze jetzt das Projekt „${resolved.project.name}“.${archivedNote} Es wird nichts generiert und nichts abgebucht.`,
       createdAt: new Date().toISOString(),
       actions: [
         {
@@ -404,7 +468,7 @@ export async function nexterChat(
     resolved.status === 'resolved' ? resolved.project?.id : command.action ? undefined : resolved.project?.id;
   const ctx = await buildNexterContext(userId, boundProjectId);
   ctx.projectResolutionSource = resolved.source;
-  if (resolved.status === 'resolved' && resolved.project && resolved.source !== 'session') {
+  if (resolved.status === 'resolved' && resolved.project && resolved.source !== 'session' && !skipSessionProject) {
     session.activeProjectId = resolved.project.id;
   }
   if (meta?.projectId && resolved.status === 'foreign') {
@@ -420,20 +484,16 @@ export async function nexterChat(
     return session;
   }
 
-  if (
-    command.action === 'inspect_current' ||
-    command.action === 'inspect_assets' ||
-    command.action === 'inspect_missing'
-  ) {
+  async function requireBoundProject(): Promise<typeof resolved.project | null> {
     if (resolved.status === 'ambiguous') {
       session.messages.push({
         id: randomUUID(),
         role: 'assistant',
-        content: `Welches Projekt meinst du? ${(resolved.candidates ?? []).map((c) => `„${c.name}“`).join(', ')}. Ich rate nicht.`,
+        content: askWhichProject(),
         createdAt: new Date().toISOString(),
       });
       await persistSession(session);
-      return session;
+      return null;
     }
     if (resolved.status !== 'resolved' || !resolved.project) {
       session.messages.push({
@@ -445,18 +505,150 @@ export async function nexterChat(
         actions: [{ id: randomUUID(), tool: 'open_studio', label: 'Projekte öffnen', path: NEXTER_STUDIO_PATHS.projects }],
       });
       await persistSession(session);
+      return null;
+    }
+    return resolved.project;
+  }
+
+  if (command.action === 'inspect_summary') {
+    const project = await requireBoundProject();
+    if (!project) return session;
+    const assets = await listProjectAssets(userId, project.id);
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: buildProjectSummary({ ...project, assets }),
+      createdAt: new Date().toISOString(),
+    });
+    await persistSession(session);
+    return session;
+  }
+
+  if (command.action === 'inspect_history') {
+    const project = await requireBoundProject();
+    if (!project) return session;
+    const assets = await listProjectAssets(userId, project.id);
+    const role = command.role ?? 'logo';
+    const state = queryCurrentAssetState(assets, role);
+    const hist = state.historical
+      .map((a) => `${a.name} v${a.version}${a.availability === 'unavailable' ? ' (nicht verfügbar)' : ''}`)
+      .join(', ');
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: `„${project.name}“ hat ${state.historical.length + (state.current ? 1 : 0)} ${role}-Einträge. Aktuell: ${
+        state.current?.name ?? 'keins'
+      }. Historisch: ${hist || 'keine'}.`,
+      createdAt: new Date().toISOString(),
+    });
+    await persistSession(session);
+    return session;
+  }
+
+  if (command.action === 'match_project') {
+    const project = await requireBoundProject();
+    if (!project) return session;
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: `${buildMatchProjectContext(project, command.role)}\nIch starte keine Generierung.`,
+      createdAt: new Date().toISOString(),
+    });
+    await persistSession(session);
+    return session;
+  }
+
+  if (command.action === 'use_reference') {
+    const project = await requireBoundProject();
+    if (!project) return session;
+    const role = command.role ?? 'logo';
+    const ref = await resolveProjectAssetReference(userId, project.id, role);
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: ref.ok
+        ? `Ich kann das aktuelle ${role} aus „${project.name}“ intern als Referenz nutzen (Datei vorhanden). Keine Provider-URL wird gespeichert.`
+        : `Ich kann keine sichere ${role}-Referenz aus diesem Projekt ableiten.`,
+      createdAt: new Date().toISOString(),
+    });
+    await persistSession(session);
+    return session;
+  }
+
+  if (command.action === 'set_current') {
+    const project = await requireBoundProject();
+    if (!project) return session;
+    if (command.vague) {
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content: 'Das klingt unverbindlich. Sag zum Beispiel: „Setze Logo Version 2 als aktuelles Logo.“ Ich ändere nichts still.',
+        createdAt: new Date().toISOString(),
+      });
+      await persistSession(session);
       return session;
     }
-    const assets = await listProjectAssets(userId, resolved.project.id);
-    const project = { ...resolved.project, assets };
+    const assets = await listProjectAssets(userId, project.id);
+    const role = command.role ?? 'logo';
+    const asset = findProjectAssetByVersion(assets, role, command.version);
+    if (!asset) {
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content: `Ich finde kein eindeutiges ${role} in „${project.name}“ für diesen Wechsel.`,
+        createdAt: new Date().toISOString(),
+      });
+      await persistSession(session);
+      return session;
+    }
+    try {
+      await setCurrentProjectAsset(userId, project.id, asset.id, role);
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content: `„${asset.name}“ ist jetzt das aktuelle ${role} in diesem Projekt. Ältere Versionen bleiben erhalten.`,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      const code = err instanceof ServiceError ? err.code : '';
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content:
+          code === 'ASSET_UNAVAILABLE'
+            ? 'Dieses Asset ist nicht verfügbar. Ich setze es nicht als aktuell.'
+            : code === 'FOREIGN_ASSET'
+              ? 'Dieses Asset gehört nicht zu deinem Konto.'
+              : 'Der Wechsel des aktuellen Assets ist nicht möglich.',
+        createdAt: new Date().toISOString(),
+      });
+    }
+    await persistSession(session);
+    return session;
+  }
+
+  if (
+    command.action === 'inspect_current' ||
+    command.action === 'inspect_assets' ||
+    command.action === 'inspect_missing'
+  ) {
+    const project = await requireBoundProject();
+    if (!project) return session;
+    const assets = await listProjectAssets(userId, project.id);
+    const bound = { ...project, assets };
     if (command.action === 'inspect_current') {
       const role = command.role ?? 'logo';
-      const current = currentAssetsByRole(assets).get(role);
-      const line = current
-        ? current.availability === 'unavailable'
-          ? `Das aktuelle ${role} in „${project.name}“ ist gespeichert, aber die Datei ist nicht verfügbar. Ich ersetze es nicht still.`
-          : `Aktuelles ${role} in „${project.name}“: ${current.name} (verfügbar).`
-        : `In „${project.name}“ ist kein aktuelles ${role} gespeichert.`;
+      const state = queryCurrentAssetState(assets, role);
+      let line: string;
+      if (state.state === 'CURRENT' && state.current) {
+        line = `Aktuelles ${role} in „${project.name}“: ${state.current.name} (verfügbar).`;
+      } else if (state.state === 'UNAVAILABLE' && state.current) {
+        line = `Das aktuelle ${role} in „${project.name}“ ist gespeichert, aber die Datei ist nicht verfügbar. Ich ersetze es nicht still.`;
+      } else if (state.state === 'HISTORICAL_ONLY') {
+        line = `In „${project.name}“ gibt es ältere ${role}-Dateien, aber kein aktuelles ${role}.`;
+      } else {
+        line = `In „${project.name}“ ist kein ${role} gespeichert.`;
+      }
       session.messages.push({
         id: randomUUID(),
         role: 'assistant',
@@ -467,14 +659,10 @@ export async function nexterChat(
       return session;
     }
     if (command.action === 'inspect_missing') {
-      const gaps = analyzeProjectMissingAssets(project);
-      const missing = gaps.filter((g) => g.status !== 'available');
       session.messages.push({
         id: randomUUID(),
         role: 'assistant',
-        content: missing.length
-          ? `In „${project.name}“: ${missing.map((g) => `${g.role} ${g.status}`).join(', ')}. Das ist kein ungültiges Projekt.`
-          : `In „${project.name}“ sind die bekannten Streamset-Rollen verfügbar.`,
+        content: formatProjectInventory(bound),
         createdAt: new Date().toISOString(),
       });
       await persistSession(session);
@@ -500,9 +688,9 @@ export async function nexterChat(
     const spec = resolvedProjectAwareSpec({
       dna: ctx.hasDna ? { name: ctx.dnaName ?? '', mascot: ctx.mascot, styleDirection: ctx.styleDirection, primaryColors: ctx.primaryColors } : null,
       project: projectMemoryFromProject(resolved.project),
-      requestText: session.messages.filter((m) => m.role === 'user').slice(-2, -1)[0]?.content ?? '',
+      requestText: session.messages.filter((m) => m.role === 'user').slice(-2, -1)[0]?.content ?? message,
     });
-    const source = String(spec.mascotSource || spec.visualSource || spec.colorSource || 'none') as
+    const source = String(spec.colorSource || spec.visualSource || spec.mascotSource || 'none') as
       | 'current_request'
       | 'project_explicit'
       | 'explicit_dna'
@@ -514,7 +702,7 @@ export async function nexterChat(
     session.messages.push({
       id: randomUUID(),
       role: 'assistant',
-      content: explainProjectAwareSource(source, 'diese Wahl', spec.mascot || spec.visual || spec.colors),
+      content: explainProjectAwareSource(source, 'diese Wahl', spec.colors || spec.visual || spec.mascot),
       createdAt: new Date().toISOString(),
     });
     await persistSession(session);
@@ -1437,6 +1625,26 @@ export async function nexterChat(
 
   const conversationIntent = resolveNexterConversationIntent(message, session.messages.slice(0, -1), ctx);
 
+  if (conversationIntent.intent === 'MODIFY_ASSET' && resolved.status === 'resolved' && resolved.project) {
+    const role = parseProjectAssetRoleFromText(message);
+    if (role && /aktuell|current/.test(message.toLowerCase())) {
+      const assets = await listProjectAssets(userId, resolved.project.id);
+      const state = queryCurrentAssetState(assets, role);
+      const content =
+        state.state === 'CURRENT' && state.current
+          ? `Aktuelles ${role} in „${resolved.project.name}“: ${state.current.name}. Anpassungen daran gehören zum späteren Anpassungs-Assistenten. Ich starte keine Bearbeitung und rufe keinen Provider.`
+          : `Ich finde kein eindeutiges aktuelles ${role} in diesem Projekt. Welches meinst du?`;
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content,
+        createdAt: new Date().toISOString(),
+      });
+      await persistSession(session);
+      return session;
+    }
+  }
+
   if (conversationIntent.intent === 'SMALLTALK') {
     const reply = stripUnsolicitedCreatorCta(
       await generateNexterReply({
@@ -1504,6 +1712,7 @@ export async function nexterChat(
     pendingKind &&
     looksLikeConstraintFollowUp(message) &&
     conversationIntent.intent !== 'PROJECT_ANALYSIS' &&
+    conversationIntent.intent !== 'PROJECT_ACTION' &&
     conversationIntent.intent !== 'APP_HELP' &&
     conversationIntent.intent !== 'CREATOR_ADVICE' &&
     conversationIntent.intent !== 'MODIFY_ASSET' &&
@@ -1528,6 +1737,7 @@ export async function nexterChat(
     !changeIntent &&
     detectQuoteKind(message) !== 'mockup' &&
     conversationIntent.intent !== 'PROJECT_ANALYSIS' &&
+    conversationIntent.intent !== 'PROJECT_ACTION' &&
     conversationIntent.intent !== 'APP_HELP' &&
     conversationIntent.intent !== 'CREATOR_ADVICE'
   ) {
@@ -2286,7 +2496,32 @@ export async function nexterChat(
                   selectedKeys: defaultStreamsetQuoteKeys(message, ctx.preferredPlatforms?.[0]),
                 }
             : undefined;
-    const quote = await createQuote(userId, quoteKind, meta?.projectId, quotePayload);
+    const projectPrep: Record<string, unknown> = {
+      requestOverrides: extractExplicitRequestOverrides(message),
+      visualInspection: false,
+    };
+    if (ctx.projectId) {
+      projectPrep.projectId = ctx.projectId;
+      const prefs = resolved.project ? projectMemoryFromProject(resolved.project) : undefined;
+      const dna = ctx.hasDna
+        ? { name: ctx.dnaName ?? '', styleDirection: ctx.styleDirection, primaryColors: ctx.primaryColors, mascot: ctx.mascot }
+        : null;
+      const overrides = extractExplicitRequestOverrides(message);
+      const style = resolveProjectAwarePreference(dna, prefs, 'visualStyle', { request: overrides.style });
+      const colors = resolveProjectAwarePreference(dna, prefs, 'colors', { request: overrides.colors });
+      projectPrep.projectStyle = style.value;
+      projectPrep.projectStyleSource = style.source;
+      projectPrep.projectColors = colors.value;
+      projectPrep.projectColorSource = colors.source;
+      if (wantsCurrentLogoReference(message) && resolved.project) {
+        const ref = await resolveProjectAssetReference(userId, resolved.project.id, 'logo');
+        if (ref.ok) projectPrep.assetReference = ref.ref;
+      }
+    }
+    const quote = await createQuote(userId, quoteKind, meta?.projectId || ctx.projectId, {
+      ...(quotePayload && typeof quotePayload === 'object' ? quotePayload : {}),
+      ...projectPrep,
+    });
     quoteId = quote.id;
     quoteExpiresAt = quote.expiresAt;
     quoteCost = quote.coinCost;
@@ -2503,7 +2738,7 @@ async function generateNexterReply(input: {
   const task =
     intent === 'SMALLTALK'
       ? 'smalltalk'
-      : intent === 'NAVIGATION_ACTION'
+      : intent === 'NAVIGATION_ACTION' || intent === 'PROJECT_ACTION'
         ? 'navigation'
         : intent === 'ACCOUNT_OR_SETTINGS'
           ? 'settings'
@@ -2516,7 +2751,7 @@ async function generateNexterReply(input: {
                 : dnaTaskForQuoteKind(input.quoteKind);
   const helpWantsDna = intent === 'APP_HELP' && /farben|colors|creator dna|visual style/i.test(lastUser);
   const contextBlock =
-    intent === 'SMALLTALK' || intent === 'ACCOUNT_OR_SETTINGS' || intent === 'NAVIGATION_ACTION'
+    intent === 'SMALLTALK' || intent === 'ACCOUNT_OR_SETTINGS' || intent === 'NAVIGATION_ACTION' || intent === 'PROJECT_ACTION'
       ? formatContextForPrompt(input.ctx, { minimal: true, task, requestText: lastUser })
       : intent === 'APP_HELP'
         ? formatContextForPrompt(input.ctx, {
@@ -2573,11 +2808,17 @@ async function generateNexterReply(input: {
     format: input.format,
     musicBrief: intent === 'NAVIGATION_ACTION' || intent === 'SMALLTALK' ? null : input.musicBrief,
     quoteKind:
-      intent === 'NAVIGATION_ACTION' || intent === 'SMALLTALK' || intent === 'PROJECT_ANALYSIS'
+      intent === 'NAVIGATION_ACTION' ||
+      intent === 'PROJECT_ACTION' ||
+      intent === 'SMALLTALK' ||
+      intent === 'PROJECT_ANALYSIS'
         ? null
         : input.quoteKind,
     quotedCost:
-      intent === 'NAVIGATION_ACTION' || intent === 'SMALLTALK' || intent === 'PROJECT_ANALYSIS'
+      intent === 'NAVIGATION_ACTION' ||
+      intent === 'PROJECT_ACTION' ||
+      intent === 'SMALLTALK' ||
+      intent === 'PROJECT_ANALYSIS'
         ? null
         : input.quotedCost,
   });

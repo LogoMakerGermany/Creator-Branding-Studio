@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type { Project, ProjectAsset, ProjectAssetRole } from '@ucbs/shared';
+import type { Project, ProjectAsset, ProjectAssetRole, SafeProjectAssetReference } from '@ucbs/shared';
 import {
   boundProjectAssets,
+  currentAssetsByRole,
   enforceSingleCurrentRole,
   inferProjectAssetRole,
   isForbiddenProjectAssetUrl,
@@ -194,13 +195,29 @@ export async function setCurrentProjectAsset(
   assetId: string,
   role?: ProjectAssetRole
 ): Promise<Project> {
+  const existing = await getProject(projectId, userId);
+  if (!existing || existing.deletedAt) {
+    throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
+  }
+  const currentAsset = existing.assets.find((a) => a.id === assetId);
+  if (!currentAsset) throw new ServiceError(404, 'NOT_FOUND', 'Asset nicht im Projekt');
+  if (currentAsset.fileId) {
+    const owned = await getUserFile(currentAsset.fileId, userId);
+    if (!owned) {
+      throw new ServiceError(409, 'ASSET_UNAVAILABLE', 'Aktuelles Asset ist nicht verfügbar');
+    }
+  }
   return mutateProjectAssets(userId, projectId, (project) => {
     const asset = project.assets.find((a) => a.id === assetId);
     if (!asset) throw new ServiceError(404, 'NOT_FOUND', 'Asset nicht im Projekt');
     if (asset.availability === 'unavailable' || asset.availability === 'missing') {
       throw new ServiceError(409, 'ASSET_UNAVAILABLE', 'Aktuelles Asset ist nicht verfügbar');
     }
-    const resolvedRole = role ?? inferProjectAssetRole(asset);
+    const inferred = inferProjectAssetRole(asset);
+    if (role && inferred !== role) {
+      throw new ServiceError(400, 'WRONG_ROLE', 'Asset-Rolle stimmt nicht');
+    }
+    const resolvedRole = role ?? inferred;
     if (!isProjectAssetRole(resolvedRole)) {
       throw new ServiceError(400, 'INVALID_ASSET_ROLE', 'Ungültige Asset-Rolle');
     }
@@ -252,10 +269,11 @@ export async function refreshProjectAssetAvailability(
 }
 
 export type NexterProjectResolution = {
-  status: 'none' | 'resolved' | 'ambiguous' | 'missing' | 'foreign';
+  status: 'none' | 'resolved' | 'ambiguous' | 'missing' | 'foreign' | 'stale';
   project?: Project;
   candidates?: Array<{ id: string; name: string }>;
   source: 'explicit_id' | 'explicit_name' | 'request' | 'session' | 'none';
+  archived?: boolean;
 };
 
 export async function resolveNexterProject(
@@ -264,13 +282,19 @@ export async function resolveNexterProject(
 ): Promise<NexterProjectResolution> {
   const command = parseProjectCommand(opts.message ?? '');
   const named = command.query?.trim();
+  const includeArchived = /archiv/i.test(opts.message ?? '');
   if (named) {
     const owned = await listProjects(userId);
-    const match = matchProjectsByName(owned, named, { preferActive: true });
+    const match = matchProjectsByName(owned, named, { preferActive: true, includeArchived });
     if (match.status === 'unique') {
       const project = await getProject(match.id, userId);
-      if (!project) return { status: 'missing', source: 'explicit_name' };
-      return { status: 'resolved', project, source: 'explicit_name' };
+      if (!project || project.deletedAt) return { status: 'missing', source: 'explicit_name' };
+      return {
+        status: 'resolved',
+        project,
+        source: 'explicit_name',
+        archived: project.status === 'archived',
+      };
     }
     if (match.status === 'ambiguous') {
       return { status: 'ambiguous', candidates: match.candidates, source: 'explicit_name' };
@@ -281,14 +305,70 @@ export async function resolveNexterProject(
   if (opts.requestProjectId?.trim()) {
     const project = await getProject(opts.requestProjectId.trim(), userId);
     if (!project || project.deletedAt) return { status: 'foreign', source: 'request' };
-    return { status: 'resolved', project, source: 'request' };
+    return { status: 'resolved', project, source: 'request', archived: project.status === 'archived' };
   }
 
   if (opts.sessionProjectId?.trim()) {
     const project = await getProject(opts.sessionProjectId.trim(), userId);
-    if (!project || project.deletedAt) return { status: 'none', source: 'none' };
-    return { status: 'resolved', project, source: 'session' };
+    if (!project || project.deletedAt) return { status: 'stale', source: 'session' };
+    return { status: 'resolved', project, source: 'session', archived: project.status === 'archived' };
   }
 
   return { status: 'none', source: 'none' };
+}
+
+export async function resolveProjectAssetReference(
+  userId: string,
+  projectId: string,
+  role: ProjectAssetRole,
+  opts?: { assetId?: string; version?: number; historical?: boolean }
+): Promise<{ ok: true; ref: SafeProjectAssetReference; asset: ProjectAsset } | { ok: false; reason: string }> {
+  let assets: ProjectAsset[];
+  try {
+    assets = await listProjectAssets(userId, projectId);
+  } catch (err) {
+    if (err instanceof ServiceError && (err.statusCode === 404 || err.statusCode === 403)) {
+      return { ok: false, reason: 'NOT_FOUND' };
+    }
+    throw err;
+  }
+  let asset: ProjectAsset | undefined;
+  if (opts?.assetId) {
+    asset = assets.find((a) => a.id === opts.assetId);
+  } else if (opts?.version != null) {
+    asset = assets.find((a) => inferProjectAssetRole(a) === role && a.version === opts.version);
+  } else {
+    asset = currentAssetsByRole(assets).get(role);
+    if (!asset && opts?.historical) {
+      asset = assets.filter((a) => inferProjectAssetRole(a) === role).at(-1);
+    }
+  }
+  if (!asset) return { ok: false, reason: 'NOT_FOUND' };
+  if (inferProjectAssetRole(asset) !== role) return { ok: false, reason: 'WRONG_ROLE' };
+  if (asset.availability === 'unavailable' || asset.availability === 'missing') {
+    return { ok: false, reason: 'UNAVAILABLE' };
+  }
+  await assertOwnedFile(userId, asset.fileId);
+  if (asset.fileId) {
+    const owned = await getUserFile(asset.fileId, userId);
+    if (!owned) return { ok: false, reason: 'FOREIGN_FILE' };
+  }
+  const ref = {
+    projectId,
+    role,
+    assetId: asset.id,
+    fileId: asset.fileId,
+    source: asset.isCurrent ? ('project_current_asset' as const) : ('project_historical_asset' as const),
+  };
+  return { ok: true, ref, asset };
+}
+
+export function findProjectAssetByVersion(
+  assets: ProjectAsset[],
+  role: ProjectAssetRole,
+  version?: number
+): ProjectAsset | undefined {
+  const ofRole = assets.filter((a) => inferProjectAssetRole(a) === role);
+  if (version != null) return ofRole.find((a) => a.version === version);
+  return ofRole.find((a) => a.isCurrent) ?? ofRole[0];
 }

@@ -4,6 +4,7 @@ import {
   STREAMSET_PACK_ITEMS,
   attachRightsSafetyToPayload,
   classifyContentRightsRisk,
+  sanitizeSafeAssetReference,
   coinCostForStreamsetSelection,
   generatedVideoDurationFollowUpMessage,
   inspectGeneratedVideoQuoteDuration,
@@ -94,6 +95,29 @@ export async function createQuote(
   if (ownedProjectId) quote.projectId = ownedProjectId;
   const classified = classifyContentRightsRisk('', resolvedPayload ?? payload ?? undefined);
   resolvedPayload = attachRightsSafetyToPayload(resolvedPayload ?? payload ?? {}, classified);
+  if (resolvedPayload && typeof resolvedPayload === 'object') {
+    const next: Record<string, unknown> = { ...resolvedPayload };
+    for (const key of Object.keys(next)) {
+      if (/(signedUrl|downloadUrl|providerUrl|storagePath)/i.test(key)) delete next[key];
+    }
+    if (next.assetReference) {
+      const ref = sanitizeSafeAssetReference(next.assetReference);
+      if (!ref) {
+        delete next.assetReference;
+      } else {
+        const { resolveProjectAssetReference } = await import('../project-memory.service.js');
+        const check = await resolveProjectAssetReference(userId, ref.projectId, ref.role, { assetId: ref.assetId });
+        if (!check.ok) {
+          throw new ServiceError(403, 'ASSET_REFERENCE_DENIED', 'Diese Projektreferenz ist nicht verfügbar.');
+        }
+        if (ownedProjectId && check.ref.projectId !== ownedProjectId) {
+          throw new ServiceError(403, 'ASSET_REFERENCE_DENIED', 'Diese Projektreferenz gehört nicht zum gewählten Projekt.');
+        }
+        next.assetReference = check.ref;
+      }
+    }
+    resolvedPayload = next;
+  }
   quote.payload = omitUndefinedFields(resolvedPayload);
   await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
   return quote;

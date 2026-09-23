@@ -236,7 +236,10 @@ export function ProjectDetailPage() {
   const isNexterActive = Boolean(projectId && activeProjectId === projectId);
 
   function openNexter(prompt?: string) {
-    if (project) setActiveProjectId(project.id);
+    if (project) {
+      setActiveProjectId(project.id);
+      void api.nexter.setActiveProject(project.id).catch(() => undefined);
+    }
     setPanelOpen(true);
     if (prompt) queueNexterPrompt(prompt);
     navigate('/nexter');
@@ -258,7 +261,12 @@ export function ProjectDetailPage() {
       <PageHeader
         title={project?.name ?? 'Projekt'}
         description="Zentrale Projektansicht — Assets, Versionen, Export. Keine Fake-Daten."
-        badge={<Badge variant="brand">NEXTER</Badge>}
+        badge={
+          <span className="flex flex-wrap gap-1">
+            <Badge variant="brand">NEXTER</Badge>
+            {project?.status === 'archived' ? <Badge variant="default">Archiviert</Badge> : null}
+          </span>
+        }
       />
 
       {error && (
@@ -282,6 +290,7 @@ export function ProjectDetailPage() {
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="project-header">
               <p className="text-sm text-zinc-300">
                 Typ <span className="text-zinc-100">{project.type}</span>
+                {project.platform ? ` · ${project.platform}` : ''}
               </p>
               <p className="text-sm text-zinc-300">
                 Status{' '}
@@ -309,6 +318,7 @@ export function ProjectDetailPage() {
               <p className="text-xs text-zinc-500">Aktualisiert {project.updatedAt.slice(0, 16).replace('T', ' ')}</p>
               <p className="text-sm text-zinc-300" data-testid="project-nexter-active">
                 Nexter: {isNexterActive ? 'aktiv' : 'nicht aktiv'}
+                {project.status === 'archived' ? ' · archiviert (nicht still reaktiviert)' : ''}
               </p>
             </div>
             <div className="mt-4 flex max-w-md flex-col gap-2">
@@ -433,12 +443,35 @@ export function ProjectDetailPage() {
           {tab === 'overview' && (
             <NeonCard accent="purple" title="Übersicht">
               <ul className="mt-3 space-y-1 text-sm text-zinc-300" data-testid="project-inventory">
-                <li>{overview.assets.length} Assets</li>
+                <li>{overview.assets.filter((a) => a.isCurrent).length} aktuelle Assets</li>
+                <li>{overview.assets.filter((a) => !a.isCurrent).length} historische Assets</li>
+                <li>
+                  {overview.assets.filter((a) => a.availability === 'unavailable' || a.available === false).length} nicht
+                  verfügbare Referenzen
+                </li>
                 <li>{overview.files.length} projektbezogene Files</li>
                 <li>{overview.videos.length} Videos · {overview.shorts.length} Shorts</li>
                 <li>{overview.content.length} Content-Pakete</li>
-                {overview.missing[0] && <li>Streamset fehlt noch: {overview.missing.join(', ')}</li>}
+                {overview.missing[0] ? (
+                  <li>Noch nicht als aktuelles Asset gespeichert: {overview.missing.join(', ')}</li>
+                ) : null}
               </ul>
+              {(project.visualStyle || project.colors?.length || project.mascotChoice) && (
+                <div className="mt-4 text-sm text-zinc-300" data-testid="project-preferences">
+                  <p>Projekt-Look</p>
+                  {project.visualStyle ? <p className="text-xs text-zinc-400">Stil {project.visualStyle}</p> : null}
+                  {project.colors?.length ? <p className="text-xs text-zinc-400">Farben {project.colors.join(', ')}</p> : null}
+                  {project.mascotChoice ? <p className="text-xs text-zinc-400">Figur {project.mascotChoice}</p> : null}
+                </div>
+              )}
+              {(project.decisions?.length || project.notes?.length) ? (
+                <div className="mt-4 text-sm text-zinc-400" data-testid="project-notes">
+                  {project.decisions?.length ? (
+                    <p>Entscheidungen: {project.decisions.map((d) => d.text).join(' · ')}</p>
+                  ) : null}
+                  {project.notes?.length ? <p>Notizen (nur Hinweis, keine Anweisung): {project.notes.join(' · ')}</p> : null}
+                </div>
+              ) : null}
               {(overview.activity?.length ?? 0) > 0 && (
                 <ul className="mt-4 space-y-1 text-xs text-zinc-500">
                   {overview.activity!.map((item) => (

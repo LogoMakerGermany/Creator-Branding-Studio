@@ -106,15 +106,48 @@ export type ProjectLookupResult =
 export type ProjectCommandAction =
   | 'open'
   | 'use'
+  | 'switch'
+  | 'clear'
   | 'inspect_current'
   | 'inspect_assets'
   | 'inspect_missing'
+  | 'inspect_history'
+  | 'inspect_summary'
+  | 'set_current'
+  | 'match_project'
+  | 'use_reference'
   | 'explain';
 
 export interface ProjectCommand {
   action: ProjectCommandAction | null;
   query?: string;
   role?: ProjectAssetRole;
+  version?: number;
+  vague?: boolean;
+}
+
+export type CurrentAssetQueryState = 'CURRENT' | 'HISTORICAL_ONLY' | 'MISSING' | 'UNAVAILABLE';
+
+export const STREAMSET_OPTIONAL_ROLES: readonly ProjectAssetRole[] = [
+  'pause_screen',
+  'intro',
+  'outro',
+  'thumbnail',
+];
+
+export interface ProjectInventory {
+  availableAssets: Array<{ role: ProjectAssetRole; name: string }>;
+  missingCommonAssets: ProjectAssetRole[];
+  unavailableAssets: Array<{ role: ProjectAssetRole; name: string }>;
+  historicalAssets: Array<{ role: ProjectAssetRole; name: string; version: number }>;
+}
+
+export interface SafeProjectAssetReference {
+  projectId: string;
+  role: ProjectAssetRole;
+  assetId: string;
+  fileId?: string;
+  source: 'project_current_asset' | 'project_historical_asset';
 }
 
 const STUDIO_UTTERANCE =
@@ -138,15 +171,33 @@ export function inferProjectAssetRole(input: {
   assetKey?: string;
 }): ProjectAssetRole {
   if (isProjectAssetRole(input.role)) return input.role;
-  const blob = `${input.module ?? ''} ${input.type ?? ''} ${input.assetKey ?? ''}`.toLowerCase();
-  for (const role of PROJECT_ASSET_ROLES) {
-    if (role !== 'other' && blob.includes(role.replace('_', ' '))) return role;
-    if (role !== 'other' && blob.includes(role)) return role;
-  }
-  if (/start|starting/.test(blob)) return 'starting_screen';
-  if (/end|ending|offline/.test(blob)) return 'ending_screen';
-  if (/pause/.test(blob)) return 'pause_screen';
-  return 'other';
+  const fromText = parseProjectAssetRoleFromText(`${input.module ?? ''} ${input.type ?? ''} ${input.assetKey ?? ''}`);
+  return fromText ?? 'other';
+}
+
+/** Conservative role synonyms. Arbitrary words must not overmatch. */
+export function parseProjectAssetRoleFromText(text: string): ProjectAssetRole | undefined {
+  const t = String(text ?? '').toLowerCase();
+  if (!t.trim()) return undefined;
+  if (/\bfacecam(?:[- ]?frame)?\b|webcam[- ]?rahmen|gesichtsrahmen/.test(t)) return 'facecam';
+  if (/\bstarting[- ]?soon\b|\bstart(?:ing)?(?:[- ]?screen)?\b|startbildschirm/.test(t)) return 'starting_screen';
+  if (/\bpause(?:[- ]?screen)?\b|\bbrb\b|be right back/.test(t)) return 'pause_screen';
+  if (/\bending[- ]?screen\b|\bend[- ]?screen\b|\bendscreen\b|\boffline\b/.test(t)) return 'ending_screen';
+  if (/\bstarting_screen\b/.test(t)) return 'starting_screen';
+  if (/\bending_screen\b/.test(t)) return 'ending_screen';
+  if (/\bpause_screen\b/.test(t)) return 'pause_screen';
+  if (/\boverlay\b/.test(t)) return 'overlay';
+  if (/\bbanners?\b/.test(t)) return 'banner';
+  if (/\blogos?\b/.test(t)) return 'logo';
+  if (/\bintro\b/.test(t)) return 'intro';
+  if (/\boutro\b/.test(t)) return 'outro';
+  if (/\bthumbnail\b/.test(t)) return 'thumbnail';
+  if (/\bsticker\b/.test(t)) return 'sticker';
+  if (/\bbadge\b/.test(t)) return 'badge';
+  if (/\baudio\b|\bmusik\b|\bmusic\b/.test(t) && !/\bmusic studio\b/.test(t)) return 'audio';
+  if (/\blayout\b/.test(t) && !/\bstudio\b/.test(t)) return 'layout';
+  if (/\bvideo\b/.test(t) && !/\bstudio\b|\bki[- ]?video\b/.test(t)) return 'video';
+  return undefined;
 }
 
 export function sanitizeProjectMemoryText(value: unknown, max: number): string | undefined {
@@ -297,7 +348,7 @@ export function enforceSingleCurrentRole(assets: ProjectAsset[], role: ProjectAs
 export function matchProjectsByName(
   projects: Array<{ id: string; name: string; status?: string; deletedAt?: string }>,
   query: string,
-  opts?: { preferActive?: boolean }
+  opts?: { preferActive?: boolean; includeArchived?: boolean }
 ): ProjectLookupResult {
   const q = String(query ?? '').trim().toLowerCase();
   if (!q) return { status: 'none' };
@@ -305,11 +356,20 @@ export function matchProjectsByName(
   const idHit = pool.find((p) => p.id.toLowerCase() === q);
   if (idHit) return { status: 'unique', id: idHit.id, name: idHit.name };
 
-  const active = opts?.preferActive !== false ? pool.filter((p) => p.status !== 'archived') : pool;
-  const search = active.length ? active : pool;
-  const exact = search.filter((p) => p.name.toLowerCase() === q);
-  if (exact.length === 1) return { status: 'unique', id: exact[0]!.id, name: exact[0]!.name };
-  if (exact.length > 1) return { status: 'ambiguous', candidates: exact.map((p) => ({ id: p.id, name: p.name })) };
+  const live = pool.filter((p) => p.status !== 'archived');
+  const search = opts?.includeArchived ? pool : live;
+
+  const exactLive = live.filter((p) => p.name.toLowerCase() === q);
+  if (exactLive.length === 1) return { status: 'unique', id: exactLive[0]!.id, name: exactLive[0]!.name };
+  if (exactLive.length > 1) {
+    return { status: 'ambiguous', candidates: exactLive.map((p) => ({ id: p.id, name: p.name })) };
+  }
+
+  const exactAll = pool.filter((p) => p.name.toLowerCase() === q);
+  if (exactAll.length === 1) return { status: 'unique', id: exactAll[0]!.id, name: exactAll[0]!.name };
+  if (exactAll.length > 1) {
+    return { status: 'ambiguous', candidates: exactAll.map((p) => ({ id: p.id, name: p.name })) };
+  }
 
   const partial = search.filter((p) => p.name.toLowerCase().includes(q));
   if (partial.length === 1) return { status: 'unique', id: partial[0]!.id, name: partial[0]!.name };
@@ -318,48 +378,132 @@ export function matchProjectsByName(
   return { status: 'none' };
 }
 
+const CREATE_ASSET_VERB = /\b(mach|erstell|generier|erzeug|create|make me|make a new|ich brauche|ich möchte)\b/i;
+
 export function parseProjectCommand(message: string): ProjectCommand {
   const raw = String(message ?? '').trim();
   if (!raw) return { action: null };
   if (/diese datei|file(?:[- ]?id)|benutze diese/i.test(raw)) return { action: null };
   const lower = raw.toLowerCase();
 
-  if (/warum (hast du|wurde|nimmst du)|why did you|quelle|woher/.test(lower) && /wolf|maskottchen|mascot|farbe|stil|logo/.test(lower)) {
+  if (/warum (hast du|wurde|nimmst du)|why did you|quelle|woher/.test(lower) && /wolf|maskottchen|mascot|farbe|stil|logo|rot|blau|red|blue/.test(lower)) {
     return { action: 'explain' };
   }
+
+  if (
+    /^(schlie(ss|ß)e|close|stopp? using|kein projekt|no project|ohne projekt|work without a project)/i.test(lower) ||
+    /schlie(ss|ß)e dieses projekt|close this project|stop using this project/.test(lower)
+  ) {
+    return { action: 'clear' };
+  }
+
+  const versionHit = raw.match(/version\s*(\d+)/i);
+  const version = versionHit ? Number(versionHit[1]) : undefined;
+  const roleHint = parseProjectAssetRoleFromText(raw);
+  if (isVagueCurrentSwitch(lower) && roleHint) {
+    return { action: 'set_current', role: roleHint, version, vague: true, query: extractNamedProject(raw) };
+  }
+  if (
+    /setze? .*(als (aktuell|current)|current)|set .*(as (the )?current)|als aktuelles? (logo|banner)/i.test(lower) ||
+    /(logo|banner|facecam) version \d+ (as current|als aktuell)/i.test(lower)
+  ) {
+    return { action: 'set_current', role: roleHint ?? 'logo', version, query: extractNamedProject(raw) };
+  }
+
+  if (
+    /wie viele|how many|ältere|older|historisch|history/.test(lower) &&
+    roleHint &&
+    !/coin|preis|cost|kostet|credits/.test(lower)
+  ) {
+    return { action: 'inspect_history', role: roleHint, query: extractNamedProject(raw) };
+  }
+
   if (/was fehlt/.test(lower) && /\b(projekt|project)\b/.test(lower)) {
     return { action: 'inspect_missing', query: extractNamedProject(raw) };
   }
-  if (/welche assets fehlen|missing assets/.test(lower)) {
+  if (/what(?:'s| is) missing/.test(lower)) {
     return { action: 'inspect_missing', query: extractNamedProject(raw) };
   }
-  if (/welches logo|current logo|aktuell(e[s]?)? logo|logo .*aktuell/.test(lower)) {
-    return { action: 'inspect_current', role: 'logo', query: extractNamedProject(raw) };
+  if (/welche assets fehlen|missing assets|which parts .{0,24}missing|teile .{0,16}fehlen/.test(lower)) {
+    return { action: 'inspect_missing', query: extractNamedProject(raw) };
   }
+
+  const modifying = /\b(änder|change|modify|edit|pass das)\b/i.test(lower);
+  if (
+    !modifying &&
+    !CREATE_ASSET_VERB.test(raw) &&
+    /welches (logo|banner)|which (logo|banner)|current (logo|banner)|aktuell(e[s]?)? (logo|banner)|(logo|banner) .*aktuell|habe ich (schon )?ein[en]? |do i (already )?have a |which .+ are we using/.test(
+      lower
+    ) &&
+    roleHint
+  ) {
+    return { action: 'inspect_current', role: roleHint, query: extractNamedProject(raw) };
+  }
+
+  if (
+    /zusammenfassung|project summary|was gehört (zu )?(diesem|the|this)|what belongs|was hat (dieses|the) projekt/.test(
+      lower
+    )
+  ) {
+    return { action: 'inspect_summary', query: extractNamedProject(raw) };
+  }
+
   if (/welche assets|was (hat|gehört)|assets (hat|does)|inventar/.test(lower) && /projekt|project|streamset/.test(lower)) {
     return { action: 'inspect_assets', query: extractNamedProject(raw) };
+  }
+
+  const creating = CREATE_ASSET_VERB.test(raw);
+  if (/match (this|the|my) project|passend zu (diesem|dem) projekt|nächste[s]? asset .{0,24}projekt/.test(lower)) {
+    const matchRole = parseProjectAssetRoleFromText(raw);
+    if (!matchRole || !creating) {
+      return { action: 'match_project', role: matchRole, query: extractNamedProject(raw) };
+    }
+  }
+  if (!creating && /als referenz|as reference|current (logo|banner|mascot) as reference|aktuelles? logo als/.test(lower)) {
+    return { action: 'use_reference', role: roleHint ?? 'logo', query: extractNamedProject(raw) };
   }
 
   if (STUDIO_UTTERANCE.test(lower) && !/\b(projekt|project)\b/.test(lower)) {
     return { action: null };
   }
 
+  const sw = raw.match(
+    /^(?:wechsel(?:e|n)?(?:\s+zu)?|switch(?:\s+to)?|arbeit(?:e)?\s+an)\s+(?:mein[e]?|das|the|my)?\s*(?:projekt|project)?\s*[„"']?(.+?)[""']?\s*\.?$/i
+  );
+  if (sw?.[1]) {
+    const query = sanitizeProjectQuery(sw[1]);
+    if (!query || STUDIO_UTTERANCE.test(query)) return { action: null };
+    return { action: 'switch', query };
+  }
+
   const open = raw.match(
     /^(?:öffne|open|nutze|benutze|use)\s+(?:mein[e]?|das|the|my)?\s*(?:projekt|project)?\s*[„"']?(.+?)[""']?\s*\.?$/i
   );
   if (open?.[1]) {
-    const query = open[1].replace(/\s*(projekt|project)\s*$/i, '').trim();
+    const query = sanitizeProjectQuery(open[1]);
     if (!query || STUDIO_UTTERANCE.test(query)) return { action: null };
-    const action: ProjectCommandAction = /^(nutze|benutze|use)\b/i.test(raw) ? 'use' : 'open';
+    const action: ProjectCommandAction = /^(nutze|benutze|use|wechsel|switch)\b/i.test(raw) ? 'use' : 'open';
     return { action, query };
   }
   return { action: null };
 }
 
+function isVagueCurrentSwitch(lower: string): boolean {
+  return /vielleicht|maybe|könnte|try the old|mal das alte|evtl/.test(lower) && /alte[s]?|old|früher/.test(lower);
+}
+
+function sanitizeProjectQuery(value: string): string {
+  return value.replace(/\s*(projekt|project)\s*$/i, '').trim();
+}
+
 function extractNamedProject(message: string): string | undefined {
   const named = message.match(/(?:projekt|project)\s+[„"']?([^"'?.!]+)[""']?/i);
-  const trimmed = named?.[1]?.replace(/\s*(aktuell|current|haben|hat).*$/i, '').trim();
-  return trimmed || undefined;
+  const trimmed = named?.[1]?.replace(/\s*(aktuell|current|haben|hat|have|has|is|are).*$/i, '').trim();
+  if (!trimmed) return undefined;
+  if (trimmed && /^(this|diese[s]?|aktuell(es)?|current|here|hier|summary|inventar|overview|assets?)$/i.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
 }
 
 export function isProjectMemoryUtterance(message: string): boolean {
@@ -555,4 +699,141 @@ export function expectedRolesForProjectType(type: ProjectType | string | undefin
   if (type === 'banner') return ['banner'];
   if (type === 'video' || type === 'intro') return ['intro', 'outro', 'video'];
   return STREAMSET_MEMORY_ROLES;
+}
+
+export function queryCurrentAssetState(
+  assets: ProjectAsset[] | undefined,
+  role: ProjectAssetRole
+): { state: CurrentAssetQueryState; current?: ProjectAsset; historical: ProjectAsset[] } {
+  const ofRole = boundProjectAssets(assets).filter((a) => inferProjectAssetRole(a) === role);
+  const current = ofRole.find((a) => a.isCurrent);
+  const historical = ofRole.filter((a) => !a.isCurrent).slice(0, 8);
+  if (current) {
+    if (current.availability === 'unavailable' || current.availability === 'missing') {
+      return { state: 'UNAVAILABLE', current, historical };
+    }
+    return { state: 'CURRENT', current, historical };
+  }
+  if (historical.length) return { state: 'HISTORICAL_ONLY', historical };
+  return { state: 'MISSING', historical: [] };
+}
+
+export function buildProjectInventory(project: Pick<Project, 'type' | 'assets'>): ProjectInventory {
+  const assets = boundProjectAssets(project.assets);
+  const current = currentAssetsByRole(assets);
+  const common = expectedRolesForProjectType(project.type);
+  const availableAssets: ProjectInventory['availableAssets'] = [];
+  const missingCommonAssets: ProjectAssetRole[] = [];
+  const unavailableAssets: ProjectInventory['unavailableAssets'] = [];
+  const historicalAssets: ProjectInventory['historicalAssets'] = [];
+  for (const role of common) {
+    const cur = current.get(role);
+    if (!cur) missingCommonAssets.push(role);
+    else if (cur.availability === 'unavailable' || cur.availability === 'missing') {
+      unavailableAssets.push({ role, name: cur.name });
+    } else {
+      availableAssets.push({ role, name: cur.name });
+    }
+  }
+  for (const asset of assets) {
+    if (asset.isCurrent) continue;
+    historicalAssets.push({
+      role: inferProjectAssetRole(asset),
+      name: asset.name,
+      version: asset.version,
+    });
+    if (historicalAssets.length >= 12) break;
+  }
+  return { availableAssets, missingCommonAssets, unavailableAssets, historicalAssets };
+}
+
+export function formatProjectInventory(project: Pick<Project, 'name' | 'type' | 'assets'>): string {
+  const inv = buildProjectInventory(project);
+  const have = inv.availableAssets.map((a) => a.role).join(', ') || 'keine aktuellen Rollen';
+  const missing = inv.missingCommonAssets.join(', ');
+  const unavailable = inv.unavailableAssets.map((a) => a.role).join(', ');
+  const bits = [`In „${project.name}“ sind aktuell vorhanden: ${have}.`];
+  if (missing) bits.push(`Ich sehe kein gespeichertes ${missing} in diesem Projekt.`);
+  if (unavailable) bits.push(`Nicht verfügbar: ${unavailable}.`);
+  bits.push('Das ist keine Bewertung, ob das Projekt vollständig ist.');
+  return bits.join(' ');
+}
+
+export function buildProjectSummary(project: Project): string {
+  const prefs = projectMemoryFromProject(project);
+  const inv = buildProjectInventory(project);
+  const currentLines = expectedRolesForProjectType(project.type).map((role) => {
+    const hit = inv.availableAssets.find((a) => a.role === role);
+    const bad = inv.unavailableAssets.find((a) => a.role === role);
+    const missing = inv.missingCommonAssets.includes(role);
+    const status = hit ? 'available' : bad ? 'unavailable' : missing ? 'missing' : 'optional';
+    return `- ${role}: ${status}`;
+  });
+  const archived = project.status === 'archived' ? '\nHinweis: Dieses Projekt ist archiviert.' : '';
+  return [
+    `Project: ${project.name}`,
+    prefs.platform ? `Platform: ${prefs.platform}` : null,
+    `Status: ${project.status === 'archived' ? 'archived' : 'active'}`,
+    prefs.visualStyle ? `Style: ${prefs.visualStyle}` : null,
+    prefs.colors?.length ? `Colors: ${prefs.colors.join(' + ')}` : null,
+    `Current assets:\n${currentLines.join('\n')}`,
+    archived.trim() || null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+export function decisionsForTask(
+  decisions: Array<{ text: string }> | undefined,
+  role?: ProjectAssetRole
+): string[] {
+  const rows = (decisions ?? []).map((d) => d.text).slice(0, PROJECT_MEMORY_BOUNDS.decisions);
+  if (!role) return rows;
+  const scoped = rows.filter((text) => {
+    const mentioned = parseProjectAssetRoleFromText(text);
+    return !mentioned || mentioned === role;
+  });
+  return scoped;
+}
+
+export function buildMatchProjectContext(project: Project, role?: ProjectAssetRole): string {
+  const prefs = projectMemoryFromProject(project);
+  const scoped = decisionsForTask(prefs.decisions, role);
+  const parts = [
+    `Match project „${project.name}“ using saved project preferences, not a visual inspection of files.`,
+    prefs.visualStyle ? `Project style: ${prefs.visualStyle}` : null,
+    prefs.colors?.length ? `Project colors: ${prefs.colors.join(', ')}` : null,
+    prefs.mascotChoice ? `Project mascot: ${prefs.mascotChoice}` : null,
+    scoped.length ? `Relevant decisions: ${scoped.join('; ')}` : null,
+    'Stored images were not visually analyzed.',
+  ].filter(Boolean);
+  return parts.join('\n');
+}
+
+export function sanitizeSafeAssetReference(value: unknown): SafeProjectAssetReference | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const rec = value as Record<string, unknown>;
+  if (typeof rec.projectId !== 'string' || typeof rec.assetId !== 'string') return undefined;
+  if (!isProjectAssetRole(rec.role)) return undefined;
+  const source =
+    rec.source === 'project_historical_asset' ? 'project_historical_asset' : 'project_current_asset';
+  const ref: SafeProjectAssetReference = {
+    projectId: rec.projectId.slice(0, 80),
+    role: rec.role,
+    assetId: rec.assetId.slice(0, 80),
+    source,
+  };
+  if (typeof rec.fileId === 'string' && rec.fileId.trim()) ref.fileId = rec.fileId.trim().slice(0, 80);
+  return ref;
+}
+
+export function wantsCurrentLogoReference(message: string): boolean {
+  return /aktuelles? logo|current logo|logo as reference|logo als referenz|passend zum (aktuellen )?logo|matching my current logo/i.test(
+    message
+  );
+}
+
+export function isBareAssetKindUtterance(message: string): boolean {
+  const t = String(message ?? '').trim().toLowerCase().replace(/[.!?]+$/, '');
+  return /^(logo|banner|facecam|overlay|sticker|intro|outro)$/.test(t);
 }

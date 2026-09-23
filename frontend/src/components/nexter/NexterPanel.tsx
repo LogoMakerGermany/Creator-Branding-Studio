@@ -45,6 +45,8 @@ export function NexterPanel({
   const { orbState, setOrbState, pulse, studioHint, setAudioLevel, pendingPrompt, consumePendingPrompt, notifyQuoteCompleted } =
     useNexterStore();
   const activeProjectId = useBrandProjectStore((s) => s.activeProjectId);
+  const setActiveProjectId = useBrandProjectStore((s) => s.setActiveProjectId);
+  const [ownedProjects, setOwnedProjects] = useState<Array<{ id: string; name: string; status: string }>>([]);
   const [messages, setMessages] = useState<NexterChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -74,7 +76,10 @@ export function NexterPanel({
     api.nexter
       .getSession()
       .then((r) => {
-        if (!cancelled) setMessages(r.session.messages);
+        if (cancelled) return;
+        setMessages(r.session.messages);
+        const bound = r.session.activeProjectId ?? null;
+        setActiveProjectId(bound);
       })
       .catch((err) => {
         if (!cancelled) {
@@ -93,6 +98,23 @@ export function NexterPanel({
           ]);
           pulse('warning');
         }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [setActiveProjectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.projects
+      .list({ filter: 'active', limit: 40, sort: 'updated' })
+      .then((r) => {
+        if (!cancelled) {
+          setOwnedProjects(r.projects.map((p) => ({ id: p.id, name: p.name, status: p.status })));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOwnedProjects([]);
       });
     return () => {
       cancelled = true;
@@ -254,6 +276,7 @@ export function NexterPanel({
         projectId: activeProjectId ?? undefined,
       });
       setMessages(res.session.messages);
+      setActiveProjectId(res.session.activeProjectId ?? null);
       const last = res.session.messages[res.session.messages.length - 1];
       const awaitingConfirm = last?.actions?.some((a) => a.tool === 'start_generation' && a.requiresConfirmation);
       const open = last?.actions?.find((a) => a.tool === 'open_studio' && a.path);
@@ -318,6 +341,7 @@ export function NexterPanel({
     try {
       const r = await api.nexter.newSession();
       setMessages(r.session.messages);
+      setActiveProjectId(null);
       setError(null);
       setOrbState('idle');
     } catch (err) {
@@ -437,6 +461,37 @@ export function NexterPanel({
           <p className="truncate text-[11px] text-zinc-500">
             Dein KI-Assistent · {nexterOrbStatusLabel(orb)} · {formatCoins(coinBalance)}
           </p>
+          <label className="mt-1 flex min-w-0 items-center gap-1 text-[10px] text-zinc-500">
+            <span className="shrink-0">Projekt</span>
+            <select
+              data-testid="nexter-project-switcher"
+              className="min-w-0 flex-1 truncate rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-zinc-200"
+              value={activeProjectId ?? ''}
+              aria-label="Aktives Nexter-Projekt"
+              onChange={(e) => {
+                const next = e.target.value || null;
+                void api.nexter
+                  .setActiveProject(next)
+                  .then((r) => {
+                    setActiveProjectId(r.session.activeProjectId ?? next);
+                    setMessages(r.session.messages);
+                  })
+                  .catch((err) => {
+                    setError(err instanceof ApiError ? err.message : 'Projekt konnte nicht gewechselt werden');
+                  });
+              }}
+            >
+              <option value="">Kein Projekt</option>
+              {ownedProjects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+              {activeProjectId && !ownedProjects.some((p) => p.id === activeProjectId) ? (
+                <option value={activeProjectId}>Archiviertes Projekt</option>
+              ) : null}
+            </select>
+          </label>
         </div>
         <button
           type="button"

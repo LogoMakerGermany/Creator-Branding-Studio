@@ -14,12 +14,13 @@ import {
   looksLikeAssetEditFollowUp,
   looksLikeWorkflowResume,
 } from './conversation-intent-patterns.js';
-import { isProjectMemoryUtterance, parseProjectCommand } from '@ucbs/shared';
+import { isBareAssetKindUtterance, isProjectMemoryUtterance, parseProjectAssetRoleFromText, parseProjectCommand } from '@ucbs/shared';
 
 export type NexterConversationIntent =
   | 'SMALLTALK'
   | 'CREATOR_ADVICE'
   | 'PROJECT_ANALYSIS'
+  | 'PROJECT_ACTION'
   | 'CREATE_ASSET'
   | 'MODIFY_ASSET'
   | 'NAVIGATION_ACTION'
@@ -59,8 +60,11 @@ export function resolveNexterConversationIntent(
 
   if (isProjectMemoryUtterance(text)) {
     const action = parseProjectCommand(text).action;
-    if (action === 'open' || action === 'use') {
+    if (action === 'open' || action === 'use' || action === 'switch' || action === 'clear') {
       return { intent: 'NAVIGATION_ACTION', confidence: 'HIGH', reason: 'project-select' };
+    }
+    if (action === 'set_current') {
+      return { intent: 'PROJECT_ACTION', confidence: 'HIGH', reason: 'project-mutate' };
     }
     return { intent: 'PROJECT_ANALYSIS', confidence: 'HIGH', reason: 'project-memory' };
   }
@@ -79,6 +83,13 @@ export function resolveNexterConversationIntent(
 
   const quoteKind = detectQuoteKind(text);
   const change = detectChangeIntent(text, ctx);
+  if (
+    !change &&
+    /\b(change|änder)\b.{0,48}\b(current|aktuell)/i.test(text) &&
+    parseProjectAssetRoleFromText(text)
+  ) {
+    return { intent: 'MODIFY_ASSET', confidence: 'HIGH', reason: 'current-asset-modify' };
+  }
   if (quoteKind && CREATE_VERB.test(text) && !change) {
     return { intent: 'CREATE_ASSET', confidence: 'HIGH', reason: `quote-kind:${quoteKind}` };
   }
@@ -125,6 +136,9 @@ export function resolveNexterConversationIntent(
   }
 
   if (quoteKind) {
+    if (isBareAssetKindUtterance(text)) {
+      return { intent: 'AMBIGUOUS', confidence: 'HIGH', reason: 'bare-asset-kind' };
+    }
     return { intent: 'CREATE_ASSET', confidence: 'MEDIUM', reason: `kind-without-verb:${quoteKind}` };
   }
 

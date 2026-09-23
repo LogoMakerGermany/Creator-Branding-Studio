@@ -937,6 +937,11 @@ export const api = {
     getSession: () => request<{ session: NexterSessionDto }>('/api/v1/nexter/session'),
     newSession: () =>
       request<{ session: NexterSessionDto }>('/api/v1/nexter/session', { method: 'POST' }),
+    setActiveProject: (projectId: string | null) =>
+      request<{ session: NexterSessionDto; archived: boolean; projectName?: string }>(
+        '/api/v1/nexter/session/active-project',
+        { method: 'PATCH', body: JSON.stringify({ projectId }) }
+      ),
     chat: (message: string, meta?: { path?: string; hint?: string; projectId?: string; fileId?: string }) =>
       request<{ session: NexterSessionDto }>('/api/v1/nexter/chat', {
         method: 'POST',
@@ -2218,6 +2223,7 @@ export interface NexterSessionDto {
   messages: NexterChatMessage[];
   createdAt: string;
   updatedAt: string;
+  activeProjectId?: string | null;
 }
 
 export interface TextStudioJob {

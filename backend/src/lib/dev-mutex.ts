@@ -62,3 +62,7 @@ export function streamsetRetryLockKey(batchId: string, assetKey: string) {
 export function projectAssetsLockKey(projectId: string) {
   return `project-assets:${projectId}`;
 }
+
+export function nexterSessionLockKey(sessionId: string) {
+  return `nexter-session:${sessionId}`;
+}

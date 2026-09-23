@@ -16,6 +16,7 @@ import {
   nexterChat,
   clearNexterSession,
   appendAssistantMessage,
+  setNexterActiveProject,
   buildNexterContext,
   listMemory,
   transcribeNexterAudio,
@@ -72,6 +73,23 @@ nexterRoutes.post(
   '/session',
   asyncHandler(async (req: AuthenticatedRequest, res) => {
     sendSuccess(res, { session: await createNexterSession(req.user!.uid) });
+  })
+);
+
+nexterRoutes.patch(
+  '/session/active-project',
+  asyncHandler(async (req: AuthenticatedRequest, res) => {
+    const body = z
+      .object({
+        projectId: z.string().max(80).nullable(),
+      })
+      .parse(req.body);
+    try {
+      const result = await setNexterActiveProject(req.user!.uid, body.projectId);
+      sendSuccess(res, result);
+    } catch (err) {
+      mapErr(err);
+    }
   })
 );
 
