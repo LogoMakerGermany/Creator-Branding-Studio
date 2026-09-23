@@ -192,7 +192,7 @@ describe('nexter creator DNA intelligence', () => {
   });
 
   it('permanent DNA updates need an explicit confirmation prompt', () => {
-    assert.equal(detectDnaChangeScope('Dieses Logo diesmal rot.'), 'ask-confirm');
+    assert.equal(detectDnaChangeScope('Dieses Logo diesmal rot.'), 'temporary');
     assert.equal(detectDnaChangeScope('Speichere Rot dauerhaft in meiner Creator DNA.'), 'explicit-dna');
     assert.match(dnaUpdateConfirmationPrompt('Dieses Logo diesmal rot.'), /nur für dieses Projekt|Creator-DNA/i);
     assert.equal(src('conversation.service.ts').includes('updateDna('), false);

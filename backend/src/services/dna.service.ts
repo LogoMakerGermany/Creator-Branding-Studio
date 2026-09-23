@@ -23,6 +23,7 @@ import {
   DNA_BOUNDS,
   DNA_PLATFORMS,
   DNA_VERSION_RETENTION,
+  STYLE_DIRECTIONS,
   applyDnaLocks,
   dnaContentKey,
   mergeAnalysisIntoDna,
@@ -32,6 +33,8 @@ import {
   sanitizeDnaAssetId,
   sanitizeDnaSourceAssets,
   sanitizeDnaV2Fields,
+  applyAllowlistedDnaFields,
+  parseDnaUpdateOp,
   uniqueDnaList,
 } from '@ucbs/shared';
 import { devStore, isDevMode } from '../lib/dev-store.js';
@@ -916,4 +919,40 @@ export async function analyzeAssets(
   imageDataUrl?: string
 ): Promise<DNAAnalysis> {
   return analyzeCreatorAssets({ colors, imageDataUrl, styleHint });
+}
+
+/** Allowlisted Creator DNA mutations only. Never a generic JSON patch. Does not run from Nexter chat. */
+export async function applyAllowlistedDnaUpdate(
+  userId: string,
+  op: unknown,
+  proposedValue: string | string[]
+): Promise<CreatorDNA> {
+  const dna = await getActiveDna(userId);
+  if (!dna) throw new Error('DNA not found');
+  const parsed = parseDnaUpdateOp(op);
+  const patch = applyAllowlistedDnaFields(dna, parsed, proposedValue);
+  const next: Partial<DnaWriteInput> & { name?: string } = {
+    userId,
+    name: dna.name,
+  };
+  if (patch.primaryColors) next.primaryColors = patch.primaryColors;
+  if (patch.dislikedColors) next.dislikedColors = patch.dislikedColors;
+  if (patch.visualStyles) next.visualStyles = patch.visualStyles;
+  if (patch.identity?.alias) {
+    next.identity = { ...(dna.identity ?? {}), alias: patch.identity.alias };
+  }
+  if (patch.designLanguage?.doNotUse) {
+    next.designLanguage = {
+      ...(dna.designLanguage ?? { mood: [], keywords: [], visualElements: [], doNotUse: [] }),
+      doNotUse: patch.designLanguage.doNotUse,
+    };
+  }
+  if (patch.targetPlatforms) next.targetPlatforms = patch.targetPlatforms;
+  if (patch.outputPrefs?.platform) {
+    next.outputPrefs = { ...(dna.outputPrefs ?? {}), platform: patch.outputPrefs.platform };
+  }
+  if (patch.styleDirection && (STYLE_DIRECTIONS as readonly string[]).includes(patch.styleDirection)) {
+    next.styleDirection = patch.styleDirection as StyleDirection;
+  }
+  return updateDna(dna.id, userId, next, `Allowlisted DNA update: ${parsed}`);
 }

@@ -12,6 +12,7 @@ export * from './registration';
 export * from './pricing';
 export * from './ledger';
 export * from './creator-dna';
+export * from './creator-dna-intelligence';
 export * from './coins';
 export * from './coin-packages';
 export * from './modules';

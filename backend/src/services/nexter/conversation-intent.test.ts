@@ -110,6 +110,9 @@ describe('nexter conversation intelligence — intent classes', () => {
     assert.equal(resolveNexterConversationIntent('Erstelle mir ein komplettes Streamset.').intent, 'CREATE_ASSET');
     assert.equal(resolveNexterConversationIntent('Öffne das Logo Studio.').intent, 'NAVIGATION_ACTION');
     assert.equal(resolveNexterConversationIntent('Was kann Nexter?').intent, 'APP_HELP');
+    assert.equal(resolveNexterConversationIntent('What could I stream tonight?').intent, 'CREATOR_ADVICE');
+    assert.equal(resolveNexterConversationIntent('Where can I change my colors?').intent, 'APP_HELP');
+    assert.equal(resolveNexterConversationIntent('How many Coins does a logo cost?').intent, 'APP_HELP');
     assert.equal(resolveNexterConversationIntent('Was bist du eigentlich?').intent, 'APP_HELP');
     assert.equal(resolveNexterConversationIntent('Welche Einstellungen habe ich?').intent, 'ACCOUNT_OR_SETTINGS');
     assert.equal(resolveNexterConversationIntent('Wie kann ich meine Nexter-Farben ändern?').intent, 'ACCOUNT_OR_SETTINGS');

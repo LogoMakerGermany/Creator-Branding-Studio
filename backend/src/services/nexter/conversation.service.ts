@@ -49,6 +49,10 @@ import {
   detectDnaChangeScope,
   detectStudioChangeScope,
   dnaUpdateConfirmationPrompt,
+  dnaUpdateProposalPrompt,
+  dnaTaskForQuoteKind,
+  proposeCreatorDnaUpdate,
+  nexterSnapshotAsDnaSource,
   describeDnaContinuity,
   formatLogoDirectionReply,
   suggestLogoDirections,
@@ -1243,8 +1247,8 @@ export async function nexterChat(
 
   if (detectNameBasedLogoHelp(message)) {
     const help = suggestLogoDirections({
-      name: ctx.dnaName || ctx.addressAs || ctx.displayName || '',
-      platforms: ctx.preferredPlatforms,
+      name: ctx.brandingName || ctx.dnaName || ctx.addressAs || ctx.displayName || '',
+      platforms: ctx.preferredPlatforms?.length ? ctx.preferredPlatforms : ctx.dnaPlatforms,
       stylePreferences: ctx.stylePreferences,
       creatorGoals: ctx.creatorGoals,
       dnaStyle: ctx.styleDirection,
@@ -1531,7 +1535,7 @@ export async function nexterChat(
   if (detectQuoteKind(message) === 'sticker' && stickerNeedsFollowUp(message, ctx) && !changeIntent && !openPath) {
     const parsed = parseStickerIntent(message, {
       dnaName: ctx.dnaName,
-      preferredPlatform: ctx.preferredPlatforms?.[0],
+      preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
     });
     session.messages.push({
       id: randomUUID(),
@@ -1725,7 +1729,7 @@ export async function nexterChat(
         dnaName: ctx.dnaName,
         lastLogoId: ctx.lastLogoId,
         lastBannerId: ctx.lastBannerId,
-        preferredPlatform: ctx.preferredPlatforms?.[0],
+        preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
       });
       if (settings.convertFromExisting && !ctx.lastBannerId) {
         session.messages.push({
@@ -1745,7 +1749,7 @@ export async function nexterChat(
         dnaName: ctx.dnaName,
         lastLogoId: ctx.lastLogoId,
         lastFacecamId: ctx.lastFacecamId,
-        preferredPlatform: ctx.preferredPlatforms?.[0],
+        preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
       });
       if (settings.convertFromExisting && !ctx.lastFacecamId) {
         session.messages.push({
@@ -1766,7 +1770,7 @@ export async function nexterChat(
         lastLogoId: ctx.lastLogoId,
         lastFacecamId: ctx.lastFacecamId,
         lastOverlayId: ctx.lastOverlayId,
-        preferredPlatform: ctx.preferredPlatforms?.[0],
+        preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
       });
       if (settings.convertFromExisting && !ctx.lastOverlayId) {
         session.messages.push({
@@ -1951,7 +1955,7 @@ export async function nexterChat(
             ? (() => {
                 const settings = parseMusicIntent(message, {
                   styleDirection: ctx.styleDirection,
-                  dnaName: ctx.dnaName,
+                  dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                 });
                 const duration = settings.duration ?? musicGenMaxDurationSec();
                 return {
@@ -1977,7 +1981,7 @@ export async function nexterChat(
           : quoteKind === 'logo'
             ? (() => {
                 const settings = parseLogoIntent(message, {
-                  dnaName: ctx.dnaName,
+                  dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                   primaryColors: ctx.primaryColors,
                   styleDirection: ctx.styleDirection,
                   mascot: ctx.mascot,
@@ -1992,13 +1996,13 @@ export async function nexterChat(
           : quoteKind === 'banner'
             ? (() => {
                 const settings = parseBannerIntent(message, {
-                  dnaName: ctx.dnaName,
+                  dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                   primaryColors: ctx.primaryColors,
                   styleDirection: ctx.styleDirection,
                   mascot: ctx.mascot,
                   lastLogoId: ctx.lastLogoId,
                   lastBannerId: ctx.lastBannerId,
-                  preferredPlatform: ctx.preferredPlatforms?.[0],
+                  preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
                 });
                 return {
                   ...settings.config,
@@ -2013,13 +2017,13 @@ export async function nexterChat(
           : quoteKind === 'facecam'
             ? (() => {
                 const settings = parseFacecamIntent(message, {
-                  dnaName: ctx.dnaName,
+                  dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                   primaryColors: ctx.primaryColors,
                   styleDirection: ctx.styleDirection,
                   mascot: ctx.mascot,
                   lastLogoId: ctx.lastLogoId,
                   lastFacecamId: ctx.lastFacecamId,
-                  preferredPlatform: ctx.preferredPlatforms?.[0],
+                  preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
                 });
                 return {
                   ...settings.config,
@@ -2035,14 +2039,14 @@ export async function nexterChat(
           : quoteKind === 'overlay'
             ? (() => {
                 const settings = parseOverlayIntent(message, {
-                  dnaName: ctx.dnaName,
+                  dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                   primaryColors: ctx.primaryColors,
                   styleDirection: ctx.styleDirection,
                   mascot: ctx.mascot,
                   lastLogoId: ctx.lastLogoId,
                   lastFacecamId: ctx.lastFacecamId,
                   lastOverlayId: ctx.lastOverlayId,
-                  preferredPlatform: ctx.preferredPlatforms?.[0],
+                  preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
                 });
                 return {
                   ...settings.config,
@@ -2058,13 +2062,13 @@ export async function nexterChat(
           : quoteKind === 'sticker'
             ? (() => {
                 const settings = parseStickerIntent(message, {
-                  dnaName: ctx.dnaName,
+                  dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                   primaryColors: ctx.primaryColors,
                   styleDirection: ctx.styleDirection,
                   mascot: ctx.mascot,
                   lastLogoId: ctx.lastLogoId,
                   lastStickerId: ctx.lastStickerId,
-                  preferredPlatform: ctx.preferredPlatforms?.[0],
+                  preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
                 });
                 return {
                   ...settings.config,
@@ -2079,7 +2083,7 @@ export async function nexterChat(
           : quoteKind === 'text'
             ? (() => {
                 const intent = parseSocialIntent(message, {
-                  dnaName: ctx.dnaName,
+                  dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                   lastShortId: ctx.lastShortId,
                   lastLogoId: ctx.lastLogoId,
                   preferredPlatforms: ctx.preferredPlatforms,
@@ -2121,7 +2125,7 @@ export async function nexterChat(
   }
 
   const memory = await listMemory(userId);
-  const { suggestions, actions } = buildActions(
+  const built = buildActions(
     message,
     ctx,
     quoteId,
@@ -2134,16 +2138,31 @@ export async function nexterChat(
     },
     conversationIntent.intent
   );
+  const suggestions = built.suggestions;
+  const actions = [...built.actions];
   const warning = warnBadSettings(message);
   const format =
     intentAllowsFormatFallback(conversationIntent.intent) || /tiktok|shorts|reel|twitch|youtube|instagram|discord/i.test(message)
       ? recommendFormat(message, ctx)
       : null;
   const dnaScope = detectDnaChangeScope(message);
+  const dnaProposal =
+    dnaScope === 'explicit-dna' ? proposeCreatorDnaUpdate(message, nexterSnapshotAsDnaSource(ctx)) : null;
   const dnaConfirm =
-    dnaScope && !ctx.locks?.colors && !ctx.locks?.style
-      ? dnaUpdateConfirmationPrompt(message)
+    dnaScope === 'explicit-dna' && !ctx.locks?.colors && !ctx.locks?.style
+      ? dnaProposal
+        ? dnaUpdateProposalPrompt(dnaProposal)
+        : dnaUpdateConfirmationPrompt(message)
       : null;
+  if (dnaConfirm && !actions.some((a) => a.path === NEXTER_STUDIO_PATHS.dna)) {
+    actions.push({
+      id: randomUUID(),
+      tool: 'open_studio',
+      label: 'Creator DNA prüfen',
+      path: NEXTER_STUDIO_PATHS.dna,
+      requiresConfirmation: true,
+    });
+  }
   const continuity =
     quoteKind && quoteKind !== 'logo' && quoteKind !== 'banner' && quoteKind !== 'facecam' && quoteKind !== 'overlay' && quoteKind !== 'sticker' && quoteKind !== 'mockup' && quoteKind !== 'text' && quoteKind !== 'music' && quoteKind !== 'voice' && quoteKind !== 'captions'
       ? describeDnaContinuity(ctx, followOnAssetLabel(quoteKind))
@@ -2178,7 +2197,7 @@ export async function nexterChat(
         : quoteKind === 'logo'
           ? (() => {
               const s = parseLogoIntent(message, {
-                dnaName: ctx.dnaName,
+                dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                 primaryColors: ctx.primaryColors,
                 styleDirection: ctx.styleDirection,
                 mascot: ctx.mascot,
@@ -2189,53 +2208,53 @@ export async function nexterChat(
         : quoteKind === 'banner'
           ? (() => {
               const s = parseBannerIntent(message, {
-                dnaName: ctx.dnaName,
+                dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                 primaryColors: ctx.primaryColors,
                 styleDirection: ctx.styleDirection,
                 mascot: ctx.mascot,
                 lastLogoId: ctx.lastLogoId,
                 lastBannerId: ctx.lastBannerId,
-                preferredPlatform: ctx.preferredPlatforms?.[0],
+                preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
               });
               return s.config.summary;
             })()
         : quoteKind === 'facecam'
           ? (() => {
               const s = parseFacecamIntent(message, {
-                dnaName: ctx.dnaName,
+                dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                 primaryColors: ctx.primaryColors,
                 styleDirection: ctx.styleDirection,
                 mascot: ctx.mascot,
                 lastLogoId: ctx.lastLogoId,
                 lastFacecamId: ctx.lastFacecamId,
-                preferredPlatform: ctx.preferredPlatforms?.[0],
+                preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
               });
               return s.config.summary;
             })()
         : quoteKind === 'overlay'
           ? (() => {
               const s = parseOverlayIntent(message, {
-                dnaName: ctx.dnaName,
+                dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                 primaryColors: ctx.primaryColors,
                 styleDirection: ctx.styleDirection,
                 mascot: ctx.mascot,
                 lastLogoId: ctx.lastLogoId,
                 lastFacecamId: ctx.lastFacecamId,
                 lastOverlayId: ctx.lastOverlayId,
-                preferredPlatform: ctx.preferredPlatforms?.[0],
+                preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
               });
               return s.config.summary;
             })()
         : quoteKind === 'sticker'
           ? (() => {
               const s = parseStickerIntent(message, {
-                dnaName: ctx.dnaName,
+                dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                 primaryColors: ctx.primaryColors,
                 styleDirection: ctx.styleDirection,
                 mascot: ctx.mascot,
                 lastLogoId: ctx.lastLogoId,
                 lastStickerId: ctx.lastStickerId,
-                preferredPlatform: ctx.preferredPlatforms?.[0],
+                preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
               });
               return s.config.summary;
             })()
@@ -2245,11 +2264,11 @@ export async function nexterChat(
                 lastStickerId: ctx.lastStickerId,
                 lastBannerId: ctx.lastBannerId,
                 lastMockupId: ctx.lastMockupId,
-                dnaName: ctx.dnaName,
+                dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
               }).summary
             : quoteKind === 'text'
               ? parseSocialIntent(message, {
-                  dnaName: ctx.dnaName,
+                  dnaName: ctx.brandingName || ctx.dnaAlias || ctx.dnaName,
                   lastShortId: ctx.lastShortId,
                   lastLogoId: ctx.lastLogoId,
                   preferredPlatforms: ctx.preferredPlatforms,
@@ -2313,9 +2332,35 @@ async function generateNexterReply(input: {
   const replyLanguage = detectEphemeralLanguage(lastUser) ?? input.ctx.language ?? 'de';
   const intent = input.intent ?? 'AMBIGUOUS';
   const includeExactColorCodes = messageAsksExactColorCode(lastUser);
+  const task =
+    intent === 'SMALLTALK'
+      ? 'smalltalk'
+      : intent === 'NAVIGATION_ACTION'
+        ? 'navigation'
+        : intent === 'ACCOUNT_OR_SETTINGS'
+          ? 'settings'
+          : intent === 'APP_HELP'
+            ? 'help'
+            : intent === 'CREATOR_ADVICE'
+              ? 'advice'
+              : intent === 'MODIFY_ASSET'
+                ? 'modify'
+                : dnaTaskForQuoteKind(input.quoteKind);
+  const helpWantsDna = intent === 'APP_HELP' && /farben|colors|creator dna|visual style/i.test(lastUser);
   const contextBlock =
-    intent === 'SMALLTALK' || intent === 'APP_HELP' || intent === 'ACCOUNT_OR_SETTINGS' || intent === 'NAVIGATION_ACTION'
-      ? formatContextForPrompt(input.ctx, { minimal: true })
+    intent === 'SMALLTALK' || intent === 'ACCOUNT_OR_SETTINGS' || intent === 'NAVIGATION_ACTION'
+      ? formatContextForPrompt(input.ctx, { minimal: true, task, requestText: lastUser })
+      : intent === 'APP_HELP'
+        ? formatContextForPrompt(input.ctx, {
+            minimal: !helpWantsDna,
+            task: 'help',
+            requestText: lastUser,
+            includeDna: helpWantsDna,
+            includeGaps: false,
+            includeInventory: false,
+            includeProjects: false,
+            includeExactColorCodes,
+          })
       : intent === 'CREATOR_ADVICE'
         ? formatContextForPrompt(input.ctx, {
             includeGaps: false,
@@ -2323,6 +2368,8 @@ async function generateNexterReply(input: {
             includeProjects: false,
             includeDna: true,
             includeExactColorCodes,
+            task: 'advice',
+            requestText: lastUser,
           })
         : intent === 'PROJECT_ANALYSIS'
           ? formatContextForPrompt(input.ctx, {
@@ -2331,6 +2378,8 @@ async function generateNexterReply(input: {
               includeDna: true,
               includeProjects: true,
               includeExactColorCodes,
+              task: 'chat',
+              requestText: lastUser,
             })
           : formatContextForPrompt(input.ctx, {
               includeGaps: false,
@@ -2338,6 +2387,9 @@ async function generateNexterReply(input: {
               includeDna: true,
               includeProjects: intent === 'CREATE_ASSET' || intent === 'MODIFY_ASSET',
               includeExactColorCodes,
+              task,
+              requestText: lastUser,
+              quoteKind: input.quoteKind,
             });
   const system = buildNexterSystemPrompt({
     intent,
@@ -2444,6 +2496,12 @@ function devReply(input: {
     return smalltalkDevReply(last);
   }
   if (intent === 'APP_HELP') {
+    if (/farben|colors|creator dna|visual style/i.test(last)) {
+      return 'Deine Creator-Farben änderst du in der Creator DNA unter Visual Style. Das ist keine Konto-Einstellung und startet keine Generation.';
+    }
+    if (/coin|guthaben|kostet|kosten/i.test(last)) {
+      return 'Die Coin-Kosten stehen im jeweiligen Studio-Angebot. Dafür brauche ich keine Creator DNA.';
+    }
     return 'Ich bin Nexter, dein KI-Assistent im Creator Studio. Ich helfe bei Branding, Streamsets, Logos und Studios. Keine Generation und keine Coins ohne deine Bestätigung.';
   }
   if (intent === 'ACCOUNT_OR_SETTINGS') {
@@ -2458,10 +2516,15 @@ function devReply(input: {
   if (intent === 'CREATOR_ADVICE') {
     const colors =
       formatColorsForNexter(input.ctx.primaryColors, { includeHex: messageAsksExactColorCode(last) }) || 'noch offen';
+    const topics = [...(input.ctx.contentCategories ?? []), ...(input.ctx.favoriteGenres ?? [])]
+      .filter(Boolean)
+      .slice(0, 4)
+      .join(', ');
+    const platform = input.ctx.dnaPlatforms?.[0] || input.ctx.preferredPlatforms?.[0];
     parts.push(
       input.ctx.hasDna
-        ? `Zu deinem Look: DNA „${input.ctx.dnaName}“, Stil ${input.ctx.styleDirection ?? 'offen'}, Farben ${colors}.`
-        : 'Ohne Creator DNA kann ich Farben nur allgemein empfehlen.'
+        ? `Ich habe deinen ${input.ctx.styleDirection || 'gespeicherten'} Stil${topics ? ` und ${topics}` : ''}${platform ? ` auf ${platform}` : ''} bereits berücksichtigt. Farben: ${colors}. Ich habe keine Reichweite- oder Trenddaten.`
+        : 'Ohne Creator DNA kann ich nur allgemeine Tipps geben — keine erfundenen Reichweite-Zahlen.'
     );
   } else if (intent === 'PROJECT_ANALYSIS' || detectAnalyzeIntent(last)) {
     const colors =

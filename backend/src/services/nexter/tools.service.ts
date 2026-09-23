@@ -15,6 +15,12 @@ import {
   detectSocialPlannerIntent,
   platformFormatHint,
   applyExplicitAspectToFormatHint,
+  buildTaskDnaContext,
+  dnaTaskForQuoteKind,
+  effectiveCreatorPlatforms,
+  nexterSnapshotAsDnaSource,
+  shouldAskPersonalization,
+  type DnaTaskKind,
   parseVideoStudioPrep,
   parseVideoClosureCommand,
   isAiVideoQuoteIntent,
@@ -58,22 +64,42 @@ export function recordOwnedByUser<T extends { userId: string }>(
 
 export function detectIncompletePrompt(
   message: string,
-  ctx?: Pick<NexterContextSnapshot, 'hasDna' | 'dnaName' | 'primaryColors' | 'styleDirection' | 'addressAs'>
+  ctx?: Pick<
+    NexterContextSnapshot,
+    | 'hasDna'
+    | 'dnaName'
+    | 'dnaAlias'
+    | 'brandingName'
+    | 'primaryColors'
+    | 'styleDirection'
+    | 'addressAs'
+    | 'dnaPlatforms'
+    | 'preferredPlatforms'
+  >
 ): string | null {
   const t = message.trim();
   if (t.length < 4) return 'Kannst du etwas genauer sagen — Name, Spiel oder Stil?';
 
+  const dnaSource = ctx ? nexterSnapshotAsDnaSource(ctx) : null;
+  const knownName = Boolean(ctx?.hasDna && (ctx.dnaName || ctx.dnaAlias || ctx.brandingName)) || Boolean(ctx?.addressAs?.trim());
   const wantsLogo = /\blogo\b/i.test(t);
-  const vagueLogo = /^(mach|erstelle|generiere)(\s+mir)?\s+(ein\s+)?logo[.!?]?$/i.test(t);
+  const vagueLogo = /^(mach|erstelle|generiere|make me)(\s+mir)?\s+(ein\s+)?(a\s+)?logo[.!?]?$/i.test(t);
   if (vagueLogo || (wantsLogo && t.split(/\s+/).length <= 4)) {
-    if (ctx?.hasDna && ctx.dnaName) return null;
-    if (ctx?.addressAs?.trim()) return null;
+    const nameAsk = shouldAskPersonalization('name', { dna: dnaSource, requestText: t, task: 'logo' });
+    if (knownName || !nameAsk.ask) return null;
     return 'Für ein Logo brauche ich mindestens den Namen. Hast du schon eine Creator DNA, oder soll ich das Logo Studio öffnen?';
+  }
+
+  if (/starting.?screen|startbildschirm/i.test(t)) {
+    const colorAsk = shouldAskPersonalization('colors', { dna: dnaSource, requestText: t, task: 'overlay' });
+    const styleAsk = shouldAskPersonalization('style', { dna: dnaSource, requestText: t, task: 'overlay' });
+    const platformAsk = shouldAskPersonalization('platform', { dna: dnaSource, requestText: t, task: 'overlay' });
+    if (!colorAsk.ask && !styleAsk.ask && !platformAsk.ask) return null;
   }
 
   const vague = /^(mach|erstelle|generiere)(\s+mir)?(\s+(was|etwas|eins?))?[.!?]?$/i.test(t);
   if (vague) {
-    return 'Wofür genau? z. B. Gaming-Logo, Twitch-Set oder Shorts aus einem Video.';
+    return 'Wofür genau? Logo, Streamset, Banner oder etwas anderes?';
   }
   return null;
 }
@@ -445,10 +471,10 @@ export function detectChangeIntent(
   if (detectStudioChangeScope(message) === 'set') return null;
   const lower = message.toLowerCase();
   const changeVerb =
-    /änder|dunkler|heller|aggressiv|cleaner|gr(ö|oe)sser|kleiner|höher|hoeher|zweite version|entferne |nimm den text/.test(
+    /änder|dunkler|heller|aggressiv|cleaner|gr(ö|oe)sser|kleiner|höher|hoeher|zweite version|entferne |nimm den text|more (blue|red|green|pink|dark)/.test(
       lower
     );
-  const existingCue = /(mein|letzten|aktuellen|vorhanden)/.test(lower);
+  const existingCue = /(mein|letzten|aktuellen|vorhanden|existing)/.test(lower);
   const backgroundEdit =
     /mach den hintergrund|änder.{0,32}hintergrund|hintergrund.{0,32}(meines|meinem|des vorhandenen|letzten|aktuellen)/.test(
       lower
@@ -479,7 +505,7 @@ export function detectChangeIntent(
   ) {
     return null;
   }
-  const wantsLatest = /letzt|aktuell/.test(lower);
+  const wantsLatest = /letzt|aktuell|existing/.test(lower);
   const facecamOnly = /nur (die )?facecam|facecam.{0,40}(änder|streamset)|streamset.{0,40}facecam/.test(lower);
   if (facecamOnly) {
     return { kind: 'facecam', request: message, wantsLatest, facecamOnly: true };
@@ -759,7 +785,7 @@ export function buildActions(
 
 export function warnBadSettings(message: string): string | null {
   if (/comic sans|papyrus/i.test(message)) {
-    return 'Vorsicht: Diese Schrift wirkt unprofessionell für Gaming-Branding.';
+    return 'Vorsicht: Diese Schrift wirkt unprofessionell für Branding.';
   }
   if (/10\s*farben|alle farben/i.test(message)) {
     return 'Zu viele Farben schwächen die Wiedererkennbarkeit — 2–3 Markenfarben reichen.';
@@ -769,7 +795,7 @@ export function warnBadSettings(message: string): string | null {
 
 export function recommendFormat(
   message: string,
-  ctx?: Pick<NexterContextSnapshot, 'preferredPlatforms'>
+  ctx?: Pick<NexterContextSnapshot, 'preferredPlatforms' | 'dnaPlatforms'>
 ): string | null {
   const lower = message.toLowerCase();
   let hint: string | null = null;
@@ -780,7 +806,7 @@ export function recommendFormat(
   else if (/instagram/.test(lower)) hint = platformFormatHint('instagram');
   else if (!messageImpliesFormatNeed(message)) return null;
   else {
-    const stored = ctx?.preferredPlatforms?.[0];
+    const stored = effectiveCreatorPlatforms(ctx ?? {})[0];
     hint = stored ? platformFormatHint(stored) : null;
   }
   return applyExplicitAspectToFormatHint(message, hint);
@@ -822,6 +848,9 @@ export function formatContextForPrompt(
     includeProjects?: boolean;
     includeExactColorCodes?: boolean;
     minimal?: boolean;
+    task?: DnaTaskKind;
+    requestText?: string;
+    quoteKind?: NexterQuoteKind | null;
   }
 ): string {
   const includeGaps = opts?.includeGaps !== false;
@@ -829,9 +858,12 @@ export function formatContextForPrompt(
   const includeDna = opts?.includeDna !== false;
   const includeProjects = opts?.includeProjects !== false;
   const includeExactColorCodes = opts?.includeExactColorCodes === true;
-  if (opts?.minimal) {
+  const task: DnaTaskKind =
+    opts?.task ?? (opts?.quoteKind ? dnaTaskForQuoteKind(opts.quoteKind) : opts?.minimal ? 'smalltalk' : 'chat');
+  if (opts?.minimal || task === 'smalltalk' || task === 'navigation' || task === 'settings') {
+    const alias = ctx.dnaAlias || ctx.brandingName;
     return [
-      `Nutzer: ${ctx.displayName ?? 'Creator'}${ctx.addressAs && ctx.addressAs !== ctx.displayName ? ` (Ansprache: ${ctx.addressAs})` : ''}.`,
+      `Nutzer: ${ctx.displayName ?? 'Creator'}${ctx.addressAs && ctx.addressAs !== ctx.displayName ? ` (Ansprache: ${ctx.addressAs})` : ''}${alias && task === 'smalltalk' ? ` (Creator: ${alias})` : ''}.`,
       'Kein Projektkontext, keine Lückenanalyse, keine Formatvorgabe.',
     ].join(' ');
   }
@@ -843,9 +875,28 @@ export function formatContextForPrompt(
         : 'Keine Creator DNA vorhanden';
   const dnaColors = formatColorsForNexter(ctx.primaryColors, { includeHex: includeExactColorCodes });
   const secondaryColors = formatColorsForNexter(ctx.secondaryColors, { includeHex: includeExactColorCodes });
-  const dna = ctx.hasDna
-    ? `DNA „${ctx.dnaName ?? 'ohne Namen'}“ v${ctx.dnaVersion ?? '?'}, Stil ${ctx.styleDirection ?? 'offen'}, Farben ${dnaColors || 'offen'}${secondaryColors ? `, Sekundär ${secondaryColors}` : ''}${ctx.mascot ? `, Figur ${ctx.mascot}` : ''}${ctx.characterDescription && ctx.characterDescription !== ctx.mascot ? ` (${ctx.characterDescription})` : ''}. ${source}.`
-    : 'Keine Creator DNA vorhanden. Fallback: keine zufällige Auswahl.';
+  const compactDna =
+    ctx.hasDna && (task === 'chat' || task === 'modify')
+      ? `DNA „${ctx.dnaName ?? 'ohne Namen'}“ v${ctx.dnaVersion ?? '?'}, Stil ${ctx.styleDirection ?? 'offen'}, Farben ${dnaColors || 'offen'}${secondaryColors ? `, Sekundär ${secondaryColors}` : ''}${ctx.mascot ? `, Figur ${ctx.mascot}` : ''}. ${source}.`
+      : ctx.hasDna
+        ? `Creator profile is present. ${source}.`
+        : 'Keine Creator DNA vorhanden. Fallback: keine zufällige Auswahl.';
+  const namedCtx = includeExactColorCodes
+    ? ctx
+    : {
+        ...ctx,
+        primaryColors: ctx.primaryColors.map((c) => humanColorName(c) || c),
+        secondaryColors: (ctx.secondaryColors ?? []).map((c) => humanColorName(c) || c),
+        accentColors: (ctx.accentColors ?? []).map((c) => humanColorName(c) || c),
+      };
+  const taskDna =
+    includeDna && ctx.hasDna
+      ? [compactDna, buildTaskDnaContext(nexterSnapshotAsDnaSource(namedCtx), task, opts?.requestText)]
+          .filter(Boolean)
+          .join(' ')
+      : includeDna
+        ? compactDna
+        : '';
   const lockBits = [
     ctx.locks?.name ? 'Name' : null,
     ctx.locks?.colors ? 'Farben' : null,
@@ -885,12 +936,15 @@ export function formatContextForPrompt(
               : ''
         }.`
       : '',
-    ctx.visualLanguage ? `Bildsprache: ${ctx.visualLanguage}.` : '',
-    ctx.brandingStyle ? `Markenwirkung: ${ctx.brandingStyle}.` : '',
-    ctx.typographySummary ? `Schrift: ${ctx.typographySummary}.` : '',
-    ctx.fontNames?.length ? `Fonts: ${ctx.fontNames.join(', ')}.` : '',
-    ctx.dimension ? `Dimension: ${ctx.dimension}.` : '',
-    `Coins: ${ctx.coinBalance}.`,
+    task === 'advice' || task === 'help' ? '' : ctx.visualLanguage ? `Bildsprache: ${ctx.visualLanguage}.` : '',
+    task === 'advice' || task === 'help' ? '' : ctx.brandingStyle ? `Markenwirkung: ${ctx.brandingStyle}.` : '',
+    task === 'logo' || task === 'banner' || task === 'streamset' || task === 'chat'
+      ? [ctx.typographySummary ? `Schrift: ${ctx.typographySummary}.` : '', ctx.fontNames?.length ? `Fonts: ${ctx.fontNames.join(', ')}.` : '']
+          .filter(Boolean)
+          .join(' ')
+      : '',
+    ctx.dimension && (task === 'logo' || task === 'chat') ? `Dimension: ${ctx.dimension}.` : '',
+    task === 'advice' || task === 'help' ? '' : `Coins: ${ctx.coinBalance}.`,
     ctx.voiceOutputEnabled === false ? 'Nexter-Stimme: aus.' : ctx.voiceCatalogId ? 'Nexter-Stimme: an (gespeicherte Katalog-Stimme).' : '',
     ctx.pendingQuotes?.length
       ? `Offene Angebote: ${ctx.pendingQuotes
@@ -898,14 +952,7 @@ export function formatContextForPrompt(
           .map((q) => `${q.kind} ${q.coinCost} Coins${q.expired ? ' (abgelaufen)' : ''}`)
           .join('; ')}.`
       : 'Keine offenen Coin-Angebote.',
-    includeDna ? dna : '',
-    includeDna && ctx.dnaAlias ? `Creator-Alias: ${ctx.dnaAlias}.` : '',
-    includeDna && ctx.creatorCategory ? `Creator-Kategorie: ${ctx.creatorCategory}.` : '',
-    includeDna && ctx.contentCategories?.length ? `Themen: ${ctx.contentCategories.join(', ')}.` : '',
-    includeDna && ctx.dnaPlatforms?.length ? `DNA-Plattformen: ${ctx.dnaPlatforms.join(', ')}.` : '',
-    includeDna && ctx.assistantTone
-      ? `Assistent-Stil: ${ctx.assistantTone}${ctx.assistantVerbosity ? `, ${ctx.assistantVerbosity}` : ''}.`
-      : '',
+    includeDna ? taskDna : '',
     includeDna ? locks : '',
     includeProjects ? projects : '',
     includeInventory ? `Dateien: ${ctx.fileCount}.` : '',

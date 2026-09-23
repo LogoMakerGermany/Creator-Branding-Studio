@@ -159,10 +159,17 @@ export interface NexterContextSnapshot {
   characterDescription?: string;
   slogan?: string;
   dnaAlias?: string;
+  brandingName?: string;
   creatorCategory?: string;
   contentCategories?: string[];
+  favoriteGenres?: string[];
   visualStyles?: string[];
   dnaPlatforms?: string[];
+  dislikedColors?: string[];
+  excludedElements?: string[];
+  preferredAspectRatios?: string[];
+  facecamPreference?: string;
+  streamLayout?: string;
   assistantTone?: string;
   assistantVerbosity?: string;
   dnaProfile?: string;

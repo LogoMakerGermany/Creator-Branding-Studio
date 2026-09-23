@@ -32,7 +32,7 @@ export function isSmalltalkMessage(message: string): boolean {
     return true;
   }
   if (
-    /^(hallo|hi|hey|moin|servus|guten morgen|guten tag|guten abend|good morning|good evening|hey nexter|hallo nexter)( nexter)?$/i.test(
+    /^(hallo|hello|hi|hey|moin|servus|guten morgen|guten tag|guten abend|good morning|good evening|hey nexter|hallo nexter)( nexter)?$/i.test(
       raw
     )
   ) {
@@ -63,7 +63,7 @@ export function isCreatorAdviceMessage(message: string): boolean {
   const t = normalizeUtterance(message);
   if (isProjectAnalysisMessage(message)) return false;
   return (
-    /welche farben (passen|würdest du)|farben passen zu|farben .{0,48}empfehlen|für mein(en)? (kanal|branding|stream).{0,24}empfehlen|was (könnte|sollte) ich( heute)? streamen|branding empfehlen|streamdesign verbessern|was würdest du( mir)? (für mein branding|empfehlen)|wie kann ich mein (streamdesign|branding)|was hältst du von meinem|wie findest du mein/.test(
+    /welche farben (passen|würdest du)|farben passen zu|farben .{0,48}empfehlen|für mein(en)? (kanal|branding|stream).{0,24}empfehlen|was (könnte|sollte) ich( heute)? streamen|what (could|should) i stream|branding empfehlen|streamdesign verbessern|was würdest du( mir)? (für mein branding|empfehlen)|wie kann ich mein (streamdesign|branding)|was hältst du von meinem|wie findest du mein/.test(
       t
     )
   );
@@ -81,7 +81,7 @@ export function isProjectAnalysisMessage(message: string): boolean {
 export function isAppHelpMessage(message: string): boolean {
   const t = normalizeUtterance(message);
   return (
-    /was kann nexter|was bist du( eigentlich)?|wer bist du|erzähl mir (von )?dir|what are you|wie funktioniert (der |die |das )?(coin shop|creator dna|nexter)|wo finde ich (meine )?dateien|was ist creator dna|welche studios gibt es/.test(
+    /was kann nexter|was bist du( eigentlich)?|wer bist du|erzähl mir (von )?dir|what are you|wie funktioniert (der |die |das )?(coin shop|creator dna|nexter)|wo finde ich (meine )?dateien|was ist creator dna|welche studios gibt es|wo (kann ich|ändere ich) meine (farben|creator.?dna)|where (can|do) i change my (colors|creator dna)|how many coins does a |was (kostet|kosten) (ein |eine )?(logo|banner|video)/.test(
       t
     )
   );
@@ -119,7 +119,7 @@ export function messageImpliesFormatNeed(message: string): boolean {
     return false;
   }
   if (/was hältst du|wie findest du/.test(normalizeUtterance(message))) return false;
-  return /tiktok|shorts|reel|twitch|youtube|instagram|discord|9:16|16:9|1:1|video|banner|overlay|hintergrund|facecam|streamset|\bshort\b/.test(
+  return /tiktok|shorts|reel|twitch|youtube|instagram|discord|9:16|16:9|1:1|video|banner|overlay|hintergrund|facecam|streamset|\bshort\b|starting.?screen|startbildschirm/.test(
     normalizeUtterance(message)
   );
 }

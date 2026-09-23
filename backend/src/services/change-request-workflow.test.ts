@@ -287,7 +287,7 @@ describe('change request local closure — scope, DNA, original, versions', () =
     assert.equal(detectStudioChangeScope('Mach mein Logo dunkler.'), 'asset');
     assert.equal(detectStudioChangeScope('Mach das ganze Set dunkler.'), 'set');
     assert.equal(detectStudioChangeScope('Speichere Rot dauerhaft in meiner Creator DNA.'), 'dna');
-    assert.equal(detectDnaChangeScope('Dieses Logo diesmal rot.'), 'ask-confirm');
+    assert.equal(detectDnaChangeScope('Dieses Logo diesmal rot.'), 'temporary');
     assert.equal(detectDnaChangeScope('Speichere Rot dauerhaft in meiner Creator DNA.'), 'explicit-dna');
   });
 

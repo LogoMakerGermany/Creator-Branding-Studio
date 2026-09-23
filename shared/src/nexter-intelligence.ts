@@ -267,7 +267,7 @@ export function detectKnownFactFollowUp(
   return null;
 }
 
-export type DnaChangeScope = 'ask-confirm' | 'explicit-dna';
+export type DnaChangeScope = 'ask-confirm' | 'explicit-dna' | 'temporary';
 
 export type StudioChangeScope = 'asset' | 'set' | 'dna';
 
@@ -306,14 +306,20 @@ export function targetsForStudioChange(
 export function detectDnaChangeScope(message: string): DnaChangeScope | null {
   const t = message.toLowerCase();
   if (
-    /in meiner (creator.? )?dna|dauerhaft (speichern|ändern)|ab jetzt immer|ab jetzt soll|ab jetzt überall|sollen ab jetzt|als bevorzugte farbe|in die dna|gesamtes design/.test(t)
+    /\bthis one\b|\bthis time\b|\bfor this\b|\btoday\b|\bdiesmal\b|nur f(ü|u)r dieses|f(ü|u)r dieses (logo|banner|projekt|asset|video|design)/.test(
+      t
+    )
+  ) {
+    return 'temporary';
+  }
+  if (
+    /in meiner (creator.? )?dna|dauerhaft (speichern|ändern)|ab jetzt immer|ab jetzt soll|ab jetzt überall|sollen ab jetzt|als bevorzugte farbe|in die dna|gesamtes design|\bfrom now on\b|\bi always\b|is now my main|now my main platform|i don'?t want .{0,40} anymore|von jetzt an/.test(
+      t
+    )
   ) {
     return 'explicit-dna';
   }
-  if (
-    /diesmal (rot|blau|grün|lila|schwarz)|nur f(ü|u)r dieses (projekt|logo|design)|f(ü|u)r dieses projekt/.test(t) ||
-    /(änder|mach).{0,24}(farb|stil|figur)|mach (es|das|den hintergrund)/.test(t)
-  ) {
+  if (/(änder|mach).{0,24}(farb|stil|figur)|mach (es|das|den hintergrund)/.test(t)) {
     return 'ask-confirm';
   }
   return null;
