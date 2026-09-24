@@ -20,6 +20,7 @@ export * from './agency';
 export * from './team';
 export * from './project';
 export * from './project-memory';
+export * from './modification';
 export * from './marketplace';
 export * from './studio';
 export * from './logo-prompt';

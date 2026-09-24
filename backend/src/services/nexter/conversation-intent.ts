@@ -14,7 +14,7 @@ import {
   looksLikeAssetEditFollowUp,
   looksLikeWorkflowResume,
 } from './conversation-intent-patterns.js';
-import { isBareAssetKindUtterance, isProjectMemoryUtterance, parseProjectAssetRoleFromText, parseProjectCommand } from '@ucbs/shared';
+import { isBareAssetKindUtterance, isCreateNewAssetUtterance, isModificationUtterance, isProjectMemoryUtterance, parseProjectAssetRoleFromText, parseProjectCommand } from '@ucbs/shared';
 
 export type NexterConversationIntent =
   | 'SMALLTALK'
@@ -59,11 +59,14 @@ export function resolveNexterConversationIntent(
   }
 
   if (isProjectMemoryUtterance(text)) {
-    const action = parseProjectCommand(text).action;
-    if (action === 'open' || action === 'use' || action === 'switch' || action === 'clear') {
+    const parsed = parseProjectCommand(text);
+    if (parsed.historical && parsed.action === 'use_reference') {
+      return { intent: 'MODIFY_ASSET', confidence: 'HIGH', reason: 'historical-retarget' };
+    }
+    if (parsed.action === 'open' || parsed.action === 'use' || parsed.action === 'switch' || parsed.action === 'clear') {
       return { intent: 'NAVIGATION_ACTION', confidence: 'HIGH', reason: 'project-select' };
     }
-    if (action === 'set_current') {
+    if (parsed.action === 'set_current') {
       return { intent: 'PROJECT_ACTION', confidence: 'HIGH', reason: 'project-mutate' };
     }
     return { intent: 'PROJECT_ANALYSIS', confidence: 'HIGH', reason: 'project-memory' };
@@ -83,12 +86,28 @@ export function resolveNexterConversationIntent(
 
   const quoteKind = detectQuoteKind(text);
   const change = detectChangeIntent(text, ctx);
+  if (isCreateNewAssetUtterance(text)) {
+    return {
+      intent: 'CREATE_ASSET',
+      confidence: 'HIGH',
+      reason: quoteKind ? `quote-kind:${quoteKind}` : 'create-new-asset',
+    };
+  }
+  if (
+    /\b(change it|make it |mach es |what exactly will change)\b/i.test(text) ||
+    (/\b(change|änder)\b.{0,48}\b(current|aktuell|old|alte[sn]?)/i.test(text) && parseProjectAssetRoleFromText(text))
+  ) {
+    return { intent: 'MODIFY_ASSET', confidence: 'HIGH', reason: 'modification-language' };
+  }
   if (
     !change &&
     /\b(change|änder)\b.{0,48}\b(current|aktuell)/i.test(text) &&
     parseProjectAssetRoleFromText(text)
   ) {
     return { intent: 'MODIFY_ASSET', confidence: 'HIGH', reason: 'current-asset-modify' };
+  }
+  if (isModificationUtterance(text)) {
+    return { intent: 'MODIFY_ASSET', confidence: 'HIGH', reason: 'modification-language' };
   }
   if (quoteKind && CREATE_VERB.test(text) && !change) {
     return { intent: 'CREATE_ASSET', confidence: 'HIGH', reason: `quote-kind:${quoteKind}` };

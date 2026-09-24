@@ -124,6 +124,7 @@ export interface ProjectCommand {
   role?: ProjectAssetRole;
   version?: number;
   vague?: boolean;
+  historical?: boolean;
 }
 
 export type CurrentAssetQueryState = 'CURRENT' | 'HISTORICAL_ONLY' | 'MISSING' | 'UNAVAILABLE';
@@ -449,7 +450,17 @@ export function parseProjectCommand(message: string): ProjectCommand {
     return { action: 'inspect_missing', query: extractNamedProject(raw) };
   }
 
-  const modifying = /\b(änder|change|modify|edit|pass das)\b/i.test(lower);
+  const modifying = /\b(änder|change|modify|edit|pass das|dunkler|darker|heller|brighter)\b/i.test(lower);
+  if (modifying && !/setze? |set .*current|als aktuell/.test(lower)) {
+    if (
+      /(?:use|nutze|benutze).{0,24}(old|alte[sn]?|historisch).{0,20}(logo|banner|facecam|overlay)|(?:old|alte[sn]?) (logo|banner) instead/i.test(
+        raw
+      )
+    ) {
+      return { action: 'use_reference', role: roleHint ?? 'logo', historical: true };
+    }
+    return { action: null };
+  }
   if (
     !modifying &&
     !CREATE_ASSET_VERB.test(raw) &&
@@ -478,11 +489,22 @@ export function parseProjectCommand(message: string): ProjectCommand {
   }
 
   const creating = isCreatingProjectAsset(raw);
-  if (/match (this|the|my) project|passend zu (diesem|dem) projekt|nächste[s]? asset .{0,24}projekt/.test(lower)) {
+  if (
+    !modifying &&
+    /match (this|the|my) project|passend zu (diesem|dem) projekt|nächste[s]? asset .{0,24}projekt/.test(lower)
+  ) {
     const matchRole = parseProjectAssetRoleFromText(raw);
     if (!matchRole || !creating) {
       return { action: 'match_project', role: matchRole, query: extractNamedProject(raw) };
     }
+  }
+  if (
+    !creating &&
+    /(?:use|nutze|benutze).{0,24}(old|alte[sn]?|historisch).{0,20}(logo|banner|facecam|overlay)|(?:old|alte[sn]?) (logo|banner) instead/i.test(
+      raw
+    )
+  ) {
+    return { action: 'use_reference', role: roleHint ?? 'logo', historical: true };
   }
   if (!creating && /als referenz|as reference|current (logo|banner|mascot) as reference|aktuelles? logo als/.test(lower)) {
     return { action: 'use_reference', role: roleHint ?? 'logo', query: extractNamedProject(raw) };

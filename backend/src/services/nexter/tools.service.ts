@@ -471,7 +471,7 @@ export function detectChangeIntent(
   if (detectStudioChangeScope(message) === 'set') return null;
   const lower = message.toLowerCase();
   const changeVerb =
-    /änder|dunkler|heller|aggressiv|cleaner|gr(ö|oe)sser|kleiner|höher|hoeher|zweite version|entferne |nimm den text|more (blue|red|green|pink|dark)/.test(
+    /änder|dunkler|heller|aggressiv|cleaner|gr(ö|oe)sser|kleiner|höher|hoeher|zweite version|entferne |nimm den text|more (blue|red|green|pink|dark)|\bchange\b|\bdarker\b|\bbrighter\b|remove the /.test(
       lower
     );
   const existingCue = /(mein|letzten|aktuellen|vorhanden|existing)/.test(lower);

@@ -200,7 +200,7 @@ describe('U.2 mandatory 8-step Project Memory health scenario', () => {
 
     const step6 = await nexterChat(user.id, 'Change the current banner.');
     assert.match(last(step6)?.content ?? '', /Banner v1/);
-    assert.match(last(step6)?.content ?? '', /Anpassungs-Assistenten/);
+    assert.match(last(step6)?.content ?? '', /vorbereitet|nicht still|Ausführung derzeit nicht verfügbar|ändern/i);
     assert.equal(noProvider(step6), true);
 
     const step7 = await nexterChat(user.id, 'Switch to TreffNix TikTok.');
@@ -413,12 +413,12 @@ describe('U.2 precedence, negatives, context, security', () => {
 });
 
 describe('U.2 security / ui / regression scan', () => {
-  it('does not implement Block V, keeps gating, and labels current-unavailable truthfully', () => {
+  it('keeps V.0 modification foundation ungated from paid edits and labels current-unavailable truthfully', () => {
     const conv = src('./nexter/conversation.service.ts');
     const mem = src('./project-memory.service.ts');
     const quotes = src('./nexter/quotes.service.ts');
     const detail = readFileSync(join(dir, '../../../frontend/src/v2/pages/ProjectDetailPage.tsx'), 'utf8');
-    assert.match(conv, /Anpassungs-Assistenten/);
+    assert.match(conv, /shouldHandleModificationAssistant|prepareModificationRequest/);
     assert.doesNotMatch(conv, /implement full image editing|Block V implemented/i);
     assert.match(mem, /resolveCurrentProjectAsset/);
     assert.match(quotes, /revalidateQuoteProjectAndReference/);

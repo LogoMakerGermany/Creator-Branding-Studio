@@ -78,7 +78,11 @@ import {
   extractExplicitRequestOverrides,
   resolveProjectAwarePreference,
   parseProjectAssetRoleFromText,
+  isCreateNewAssetUtterance,
+  isModificationUtterance,
+  wantsModificationSummary,
   type NexterChatMessage,
+  type NexterModificationPrep,
   type NexterQuoteKind,
   type NexterSession,
 } from '@ucbs/shared';
@@ -97,6 +101,10 @@ import {
   intentAllowsFormatFallback,
   intentAllowsQuote,
   resolveNexterConversationIntent,
+  isAppHelpMessage,
+  isAccountSettingsMessage,
+  isSmalltalkMessage,
+  isCreatorAdviceMessage,
   type NexterConversationIntent,
 } from './conversation-intent.js';
 import { buildNexterSystemPrompt, stripUnsolicitedCreatorCta } from './conversation-prompt.js';
@@ -158,6 +166,11 @@ import {
   resolveCurrentProjectAsset,
   findProjectAssetByVersion,
 } from '../project-memory.service.js';
+import {
+  prepareModificationRequest,
+  modificationUserReply,
+  toModificationSessionState,
+} from '../modification.service.js';
 import { nexterSessionLockKey, withDevLock } from '../../lib/dev-mutex.js';
 import {
   formatPlanningDigest,
@@ -236,6 +249,7 @@ function normalizeSession(session: NexterSession): NexterSession {
   if (!session.lastReferencedProjectId) delete session.lastReferencedProjectId;
   if (!session.lastReferencedAssetRole) delete session.lastReferencedAssetRole;
   if (!session.lastReferencedAssetId) delete session.lastReferencedAssetId;
+  if (!session.lastModificationRequest) delete session.lastModificationRequest;
   return session;
 }
 
@@ -248,6 +262,7 @@ async function persistSession(session: NexterSession): Promise<void> {
     lastReferencedProjectId: session.lastReferencedProjectId ?? null,
     lastReferencedAssetRole: session.lastReferencedAssetRole ?? null,
     lastReferencedAssetId: session.lastReferencedAssetId ?? null,
+    lastModificationRequest: session.lastModificationRequest ?? null,
   });
 }
 
@@ -255,6 +270,7 @@ function clearSessionReferents(session: NexterSession): void {
   delete session.lastReferencedProjectId;
   delete session.lastReferencedAssetRole;
   delete session.lastReferencedAssetId;
+  delete session.lastModificationRequest;
 }
 
 function rememberSessionReferent(
@@ -267,6 +283,66 @@ function rememberSessionReferent(
   session.lastReferencedAssetRole = role;
   if (assetId) session.lastReferencedAssetId = assetId;
   else delete session.lastReferencedAssetId;
+}
+
+function modificationPrepView(
+  req: {
+    target?: { name?: string; role?: string };
+    changes: Array<{ kind: string; to?: string; value?: string; element?: string }>;
+    preserve: Array<{ kind: string; element?: string }>;
+    replaceCurrent: boolean;
+    contradictions: string[];
+    missingInformation: string[];
+  },
+  clarification?: string
+): NexterModificationPrep {
+  return {
+    targetLabel: req.target?.name || req.target?.role,
+    changes: req.changes.map((c) => [c.kind.replace(/_/g, ' ').toLowerCase(), c.to || c.value || c.element].filter(Boolean).join(': ')),
+    preserve: req.preserve.map((p) => p.element || p.kind),
+    replaceCurrent: req.replaceCurrent === true,
+    executionAvailable: false,
+    clarification:
+      clarification ||
+      (req.contradictions.length ? 'Widerspruch klären' : req.missingInformation.includes('target') ? 'Ziel unklar' : req.missingInformation.includes('changes') ? 'Änderung unklar' : undefined),
+  };
+}
+
+function shouldHandleModificationAssistant(input: {
+  message: string;
+  session: NexterSession;
+  meta?: { fileId?: string };
+  command: { action: string | null; historical?: boolean };
+  ctx: { lastLogoId?: string; lastBannerId?: string; lastFacecamId?: string; lastOverlayId?: string };
+  hasProject: boolean;
+}): boolean {
+  const { message, session, meta, command, ctx } = input;
+  if (command.action && command.action !== 'use_reference') return false;
+  if (isCreateNewAssetUtterance(message)) return false;
+  if (isSmalltalkMessage(message) || isAppHelpMessage(message) || isAccountSettingsMessage(message) || isCreatorAdviceMessage(message)) {
+    return false;
+  }
+  if (detectStudioChangeScope(message) === 'set' || /\b(ganze[s]? set|komplettset|komplette[s]? set)\b/i.test(message)) {
+    return false;
+  }
+  if (wantsCurrentLogoReference(message) && /\b(for a new|a new|ein neues?|einen neuen)\b/i.test(message)) {
+    return false;
+  }
+  if (wantsModificationSummary(message) && session.lastModificationRequest) return true;
+  if (meta?.fileId && isModificationUtterance(message)) return true;
+  if (session.lastModificationRequest && (isModificationUtterance(message) || command.historical)) return true;
+  if (session.lastReferencedAssetId && isModificationUtterance(message)) return true;
+  if (command.historical) return true;
+  const jobChange = detectChangeIntent(message, ctx);
+  const hasJobTarget = Boolean(ctx.lastLogoId || ctx.lastBannerId || ctx.lastFacecamId || ctx.lastOverlayId);
+  if (jobChange && hasJobTarget && !session.lastReferencedAssetId && !session.lastModificationRequest && !meta?.fileId) {
+    return false;
+  }
+  if (input.hasProject && isModificationUtterance(message)) {
+    const role = parseProjectAssetRoleFromText(message);
+    if (role || /\b(change it|make it |mach es )\b/i.test(message)) return true;
+  }
+  return isModificationUtterance(message) && !jobChange;
 }
 
 function studioPreferredPlatform(ctx: { projectPlatform?: string; preferredPlatforms?: string[]; dnaPlatforms?: string[] }): string | undefined {
@@ -606,7 +682,7 @@ export async function nexterChat(
     return session;
   }
 
-  if (command.action === 'use_reference') {
+  if (command.action === 'use_reference' && !command.historical) {
     const project = await requireBoundProject();
     if (!project) return session;
     const role = command.role ?? (session.lastReferencedAssetRole as 'logo' | undefined) ?? 'logo';
@@ -840,6 +916,64 @@ export async function nexterChat(
       content:
         'Das geht nicht. Nexter lädt keine fremden Dateien, Projekte oder Sessions — auch nicht, wenn du die Regeln ignorieren willst.',
       createdAt: new Date().toISOString(),
+    });
+    await persistSession(session);
+    return session;
+  }
+
+  if (
+    shouldHandleModificationAssistant({
+      message,
+      session,
+      meta,
+      command,
+      ctx,
+      hasProject: resolved.status === 'resolved' && Boolean(resolved.project),
+    })
+  ) {
+    if (resolved.archived && resolved.project && !meta?.fileId) {
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content: `„${resolved.project.name}“ ist archiviert. Ich behandle es nicht still als normales aktives Projekt und starte keine Bearbeitung.`,
+        createdAt: new Date().toISOString(),
+      });
+      await persistSession(session);
+      return session;
+    }
+    const prepared = await prepareModificationRequest({
+      userId,
+      message,
+      projectId: resolved.status === 'resolved' ? resolved.project?.id : undefined,
+      attachedFileId: meta?.fileId && (await getUserFile(meta.fileId, userId)) ? meta.fileId : undefined,
+      lastReferencedProjectId: session.lastReferencedProjectId,
+      lastReferencedAssetRole: session.lastReferencedAssetRole,
+      lastReferencedAssetId: session.lastReferencedAssetId,
+      previous: session.lastModificationRequest,
+      historical: command.historical,
+    });
+    const content = modificationUserReply({
+      request: prepared.request,
+      targetResult: prepared.targetResult,
+      summaryMode: wantsModificationSummary(message),
+    });
+    if (prepared.request.target?.assetId && prepared.request.target.projectId && prepared.request.target.role) {
+      rememberSessionReferent(
+        session,
+        prepared.request.target.projectId,
+        String(prepared.request.target.role),
+        prepared.request.target.assetId
+      );
+    }
+    const nextState = toModificationSessionState(prepared.request);
+    if (nextState) session.lastModificationRequest = nextState;
+    const noPaid = !content.includes('assetId') && !content.includes('fileId') && !content.includes('MODIFY_ASSET');
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: noPaid ? content : content.replace(/assetId|fileId|MODIFY_ASSET|TEXT_REPLACE/g, 'Asset'),
+      createdAt: new Date().toISOString(),
+      modificationPrep: modificationPrepView(prepared.request),
     });
     await persistSession(session);
     return session;
@@ -1699,58 +1833,6 @@ export async function nexterChat(
   }
 
   const conversationIntent = resolveNexterConversationIntent(message, session.messages.slice(0, -1), ctx);
-
-  if (conversationIntent.intent === 'MODIFY_ASSET' && resolved.status === 'resolved' && resolved.project) {
-    const role = parseProjectAssetRoleFromText(message);
-    const lower = message.toLowerCase();
-    const projectModify =
-      Boolean(role) &&
-      (/\b(change|änder)\b.{0,48}\b(current|aktuell|old|alte[sn]?|historisch)\b/.test(lower) ||
-        /\b(change|änder)\b.{0,16}\b(the|das|die)\s+(?:current\s+|old\s+|aktuell(?:e[sn]?)?\s+|alte[sn]?\s+)?(logo|banner|facecam|overlay)\b/i.test(
-          message
-        ));
-    if (role && projectModify) {
-      if (resolved.archived) {
-        session.messages.push({
-          id: randomUUID(),
-          role: 'assistant',
-          content:
-            `„${resolved.project.name}“ ist archiviert. Ich behandle es nicht still als normales aktives Projekt und starte keine Bearbeitung.`,
-          createdAt: new Date().toISOString(),
-        });
-        await persistSession(session);
-        return session;
-      }
-      const state = await resolveCurrentProjectAsset(userId, resolved.project.id, role);
-      const wantsHistorical = /\b(old|alte[sn]?|historisch|früher|previous)\b/.test(lower);
-      let content: string;
-      if (wantsHistorical) {
-        if (state.historical.length > 1) {
-          content = `Es gibt mehrere historische ${role}-Versionen in „${resolved.project.name}“. Welche meinst du? Ich rate nicht.`;
-        } else if (state.historical.length === 1 && state.historical[0]) {
-          rememberSessionReferent(session, resolved.project.id, role, state.historical[0].id);
-          content = `Historisches ${role} in „${resolved.project.name}“: ${state.historical[0].name}. Anpassungen daran gehören zum späteren Anpassungs-Assistenten. Ich starte keine Bearbeitung und rufe keinen Provider.`;
-        } else {
-          content = `Ich finde kein eindeutiges älteres ${role} in diesem Projekt. Welches meinst du?`;
-        }
-      } else if (state.state === 'CURRENT_AVAILABLE' && state.current) {
-        rememberSessionReferent(session, resolved.project.id, role, state.current.id);
-        content = `Aktuelles ${role} in „${resolved.project.name}“: ${state.current.name}. Anpassungen daran gehören zum späteren Anpassungs-Assistenten. Ich starte keine Bearbeitung und rufe keinen Provider.`;
-      } else if (state.state === 'CURRENT_UNAVAILABLE' && state.current) {
-        content = `Das aktuelle ${role} in „${resolved.project.name}“ ist nicht verfügbar. Ich starte keine Bearbeitung.`;
-      } else {
-        content = `Ich finde kein eindeutiges aktuelles ${role} in diesem Projekt. Welches meinst du?`;
-      }
-      session.messages.push({
-        id: randomUUID(),
-        role: 'assistant',
-        content,
-        createdAt: new Date().toISOString(),
-      });
-      await persistSession(session);
-      return session;
-    }
-  }
 
   if (conversationIntent.intent === 'SMALLTALK') {
     const reply = stripUnsolicitedCreatorCta(

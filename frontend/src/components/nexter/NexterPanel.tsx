@@ -536,6 +536,21 @@ export function NexterPanel({
             >
               {m.content}
             </div>
+            {m.modificationPrep ? (
+              <div className="mt-2 max-w-[95%] rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left text-[12px] text-zinc-300">
+                {m.modificationPrep.targetLabel ? <p>Ziel: {m.modificationPrep.targetLabel}</p> : null}
+                {m.modificationPrep.changes.length ? (
+                  <p className="mt-1">Änderungen: {m.modificationPrep.changes.join(', ')}</p>
+                ) : null}
+                {m.modificationPrep.preserve.length ? (
+                  <p className="mt-1">Unverändert: {m.modificationPrep.preserve.join(', ')}</p>
+                ) : null}
+                <p className="mt-1">
+                  Projekt-Aktuell: {m.modificationPrep.replaceCurrent ? 'später ersetzen, nur nach Bestätigung' : 'nicht still ersetzen'}
+                </p>
+                <p className="mt-1 text-amber-200/90">Ausführung derzeit nicht verfügbar.</p>
+              </div>
+            ) : null}
             {m.role === 'assistant' && ttsSupported ? (
               <div className="mt-1">
                 <button

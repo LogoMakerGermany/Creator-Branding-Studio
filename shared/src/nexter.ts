@@ -67,6 +67,15 @@ export type NexterQuoteKind =
   | 'voice'
   | 'captions';
 
+export interface NexterModificationPrep {
+  targetLabel?: string;
+  changes: string[];
+  preserve: string[];
+  replaceCurrent: boolean;
+  executionAvailable: false;
+  clarification?: string;
+}
+
 export interface NexterChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -74,6 +83,7 @@ export interface NexterChatMessage {
   createdAt: string;
   suggestions?: string[];
   actions?: NexterAction[];
+  modificationPrep?: NexterModificationPrep;
 }
 
 export interface NexterAction {
@@ -112,6 +122,7 @@ export interface NexterSession {
   lastReferencedProjectId?: string;
   lastReferencedAssetRole?: string;
   lastReferencedAssetId?: string;
+  lastModificationRequest?: import('./modification').ModificationSessionState;
 }
 
 export interface NexterMemoryEntry {

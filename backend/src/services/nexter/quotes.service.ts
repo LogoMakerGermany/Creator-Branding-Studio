@@ -52,6 +52,9 @@ export async function createQuote(
   payload?: Record<string, unknown>,
   coinCost?: number
 ): Promise<NexterQuote> {
+  if (payload?.operation === 'MODIFY_ASSET') {
+    throw new ServiceError(409, 'MODIFICATION_UNAVAILABLE', 'Änderungen haben keinen ausführbaren Coin-Preis.');
+  }
   const now = Date.now();
   let resolvedPayload = payload;
   if (coinCost !== undefined && (typeof coinCost !== 'number' || !Number.isFinite(coinCost) || !Number.isInteger(coinCost) || coinCost < 0)) {
@@ -1593,6 +1596,11 @@ async function confirmQuoteUnlocked(userId: string, quoteId: string): Promise<{
   const quote = await getQuote(userId, quoteId);
   if (!quote) throw new ServiceError(404, 'QUOTE_NOT_FOUND', 'Angebot nicht gefunden');
   await assertCurrentContentRightsAck(userId);
+  if (quote.payload?.operation === 'MODIFY_ASSET') {
+    const { revalidateModificationPreconditions } = await import('../modification.service.js');
+    await revalidateModificationPreconditions(userId, quote.payload);
+    throw new ServiceError(409, 'MODIFICATION_UNAVAILABLE', 'Bildbearbeitung ist nicht ausführbar. Es wurde nichts abgebucht.');
+  }
   await revalidateQuoteProjectAndReference(userId, quote);
 
   if (quote.kind === 'streamset') {

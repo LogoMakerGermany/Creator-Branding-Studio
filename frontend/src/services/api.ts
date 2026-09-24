@@ -2215,6 +2215,14 @@ export interface NexterChatMessage {
   createdAt: string;
   suggestions?: string[];
   actions?: NexterAction[];
+  modificationPrep?: {
+    targetLabel?: string;
+    changes: string[];
+    preserve: string[];
+    replaceCurrent: boolean;
+    executionAvailable: false;
+    clarification?: string;
+  };
 }
 
 export interface NexterSessionDto {

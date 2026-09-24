@@ -104,7 +104,7 @@ export function isAmbiguousBareMessage(message: string): boolean {
 export function looksLikeAssetEditFollowUp(message: string): boolean {
   const t = normalizeUtterance(message);
   if (!t || isSmalltalkMessage(message) || isAmbiguousBareMessage(message)) return false;
-  return /änder|transparent|hintergrund|dünner|dicker|entferne |rahmen|mach (es|den|das|die) /.test(t);
+  return /änder|transparent|hintergrund|dünner|dicker|entferne |rahmen|mach (es|den|das|die) |change |make it |darker/.test(t);
 }
 
 export function looksLikeWorkflowResume(message: string): boolean {

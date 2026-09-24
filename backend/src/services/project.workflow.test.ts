@@ -381,7 +381,7 @@ describe('U.1 project selection, session, assets, quotes', () => {
     assert.equal(await getCoinBalance(user.id), coinsBefore);
 
     const modify = await nexterChat(user.id, 'Change the current banner.');
-    assert.match(modify.messages.at(-1)?.content ?? '', /kein eindeutiges aktuelles banner|Anpassungs-Assistenten|Welches meinst du/i);
+    assert.match(modify.messages.at(-1)?.content ?? '', /kein eindeutiges aktuelles banner|Anpassungs-Assistenten|Welches meinst du|Welches vorhandene Asset/i);
     assert.equal(noGen(modify), true);
 
     const generic = await createNexterSession(user.id);
