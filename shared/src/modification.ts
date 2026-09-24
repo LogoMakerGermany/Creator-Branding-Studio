@@ -4,6 +4,7 @@
  */
 
 import type { ProjectAssetRole } from './project-memory';
+import { COIN_COSTS, CoinSpendCategory } from './coins';
 
 export const MODIFICATION_CHANGE_KINDS = [
   'TEXT_REPLACE',
@@ -92,8 +93,12 @@ export interface ModificationRequest {
   matchDna?: boolean;
   replaceCurrent: boolean;
   contradictions: string[];
-  pricing: { defined: false; reason: 'PRICING_DECISION_REQUIRED' };
+  pricing: ModificationPricing;
 }
+
+export type ModificationPricing =
+  | { defined: true; coins: number; category: CoinSpendCategory.IMAGE_EDIT }
+  | { defined: false; reason: 'PRICING_DECISION_REQUIRED' };
 
 export interface ModificationSessionState {
   targetAssetId?: string;
@@ -322,8 +327,12 @@ export function parseModificationIntentMeta(message: string): {
   };
 }
 
-export function modificationPriceStatus(): { defined: false; reason: 'PRICING_DECISION_REQUIRED' } {
-  return { defined: false, reason: 'PRICING_DECISION_REQUIRED' };
+export function modificationPriceStatus(): ModificationPricing {
+  return {
+    defined: true,
+    coins: COIN_COSTS[CoinSpendCategory.IMAGE_EDIT],
+    category: CoinSpendCategory.IMAGE_EDIT,
+  };
 }
 
 export function buildProviderCapabilitySnapshot(input: {
@@ -449,6 +458,14 @@ export function summarizeModification(req: ModificationRequest): string {
   if (req.contradictions.length) {
     lines.push('Widerspruch: Bitte kläre, was gelten soll. Ich wähle nicht still.');
   }
+  if (req.pricing.defined) {
+    lines.push(`Preis: ${req.pricing.coins} Coins.`);
+  }
+  if (req.replaceCurrent) {
+    lines.push('Ersatz: neue Version wird nach Bestätigung zum aktuellen Asset.');
+  } else {
+    lines.push('Ersatz: neue Version, aktuelles Asset bleibt aktuell.');
+  }
   if (!req.executable) {
     lines.push('Ausführung derzeit nicht verfügbar. Es wird nichts generiert und nichts abgebucht.');
   }
@@ -556,4 +573,63 @@ function humanPreserve(p: PreserveInstruction): string {
   if (p.kind === 'layout') return 'Layout';
   if (p.kind === 'style') return 'Stil';
   return p.kind;
+}
+
+const TRANSPARENT_EDIT_ROLES = new Set(['logo', 'facecam', 'overlay', 'sticker']);
+
+export function imageEditWantsTransparency(input: {
+  role?: string;
+  changes: ModificationChange[];
+  userText: string;
+}): boolean {
+  if (input.changes.some((change) => change.kind === 'BACKGROUND_REMOVE')) return true;
+  const text = String(input.userText ?? '').toLowerCase();
+  if (!/transparent|transparenz/.test(text)) return false;
+  if (input.role && TRANSPARENT_EDIT_ROLES.has(input.role)) return true;
+  return true;
+}
+
+export function buildImageEditPrompt(input: {
+  userText: string;
+  changes: ModificationChange[];
+  preserve: PreserveInstruction[];
+  matchProject?: boolean;
+  matchDna?: boolean;
+  projectStyleHint?: string;
+  dnaStyleHint?: string;
+}): string {
+  const lines = [
+    'You are editing an existing image. Apply ONLY the requested changes.',
+    'CHANGE ONLY the requested properties. Do not redesign, restyle, recolor, replace mascots, change layout, or replace the background unless those changes are explicitly requested.',
+    'Preserve all unrelated visual characteristics, composition, identity, and unmentioned details.',
+  ];
+  if (input.changes.length) {
+    lines.push('Requested changes:');
+    for (const change of input.changes) {
+      lines.push(`- ${humanChange(change)}`);
+    }
+  }
+  lines.push('Must preserve:');
+  if (input.preserve.length) {
+    for (const item of input.preserve) {
+      lines.push(`- ${humanPreserve(item)}`);
+    }
+  } else {
+    lines.push('- everything that was not explicitly listed as a change');
+  }
+  lines.push('- all unrelated visual characteristics');
+  if (input.matchProject && input.projectStyleHint) {
+    lines.push(`Match the existing project visual style because the user asked: ${input.projectStyleHint}`);
+  }
+  if (input.matchDna && input.dnaStyleHint) {
+    lines.push(`Match Creator DNA because the user asked: ${input.dnaStyleHint}`);
+  }
+  if (!input.matchProject && !input.matchDna) {
+    lines.push(
+      'Do not apply Creator DNA, brand palettes, or project style unless they are already present in the source image.'
+    );
+  }
+  const userText = String(input.userText ?? '').trim().slice(0, 2000);
+  if (userText) lines.push(`Original user request: ${userText}`);
+  return lines.join('\n');
 }

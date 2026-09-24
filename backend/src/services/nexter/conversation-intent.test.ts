@@ -484,6 +484,7 @@ describe('nexter conversation intelligence — O.2b logo create vs open studio',
     assert.match(openaiImage, /images\/generations/);
     const env = readFileSync(join(dir, '../../config/env.ts'), 'utf8');
     assert.match(env, /isEnvFlagTrue\('IMAGE_GENERATIONS_ENABLED'\)/);
+    assert.match(env, /isEnvFlagTrue\('IMAGE_EDITS_ENABLED'\)/);
   });
 
   it('CREATE_ASSET without an existing logo does not abort with the no-logo modify message', async () => {

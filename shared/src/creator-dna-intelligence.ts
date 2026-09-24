@@ -171,6 +171,8 @@ export function dnaTaskForQuoteKind(kind: NexterQuoteKind | null | undefined): D
       return 'audio';
     case 'text':
       return 'text';
+    case 'image-edit':
+      return 'chat';
     default:
       return 'chat';
   }

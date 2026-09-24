@@ -14,6 +14,7 @@ import {
   arePaymentsEnabled,
   getDefaultFreeCoins,
   hasImageAiProvider,
+  hasImageEditProvider,
   hasMusicAiProvider,
   hasVideoAiProvider,
   isElevenLabsTtsLiveEnabled,
@@ -263,6 +264,7 @@ describe('Block O.1 — OpenAI GPT Image adapter (no live calls)', () => {
       {
         OPENAI_API_KEY: 'sk-test-not-real-openai',
         IMAGE_GENERATIONS_ENABLED: undefined,
+        IMAGE_EDITS_ENABLED: undefined,
         NEXTER_CHAT_ENABLED: 'true',
         REPLICATE_API_TOKEN: undefined,
         RUNWAY_API_KEY: undefined,
@@ -270,6 +272,7 @@ describe('Block O.1 — OpenAI GPT Image adapter (no live calls)', () => {
       },
       () => {
         assert.equal(hasImageAiProvider(), false);
+        assert.equal(hasImageEditProvider(), false);
         assert.equal(isNexterChatProviderAvailable(), true);
         assert.equal(hasVideoAiProvider(), false);
         assert.equal(hasMusicAiProvider(), false);
@@ -280,6 +283,7 @@ describe('Block O.1 — OpenAI GPT Image adapter (no live calls)', () => {
     assert.equal(arePaymentsEnabled(), false);
     assert.equal(getDefaultFreeCoins(), 50);
     assert.equal(COIN_COSTS[CoinSpendCategory.LOGO_GENERATION], 15);
+    assert.equal(COIN_COSTS[CoinSpendCategory.IMAGE_EDIT], 15);
     assert.equal(COIN_COSTS[CoinSpendCategory.BANNER_GENERATION], 10);
     assert.equal(COIN_COSTS[CoinSpendCategory.FACECAM_GENERATION], 10);
     assert.equal(COIN_COSTS[CoinSpendCategory.OVERLAY_GENERATION], 12);

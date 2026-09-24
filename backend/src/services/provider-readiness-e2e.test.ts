@@ -15,6 +15,7 @@ import {
   getDefaultFreeCoins,
   getPaidGenerationAvailability,
   hasImageAiProvider,
+  hasImageEditProvider,
   hasMusicAiProvider,
   hasVideoAiProvider,
   isElevenLabsTtsLiveEnabled,
@@ -317,6 +318,8 @@ describe('Block N.1 — provider kill-switch hardening (fail-closed)', () => {
         () => {
           assert.equal(hasImageAiProvider(), false);
           assert.equal(getPaidGenerationAvailability().image, false);
+          assert.equal(hasImageEditProvider(), false);
+          assert.equal(getPaidGenerationAvailability().imageEdit, false);
           assert.throws(
             () => requireImageProvider(),
             (err: unknown) => err instanceof ServiceError && err.code === IMAGE_GENERATION_UNAVAILABLE_CODE
@@ -333,10 +336,49 @@ describe('Block N.1 — provider kill-switch hardening (fail-closed)', () => {
         OPENAI_API_KEY: 'sk-test-not-real-openai',
         REPLICATE_API_TOKEN: undefined,
         IMAGE_GENERATIONS_ENABLED: 'true',
+        IMAGE_EDITS_ENABLED: undefined,
       },
       () => {
         assert.equal(hasImageAiProvider(), true);
         assert.equal(getPaidGenerationAvailability().image, true);
+        assert.equal(hasImageEditProvider(), false);
+        assert.equal(getPaidGenerationAvailability().imageEdit, false);
+      }
+    );
+  });
+
+  it('3b. IMAGE_EDITS_ENABLED is independent of IMAGE_GENERATIONS_ENABLED', async () => {
+    await withEnv(
+      {
+        GENERATIONS_ENABLED: 'true',
+        OPENAI_API_KEY: 'sk-test-not-real-openai',
+        IMAGE_GENERATIONS_ENABLED: undefined,
+        IMAGE_EDITS_ENABLED: 'true',
+      },
+      () => {
+        assert.equal(hasImageAiProvider(), false);
+        assert.equal(hasImageEditProvider(), true);
+        assert.equal(getPaidGenerationAvailability().imageEdit, true);
+      }
+    );
+    await withEnv(
+      {
+        GENERATIONS_ENABLED: 'true',
+        OPENAI_API_KEY: undefined,
+        IMAGE_EDITS_ENABLED: 'true',
+      },
+      () => {
+        assert.equal(hasImageEditProvider(), false);
+      }
+    );
+    await withEnv(
+      {
+        GENERATIONS_ENABLED: 'true',
+        OPENAI_API_KEY: 'sk-test-not-real-openai',
+        IMAGE_EDITS_ENABLED: 'false',
+      },
+      () => {
+        assert.equal(hasImageEditProvider(), false);
       }
     );
   });
@@ -354,6 +396,8 @@ describe('Block N.1 — provider kill-switch hardening (fail-closed)', () => {
         assert.equal(getPaidGenerationAvailability().chat, true);
         assert.equal(hasImageAiProvider(), false);
         assert.equal(getPaidGenerationAvailability().image, false);
+        assert.equal(hasImageEditProvider(), false);
+        assert.equal(getPaidGenerationAvailability().imageEdit, false);
       }
     );
   });
@@ -603,6 +647,7 @@ describe('Block N.1 — provider kill-switch hardening (fail-closed)', () => {
   it('27-35. pricing, welcome, browser TTS, and payments stay frozen', () => {
     assert.equal(getDefaultFreeCoins(), 50);
     assert.equal(COIN_COSTS[CoinSpendCategory.LOGO_GENERATION], 15);
+    assert.equal(COIN_COSTS[CoinSpendCategory.IMAGE_EDIT], 15);
     assert.equal(COIN_COSTS[CoinSpendCategory.AI_MUSIC], 10);
     assert.equal(COIN_COSTS[CoinSpendCategory.ANIMATION_GENERATION], 25);
     assert.equal(COIN_COSTS[CoinSpendCategory.AI_VIDEO], 25);
@@ -618,6 +663,7 @@ describe('Block N.1 — provider kill-switch hardening (fail-closed)', () => {
     assert.match(env, /isEnvFlagTrue\('VIDEO_GENERATIONS_ENABLED'\)/);
     assert.match(env, /isEnvFlagTrue\('MUSIC_GENERATIONS_ENABLED'\)/);
     assert.match(env, /isEnvFlagTrue\('IMAGE_GENERATIONS_ENABLED'\)/);
+    assert.match(env, /isEnvFlagTrue\('IMAGE_EDITS_ENABLED'\)/);
     assert.match(env, /isEnvFlagTrue\('TTS_GENERATION_ENABLED'\)/);
     assert.match(env, /isEnvFlagTrue\('NEXTER_CHAT_ENABLED'\)/);
     assert.match(env, /isEnvFlagTrue\('PAYMENTS_ENABLED'\)/);
@@ -629,6 +675,7 @@ describe('Block N.1 — provider kill-switch hardening (fail-closed)', () => {
     assert.match(src('lib/media-providers.ts'), /UNOFFICIAL_SUNO_DISABLED/);
     assert.match(repo('backend/.env.example'), /VIDEO_GENERATIONS_ENABLED=false/);
     assert.match(repo('backend/.env.example'), /MUSIC_GENERATIONS_ENABLED=false/);
+    assert.match(repo('backend/.env.example'), /IMAGE_EDITS_ENABLED=false/);
     assert.equal(isPaidProviderTestBlocked(), true);
   });
 });

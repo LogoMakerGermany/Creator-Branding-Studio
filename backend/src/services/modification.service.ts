@@ -14,22 +14,40 @@ import type {
 } from '@ucbs/shared';
 import {
   assertSafeLineage,
+  buildImageEditPrompt,
   buildModificationRequest,
   buildProviderCapabilitySnapshot,
+  COIN_COSTS,
+  CoinSpendCategory,
+  imageEditWantsTransparency,
+  modificationPriceStatus,
   parseProjectAssetRoleFromText,
   summarizeModification,
   toModificationSessionState,
 } from '@ucbs/shared';
+import { randomUUID } from 'node:crypto';
 import { ServiceError } from '../lib/errors.js';
-import { hasImageAiProvider, hasVideoAiProvider } from '../config/env.js';
-import { getUserFile } from './file-cloud.service.js';
+import { hasImageAiProvider, hasImageEditProvider, hasVideoAiProvider } from '../config/env.js';
+import { getUserFile, readOwnedImageBytes, saveGeneratedAssetFromBuffer } from './file-cloud.service.js';
 import { getProject } from './project.service.js';
-import { listProjectAssets, resolveCurrentProjectAsset, resolveProjectAssetReference } from './project-memory.service.js';
+import { listProjectAssets, linkAssetToProject, resolveCurrentProjectAsset, resolveProjectAssetReference } from './project-memory.service.js';
+import { looksLikePathInjection, sniffRasterImageMime } from '../lib/upload-validation.js';
+import {
+  assertAllowedImageEditModel,
+  editGptImage,
+  OPENAI_GPT_IMAGE_EDIT_MODEL,
+} from '../lib/openai-image-edit.js';
+import { withCoinCharge } from '../lib/billable-job.js';
+import { AppError } from '../middleware/errorHandler.js';
+import { recordApiCost, API_COST_KIND_ESTIMATE } from '../lib/api-cost.js';
+import { saveJob, type GenerationJob } from './ai.service.js';
+import { resolveDnaForRequest } from './dna.service.js';
+import type { NexterQuote } from '@ucbs/shared';
 
 export function currentProviderCapabilitySnapshot(): ProviderCapabilitySnapshot {
   return buildProviderCapabilitySnapshot({
     imageCreate: hasImageAiProvider(),
-    imageEditImplemented: false,
+    imageEditImplemented: hasImageEditProvider(),
     videoCreate: hasVideoAiProvider(),
     videoEditImplemented: false,
     audioEditImplemented: false,
@@ -275,8 +293,8 @@ function fromAssetCheck(
 export function buildModificationQuotePayload(req: ModificationRequest): Record<string, unknown> {
   return {
     operation: 'MODIFY_ASSET',
-    executable: false,
-    quoteRequired: false,
+    executable: req.executable === true,
+    quoteRequired: req.executable === true,
     projectId: req.projectId,
     target: req.target,
     changes: req.changes,
@@ -285,14 +303,16 @@ export function buildModificationQuotePayload(req: ModificationRequest): Record<
     matchProject: req.matchProject === true,
     matchDna: req.matchDna === true,
     pricing: req.pricing,
-    providerCapability: req.providerCapability,
+    providerCapability: req.providerCapability ?? 'IMAGE_EDIT',
+    userText: req.userText,
+    output: req.output,
   };
 }
 
 export function isModificationQuoteExecutable(payload: Record<string, unknown> | undefined): boolean {
   if (!payload || payload.operation !== 'MODIFY_ASSET') return false;
-  if (payload.executable === true) return false;
-  return false;
+  if (payload.providerCapability !== 'IMAGE_EDIT') return false;
+  return payload.executable === true;
 }
 
 export async function revalidateModificationPreconditions(
@@ -333,12 +353,263 @@ export async function revalidateModificationPreconditions(
       throw new ServiceError(403, 'FOREIGN_FILE', 'Die Zieldatei gehört nicht zu deinem Konto oder ist gelöscht.');
     }
   }
+  const maskFileId = typeof payload.maskFileId === 'string' ? payload.maskFileId : undefined;
+  if (maskFileId) {
+    if (looksLikePathInjection(maskFileId) || !/^[0-9a-f-]{36}$/i.test(maskFileId)) {
+      throw new ServiceError(400, 'INVALID_MASK', 'Die Maske ist ungültig.');
+    }
+    const maskOwned = await getUserFile(maskFileId, userId);
+    if (!maskOwned) {
+      throw new ServiceError(400, 'INVALID_MASK', 'Die Maske ist ungültig.');
+    }
+  }
   const cap = currentProviderCapabilitySnapshot();
   const needed = String(payload.providerCapability ?? 'IMAGE_EDIT') as keyof ProviderCapabilitySnapshot;
+  if (needed === 'VIDEO_EDIT' || needed === 'AUDIO_EDIT') {
+    throw new ServiceError(409, 'MODIFICATION_UNAVAILABLE', 'Diese Bearbeitung ist derzeit nicht ausführbar.');
+  }
   if (cap[needed] !== true) {
     throw new ServiceError(409, 'MODIFICATION_UNAVAILABLE', 'Diese Bearbeitung ist derzeit nicht ausführbar.');
   }
-  throw new ServiceError(409, 'PRICING_DECISION_REQUIRED', 'Für Änderungen ist kein Coin-Preis festgelegt.');
+  if (!hasImageEditProvider()) {
+    throw new ServiceError(409, 'MODIFICATION_UNAVAILABLE', 'Diese Bearbeitung ist derzeit nicht ausführbar.');
+  }
+  assertAllowedImageEditModel(
+    typeof payload.model === 'string' ? payload.model : OPENAI_GPT_IMAGE_EDIT_MODEL
+  );
+  const price = modificationPriceStatus();
+  if (!price.defined) {
+    throw new ServiceError(409, 'PRICING_DECISION_REQUIRED', 'Für Änderungen ist kein Coin-Preis festgelegt.');
+  }
+  if (typeof payload.coinCost === 'number' && payload.coinCost !== price.coins) {
+    throw new ServiceError(409, 'PRICE_CHANGED', 'Der Preis hat sich geändert. Bitte ein neues Angebot bestätigen.');
+  }
+}
+
+function pngDimensions(buffer: Buffer): { width: number; height: number } | null {
+  if (buffer.length < 24) return null;
+  if (buffer[0] !== 0x89 || buffer[1] !== 0x50 || buffer[2] !== 0x4e || buffer[3] !== 0x47) return null;
+  const width = buffer.readUInt32BE(16);
+  const height = buffer.readUInt32BE(20);
+  if (!width || !height || width > 8192 || height > 8192) return null;
+  return { width, height };
+}
+
+function asChangeList(raw: unknown): ModificationChange[] {
+  return Array.isArray(raw) ? (raw as ModificationChange[]) : [];
+}
+
+function asPreserveList(raw: unknown): PreserveInstruction[] {
+  return Array.isArray(raw) ? (raw as PreserveInstruction[]) : [];
+}
+
+export async function executeQuotedImageEdit(
+  userId: string,
+  quote: NexterQuote
+): Promise<{
+  job: GenerationJob;
+  coinsSpent: number;
+  newBalance: number;
+  fileId: string;
+  assetId?: string;
+}> {
+  const payload = quote.payload ?? {};
+  if (quote.kind !== 'image-edit' || payload.operation !== 'MODIFY_ASSET') {
+    throw new ServiceError(400, 'INVALID_QUOTE', 'Dieses Angebot ist keine Bildbearbeitung.');
+  }
+  await revalidateModificationPreconditions(userId, payload);
+  const serverCost = COIN_COSTS[CoinSpendCategory.IMAGE_EDIT];
+  if (quote.coinCost !== serverCost) {
+    throw new ServiceError(409, 'PRICE_CHANGED', 'Der Preis hat sich geändert. Bitte ein neues Angebot bestätigen.');
+  }
+  if (typeof payload.model === 'string') {
+    assertAllowedImageEditModel(payload.model);
+  }
+  const target = payload.target as ModificationTarget;
+  const fileId = typeof target.fileId === 'string' ? target.fileId : undefined;
+  if (!fileId) {
+    throw new ServiceError(400, 'MODIFICATION_NO_TARGET', 'Kein gültiges Änderungsziel.');
+  }
+
+  const source = await readOwnedImageBytes(userId, fileId);
+  let mask: Buffer | undefined;
+  const maskFileId = typeof payload.maskFileId === 'string' ? payload.maskFileId : undefined;
+  if (maskFileId) {
+    if (looksLikePathInjection(maskFileId) || !/^[0-9a-f-]{36}$/i.test(maskFileId)) {
+      throw new ServiceError(400, 'INVALID_MASK', 'Die Maske ist ungültig.');
+    }
+    const maskOwned = await readOwnedImageBytes(userId, maskFileId);
+    if (maskOwned.mimeType !== 'image/png' || sniffRasterImageMime(maskOwned.buffer) !== 'image/png') {
+      throw new ServiceError(400, 'INVALID_MASK', 'Die Maske ist ungültig.');
+    }
+    const sourceSize = pngDimensions(source.buffer);
+    const maskSize = pngDimensions(maskOwned.buffer);
+    if (!sourceSize || !maskSize || sourceSize.width !== maskSize.width || sourceSize.height !== maskSize.height) {
+      throw new ServiceError(400, 'INVALID_MASK', 'Die Maske ist ungültig.');
+    }
+    mask = maskOwned.buffer;
+  }
+
+  const changes = asChangeList(payload.changes);
+  const preserve = asPreserveList(payload.preserve);
+  const userText = typeof payload.userText === 'string' ? payload.userText : '';
+  const matchProject = payload.matchProject === true;
+  const matchDna = payload.matchDna === true;
+  let projectStyleHint: string | undefined;
+  let dnaStyleHint: string | undefined;
+  if (matchProject && target.projectId) {
+    const project = await getProject(target.projectId, userId);
+    if (project?.name) projectStyleHint = `project "${project.name}"`;
+  }
+  if (matchDna) {
+    const { dna } = await resolveDnaForRequest(userId, target.projectId);
+    if (dna) {
+      const colors = Array.isArray(dna.primaryColors) ? dna.primaryColors.join(', ') : '';
+      dnaStyleHint = [dna.styleDirection, colors].filter(Boolean).join(' ');
+    }
+  }
+  const prompt = buildImageEditPrompt({
+    userText,
+    changes,
+    preserve,
+    matchProject,
+    matchDna,
+    projectStyleHint,
+    dnaStyleHint,
+  });
+  const aspect =
+    changes.find((c) => c.kind === 'ASPECT_RATIO_CHANGE')?.value ||
+    (payload.output && typeof payload.output === 'object' && typeof (payload.output as { aspectRatio?: unknown }).aspectRatio === 'string'
+      ? (payload.output as { aspectRatio: string }).aspectRatio
+      : undefined);
+  const background = imageEditWantsTransparency({
+    role: typeof target.role === 'string' ? target.role : undefined,
+    changes,
+    userText,
+  })
+    ? 'transparent'
+    : 'opaque';
+
+  try {
+    const charged = await withCoinCharge(
+      userId,
+      CoinSpendCategory.IMAGE_EDIT,
+      'Bildbearbeitung',
+      async () => {
+        const edited = await editGptImage({
+          sourceImage: source.buffer,
+          sourceMimeType: source.mimeType,
+          prompt,
+          mask,
+          size: aspect,
+          background,
+        });
+        const persisted = await saveGeneratedAssetFromBuffer(userId, 'image-edit', edited.buffer, {
+          mimeType: 'image/png',
+          projectId: target.projectId,
+          sourceAssetId: target.assetId,
+          name: `${source.file.name || 'image'}-edit.png`,
+        });
+        if (!persisted) {
+          throw new ServiceError(502, 'PROVIDER_INVALID_PAYLOAD', 'Die Bildbearbeitung lieferte kein gültiges Bild. Coins wurden erstattet.');
+        }
+        const lineage = assertSafeLineage({
+          parentFileId: fileId,
+          childFileId: persisted.id,
+          parentOwnerId: userId,
+          childOwnerId: userId,
+        });
+        if (!lineage.ok) {
+          throw new ServiceError(409, 'UNSAFE_LINEAGE', 'Die Bearbeitung konnte nicht sicher zugeordnet werden. Coins wurden erstattet.');
+        }
+
+        let resultAssetId: string | undefined;
+        if (target.projectId && target.role) {
+          const parent = target.assetId
+            ? (await listProjectAssets(userId, target.projectId)).find((a) => a.id === target.assetId)
+            : undefined;
+          const linked = await linkAssetToProject(userId, target.projectId, {
+            name: `${(parent?.name || source.file.name || String(target.role)).slice(0, 80)} · ${persisted.id.slice(0, 8)}`,
+            fileId: persisted.id,
+            role: target.role as ProjectAssetRole,
+            parentAssetId: target.assetId,
+            makeCurrent: payload.replaceCurrent === true,
+            version: (parent?.version ?? 1) + 1,
+            sourceType: 'generation',
+            mimeType: 'image/png',
+            size: persisted.size,
+          });
+          resultAssetId = linked.id;
+          const childLineage = assertSafeLineage({
+            parentAssetId: target.assetId,
+            childAssetId: linked.id,
+            parentFileId: fileId,
+            childFileId: persisted.id,
+            parentOwnerId: userId,
+            childOwnerId: userId,
+          });
+          if (!childLineage.ok) {
+            throw new ServiceError(409, 'UNSAFE_LINEAGE', 'Die Bearbeitung konnte nicht sicher zugeordnet werden. Coins wurden erstattet.');
+          }
+        }
+
+        const job: GenerationJob = {
+          id: randomUUID(),
+          userId,
+          module: 'image-edit',
+          status: 'completed',
+          prompt,
+          provider: 'openai',
+          quoteId: quote.id,
+          fileId: persisted.id,
+          projectId: target.projectId,
+          createdAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          mimeType: 'image/png',
+          metadata: {
+            parentFileId: fileId,
+            parentAssetId: target.assetId,
+            resultAssetId,
+            coinPrice: serverCost,
+            model: OPENAI_GPT_IMAGE_EDIT_MODEL,
+          },
+        };
+        await saveJob(job);
+        const usageNote = edited.usage
+          ? `OpenAI usage tokens input=${edited.usage.input_tokens ?? 'n/a'} output=${edited.usage.output_tokens ?? 'n/a'} total=${edited.usage.total_tokens ?? 'n/a'}. Dollar cost unknown — estimate label only.`
+          : 'OpenAI did not return usage. Dollar cost unknown — not claimed as actual.';
+        await recordApiCost({
+          userId,
+          module: 'image-edit',
+          provider: 'openai',
+          model: OPENAI_GPT_IMAGE_EDIT_MODEL,
+          jobId: job.id,
+          internalCostCents: 0,
+          costKind: API_COST_KIND_ESTIMATE,
+          actualProviderCostUnknown: true,
+          estimatedCreditsNote: usageNote,
+        });
+        return job;
+      },
+      { quoteId: quote.id }
+    );
+    const fileIdOut = charged.job.fileId;
+    if (!fileIdOut) {
+      throw new ServiceError(502, 'PROVIDER_INVALID_PAYLOAD', 'Die Bildbearbeitung lieferte kein gültiges Bild. Coins wurden erstattet.');
+    }
+    return {
+      job: charged.job,
+      coinsSpent: charged.coinsSpent,
+      newBalance: charged.newBalance,
+      fileId: fileIdOut,
+      assetId: typeof charged.job.metadata?.resultAssetId === 'string' ? charged.job.metadata.resultAssetId : undefined,
+    };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw new ServiceError(err.statusCode, err.code, err.message);
+    }
+    throw err;
+  }
 }
 
 export function futureNonDestructiveResult(input: {
@@ -437,7 +708,9 @@ export function modificationUserReply(input: {
   } else if (request.providerCapability === 'AUDIO_EDIT') {
     lines.push('Audio-Bearbeitung ist derzeit nicht verfügbar.');
   } else if (!currentProviderCapabilitySnapshot().IMAGE_EDIT) {
-    lines.push('Bildbearbeitung ist derzeit nicht ausführbar. Es gibt keinen festgelegten Änderungspreis.');
+    lines.push('Bildbearbeitung ist derzeit nicht ausführbar.');
+  } else if (request.executable && request.pricing.defined) {
+    lines.push(`Preis: ${request.pricing.coins} Coins. Startet erst nach Bestätigung.`);
   }
   if (!request.replaceCurrent) {
     lines.push('Das aktuelle Projekt-Asset wird nicht still ersetzt.');

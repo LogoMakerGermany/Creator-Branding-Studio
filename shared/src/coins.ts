@@ -59,6 +59,7 @@ export enum CoinSpendCategory {
   BRANDING_PACK = 'branding_pack',
   ULTIMATE_CREATOR_PACK = 'ultimate_creator_pack',
   VIDEO_EDIT = 'video_edit',
+  IMAGE_EDIT = 'image_edit',
   MARKETPLACE_PURCHASE = 'marketplace_purchase',
   MOCKUP_GENERATION = 'mockup_generation',
   STREAMSET_PACK = 'streamset_pack',
@@ -82,6 +83,8 @@ export const COIN_COSTS: Record<CoinSpendCategory, number> = {
   [CoinSpendCategory.BRANDING_PACK]: 50,
   [CoinSpendCategory.ULTIMATE_CREATOR_PACK]: 65,
   [CoinSpendCategory.VIDEO_EDIT]: 20,
+  /** Paid OpenAI image modification. Distinct from LOGO_GENERATION (also 15) and VIDEO_EDIT. */
+  [CoinSpendCategory.IMAGE_EDIT]: 15,
   [CoinSpendCategory.MARKETPLACE_PURCHASE]: 0,
   [CoinSpendCategory.MOCKUP_GENERATION]: 8,
   /** Komplettset: full STREAMSET_PACK_ITEMS (12 assets). Obsolete 135 must not be reused. */

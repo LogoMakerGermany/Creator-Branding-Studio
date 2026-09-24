@@ -47,6 +47,7 @@ export const QUOTE_KIND_CATEGORY: Record<NexterQuoteKind, CoinSpendCategory> = {
   music: CoinSpendCategory.AI_MUSIC,
   voice: CoinSpendCategory.AI_VOICE,
   captions: CoinSpendCategory.VIDEO_EDIT,
+  'image-edit': CoinSpendCategory.IMAGE_EDIT,
 };
 
 export function coinCostForKind(kind: NexterQuoteKind): number {
@@ -653,11 +654,15 @@ export function quoteActions(
     music: NEXTER_STUDIO_PATHS.music,
     voice: NEXTER_STUDIO_PATHS.voice,
     captions: NEXTER_STUDIO_PATHS.video,
+    'image-edit': NEXTER_STUDIO_PATHS['image-edit'] ?? NEXTER_STUDIO_PATHS.files,
   };
   const studio = studioByKind[kind] ?? NEXTER_STUDIO_PATHS.overlay;
-  const startLabel = isChange
-    ? `KI-Variante – ${cost} Coins`
-    : `Erstellen – ${cost} Coins`;
+  const startLabel =
+    kind === 'image-edit'
+      ? `Bearbeiten – ${cost} Coins`
+      : isChange
+        ? `KI-Variante – ${cost} Coins`
+        : `Erstellen – ${cost} Coins`;
   const extrasPayload = {
     quoteId,
     kind,

@@ -65,14 +65,16 @@ export type NexterQuoteKind =
   | 'text'
   | 'music'
   | 'voice'
-  | 'captions';
+  | 'captions'
+  | 'image-edit';
 
 export interface NexterModificationPrep {
   targetLabel?: string;
   changes: string[];
   preserve: string[];
   replaceCurrent: boolean;
-  executionAvailable: false;
+  executionAvailable: boolean;
+  coinCost?: number;
   clarification?: string;
 }
 
@@ -276,6 +278,7 @@ export const NEXTER_STUDIO_PATHS: Record<string, string> = {
   calendar: '/content-calendar',
   coins: '/coins',
   support: '/support',
+  'image-edit': '/file-cloud',
 };
 
 /** Canonical studio path for an explicit open-studio utterance. Navigation only — never a quote. */

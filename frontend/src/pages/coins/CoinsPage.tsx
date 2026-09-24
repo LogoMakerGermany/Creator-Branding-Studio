@@ -75,6 +75,7 @@ function txReference(tx: CoinTransaction): string | null {
 
 function studioPathForKind(kind: string): string {
   if (kind === 'captions') return '/video-studio';
+  if (kind === 'image-edit') return '/file-cloud';
   return NEXTER_STUDIO_PATHS[kind] ?? '/nexter';
 }
 

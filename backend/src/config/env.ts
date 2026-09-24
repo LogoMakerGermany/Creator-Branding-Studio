@@ -91,6 +91,15 @@ export function areImageGenerationsEnabled(): boolean {
   return areGenerationsEnabled() && isEnvFlagTrue('IMAGE_GENERATIONS_ENABLED');
 }
 
+/**
+ * Paid OpenAI image modification. Fail-closed and independent of IMAGE_GENERATIONS_ENABLED.
+ * Missing, empty, or any value other than exact "true" keeps edits disabled.
+ * OPENAI_API_KEY alone does not enable IMAGE_EDIT.
+ */
+export function areImageEditsEnabled(): boolean {
+  return areGenerationsEnabled() && isEnvFlagTrue('IMAGE_EDITS_ENABLED');
+}
+
 /** Alias of areImageGenerationsEnabled — kept for existing image/chat isolation tests. */
 export function isOpenAiImageGenerationLiveEnabled(): boolean {
   return areImageGenerationsEnabled();
@@ -508,6 +517,15 @@ export function hasImageAiProvider(): boolean {
   return Boolean(getOpenAiApiKey() || getReplicateApiToken());
 }
 
+/**
+ * IMAGE_EDIT requires the exact flag, OpenAI credentials, and the compiled edit adapter.
+ * IMAGE_GENERATIONS_ENABLED must not enable edits. Replicate does not count.
+ */
+export function hasImageEditProvider(): boolean {
+  if (!areImageEditsEnabled()) return false;
+  return Boolean(getOpenAiApiKey());
+}
+
 /** Runway or Replicate video — only when VIDEO_GENERATIONS_ENABLED is exactly true. */
 export function hasVideoAiProvider(): boolean {
   return areVideoGenerationsEnabled() && Boolean(getRunwayApiKey() || getReplicateApiToken());
@@ -528,6 +546,7 @@ export function hasMusicAiProvider(): boolean {
  */
 export function getPaidGenerationAvailability(): {
   image: boolean;
+  imageEdit: boolean;
   video: boolean;
   music: boolean;
   tts: boolean;
@@ -535,6 +554,7 @@ export function getPaidGenerationAvailability(): {
 } {
   return {
     image: hasImageAiProvider(),
+    imageEdit: hasImageEditProvider(),
     video: hasVideoAiProvider(),
     music: hasMusicAiProvider(),
     tts: isElevenLabsTtsLiveEnabled(),

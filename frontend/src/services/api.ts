@@ -2220,7 +2220,8 @@ export interface NexterChatMessage {
     changes: string[];
     preserve: string[];
     replaceCurrent: boolean;
-    executionAvailable: false;
+    executionAvailable: boolean;
+    coinCost?: number;
     clarification?: string;
   };
 }

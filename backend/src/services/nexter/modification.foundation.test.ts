@@ -142,9 +142,16 @@ describe('V.0 modification parser and capability', () => {
     assert.equal(cap.IMAGE_EDIT, false);
     assert.equal(cap.VIDEO_CREATE, true);
     assert.equal(cap.VIDEO_EDIT, false);
-    assert.equal(modificationPriceStatus().reason, 'PRICING_DECISION_REQUIRED');
+    assert.equal(modificationPriceStatus().defined, true);
+    if (modificationPriceStatus().defined) {
+      assert.equal(modificationPriceStatus().coins, 15);
+      assert.equal(modificationPriceStatus().category, CoinSpendCategory.IMAGE_EDIT);
+    }
     assert.equal(COIN_COSTS[CoinSpendCategory.LOGO_GENERATION], 15);
+    assert.equal(COIN_COSTS[CoinSpendCategory.IMAGE_EDIT], 15);
     assert.equal(COIN_COSTS[CoinSpendCategory.VIDEO_EDIT], 20);
+    assert.equal(COIN_COSTS[CoinSpendCategory.ANIMATION_GENERATION], 25);
+    assert.equal(COIN_COSTS[CoinSpendCategory.AI_VIDEO], 25);
 
     const lineageBad = assertSafeLineage({
       parentAssetId: 'a',
@@ -356,7 +363,10 @@ describe('V.0 ownership, quotes, TOCTOU, uploads', () => {
     });
     assert.equal(prepared.request.target?.assetId, liveAsset.id);
     assert.equal(prepared.request.executable, false);
-    assert.equal(prepared.request.pricing.reason, 'PRICING_DECISION_REQUIRED');
+    assert.equal(prepared.request.pricing.defined, true);
+    if (prepared.request.pricing.defined) {
+      assert.equal(prepared.request.pricing.coins, 15);
+    }
     const payload = buildModificationQuotePayload(prepared.request);
     assert.equal(payload.operation, 'MODIFY_ASSET');
     assert.equal(isModificationQuoteExecutable(payload), false);
@@ -417,7 +427,11 @@ describe('V.0 ownership, quotes, TOCTOU, uploads', () => {
 
   it('does not invent modification prices or treat create as edit', () => {
     const coinsSrc = readFileSync(join(dir, '../../../../shared/src/coins.ts'), 'utf8');
-    assert.doesNotMatch(coinsSrc, /IMAGE_EDIT|MODIFY_ASSET/);
+    assert.match(coinsSrc, /IMAGE_EDIT = 'image_edit'/);
+    assert.match(coinsSrc, /\[CoinSpendCategory\.IMAGE_EDIT\]: 15/);
+    assert.equal(COIN_COSTS[CoinSpendCategory.IMAGE_EDIT], 15);
+    assert.equal(COIN_COSTS[CoinSpendCategory.LOGO_GENERATION], 15);
+    assert.equal(COIN_COSTS[CoinSpendCategory.VIDEO_EDIT], 20);
     const openai = readFileSync(join(dir, '../../lib/openai-image.ts'), 'utf8');
     assert.match(openai, /images\/generations/);
     assert.doesNotMatch(openai, /images\/edits/);

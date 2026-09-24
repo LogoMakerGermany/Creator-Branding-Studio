@@ -7,6 +7,8 @@ import {
   PROVIDER_VIDEO_MIME,
   VIDEO_STORAGE_ERROR_CODE,
   VIDEO_STORAGE_ERROR_MESSAGE,
+  sniffRasterImageMime,
+  MAX_PROVIDER_IMAGE_BYTES,
 } from '../lib/upload-validation.js';
 import { IMAGE_PROVIDER_FAILED_MESSAGE } from '../lib/media-providers.js';
 import { sanitizeZipEntryName } from '../lib/zip-store.js';
@@ -21,6 +23,7 @@ import {
   uploadAssetFromUrl,
   ownedStorageObjectAvailable,
   deleteOwnedStorageObject,
+  downloadOwnedObjectBytes,
 } from '../lib/firebase-storage.js';
 import { audioExtensionForMime, MUSIC_STORAGE_ERROR_CODE, MUSIC_STORAGE_FAILED_MESSAGE } from '../lib/safe-provider-fetch.js';
 import { assertFiniteNumber, firestoreDocId } from '../lib/firestore-payload.js';
@@ -208,6 +211,60 @@ export async function getUserFile(id: string, userId: string): Promise<UserFile 
   const owned = file as unknown as UserFile;
   if (fileIsInactive(owned)) return null;
   return owned;
+}
+
+const DATA_URL_BYTES = /^data:([^;]+);base64,(.+)$/i;
+const EDITABLE_IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp']);
+
+function decodeOwnedDataUrl(dataUrl: string): Buffer {
+  const match = DATA_URL_BYTES.exec(dataUrl.trim());
+  if (!match) {
+    throw new ServiceError(400, 'INVALID_IMAGE', 'Die Datei ist kein gültiges Bild.');
+  }
+  const buffer = Buffer.from(match[2]!.replace(/\s/g, ''), 'base64');
+  if (!buffer.length) {
+    throw new ServiceError(400, 'INVALID_IMAGE', 'Die Datei ist kein gültiges Bild.');
+  }
+  return buffer;
+}
+
+/**
+ * Load owned image bytes for server-side provider upload.
+ * Never returns or persists a signed URL.
+ */
+export async function readOwnedImageBytes(
+  userId: string,
+  fileId: string
+): Promise<{ buffer: Buffer; mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; file: UserFile }> {
+  const file = await getUserFile(fileId, userId);
+  if (!file) {
+    throw new ServiceError(403, 'FOREIGN_FILE', 'Die Zieldatei gehört nicht zu deinem Konto oder ist gelöscht.');
+  }
+  if (file.rightsTakedownAt) {
+    throw new ServiceError(403, 'FILE_UNAVAILABLE', 'Die Datei ist nicht verfügbar.');
+  }
+  const declared = (file.mimeType ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+  if (declared && !EDITABLE_IMAGE_MIME.has(declared) && !declared.startsWith('image/')) {
+    throw new ServiceError(400, 'UNSUPPORTED_IMAGE', 'Dieser Dateityp kann nicht bearbeitet werden.');
+  }
+
+  let buffer: Buffer | null = null;
+  if (file.downloadUrl?.startsWith('data:')) {
+    buffer = decodeOwnedDataUrl(file.downloadUrl);
+  } else if (file.storagePath && isOwnedStoragePath(userId, file.storagePath)) {
+    buffer = await downloadOwnedObjectBytes(userId, file.storagePath);
+  }
+  if (!buffer?.length) {
+    throw new ServiceError(404, 'FILE_UNAVAILABLE', 'Die Datei ist nicht verfügbar.');
+  }
+  if (buffer.length > MAX_PROVIDER_IMAGE_BYTES) {
+    throw new ServiceError(400, 'UNSUPPORTED_IMAGE', 'Die Bilddatei ist zu groß.');
+  }
+  const sniffed = sniffRasterImageMime(buffer);
+  if (!sniffed) {
+    throw new ServiceError(400, 'INVALID_IMAGE', 'Die Datei ist kein gültiges Bild.');
+  }
+  return { buffer, mimeType: sniffed, file };
 }
 
 async function getOwnedFileRecord(id: string, userId: string): Promise<UserFile | null> {

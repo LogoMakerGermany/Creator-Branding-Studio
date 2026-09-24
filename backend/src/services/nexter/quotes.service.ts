@@ -8,6 +8,8 @@ import {
   coinCostForStreamsetSelection,
   generatedVideoDurationFollowUpMessage,
   inspectGeneratedVideoQuoteDuration,
+  COIN_COSTS,
+  CoinSpendCategory,
   type NexterQuote,
   type NexterQuoteKind,
 } from '@ucbs/shared';
@@ -34,6 +36,7 @@ import { executeQuotedCaptions } from '../media.service.js';
 import { coinCostForKind, evaluateGenerationGate, QUOTE_KIND_CATEGORY, recordOwnedByUser } from './tools.service.js';
 import { assertCurrentContentRightsAck } from '../content-rights.service.js';
 import { quoteLockKey, withDevLock } from '../../lib/dev-mutex.js';
+import { hasImageEditProvider } from '../../config/env.js';
 
 const COLLECTION = 'nexterQuotes';
 
@@ -52,8 +55,12 @@ export async function createQuote(
   payload?: Record<string, unknown>,
   coinCost?: number
 ): Promise<NexterQuote> {
-  if (payload?.operation === 'MODIFY_ASSET') {
+  const isImageEdit = kind === 'image-edit';
+  if (payload?.operation === 'MODIFY_ASSET' && !isImageEdit) {
     throw new ServiceError(409, 'MODIFICATION_UNAVAILABLE', 'Änderungen haben keinen ausführbaren Coin-Preis.');
+  }
+  if (isImageEdit && payload?.operation !== 'MODIFY_ASSET') {
+    throw new ServiceError(400, 'INVALID_INPUT', 'Bildbearbeitung erfordert eine Änderungsanfrage.');
   }
   const now = Date.now();
   let resolvedPayload = payload;
@@ -61,7 +68,28 @@ export async function createQuote(
     throw new ServiceError(400, 'INVALID_INPUT', 'Die Anfrage ist ungültig');
   }
   let resolvedCost: number;
-  if (kind === 'streamset') {
+  if (isImageEdit) {
+    if (!hasImageEditProvider()) {
+      throw new ServiceError(409, 'MODIFICATION_UNAVAILABLE', 'Bildbearbeitung ist derzeit nicht ausführbar.');
+    }
+    const { revalidateModificationPreconditions } = await import('../modification.service.js');
+    const nextPayload: Record<string, unknown> = {
+      ...(payload ?? {}),
+      operation: 'MODIFY_ASSET',
+      executable: true,
+      providerCapability: 'IMAGE_EDIT',
+    };
+    delete nextPayload.model;
+    delete nextPayload.signedUrl;
+    delete nextPayload.downloadUrl;
+    await revalidateModificationPreconditions(userId, nextPayload);
+    const serverCost = COIN_COSTS[CoinSpendCategory.IMAGE_EDIT];
+    if (coinCost !== undefined && coinCost !== serverCost) {
+      throw new ServiceError(409, 'PRICE_CHANGED', 'Der Preis hat sich geändert. Bitte ein neues Angebot bestätigen.');
+    }
+    resolvedPayload = nextPayload;
+    resolvedCost = serverCost;
+  } else if (kind === 'streamset') {
     const selectedKeys = selectedKeysFromPayload(payload) ?? STREAMSET_PACK_ITEMS.map((item) => item.key);
     resolvedPayload = { ...(payload ?? {}), selectedKeys };
     resolvedCost = coinCost === undefined ? coinCostForStreamsetSelection(selectedKeys).total : coinCost;
@@ -1584,6 +1612,103 @@ export async function confirmQuote(userId: string, quoteId: string): Promise<{
   return withDevLock(quoteLockKey(quoteId), () => confirmQuoteUnlocked(userId, quoteId));
 }
 
+async function confirmImageEditQuote(
+  userId: string,
+  quoteId: string
+): Promise<{
+  quote: NexterQuote;
+  coinsSpent: number;
+  newBalance: number;
+  jobIds: string[];
+  refundedCoins?: number;
+}> {
+  const run = async () => {
+    const quote = await getQuote(userId, quoteId);
+    if (!quote) throw new ServiceError(404, 'QUOTE_NOT_FOUND', 'Angebot nicht gefunden');
+    if (quote.kind !== 'image-edit') throw new ServiceError(400, 'INVALID_QUOTE', 'Dieses Angebot ist keine Bildbearbeitung');
+
+    const balance = await getCoinBalance(userId);
+    if (quote.status === 'confirmed' || quote.status === 'completed') {
+      const jobIds = Array.isArray(quote.payload?.jobIds)
+        ? quote.payload.jobIds.filter((id): id is string => typeof id === 'string')
+        : [];
+      return {
+        quote,
+        coinsSpent: typeof quote.payload?.coinsSpent === 'number' ? quote.payload.coinsSpent : 0,
+        newBalance: balance,
+        jobIds,
+        refundedCoins: typeof quote.payload?.refundedCoins === 'number' ? quote.payload.refundedCoins : 0,
+      };
+    }
+    if (quote.status === 'cancelled') {
+      throw new ServiceError(409, 'QUOTE_USED', 'Dieses Angebot wurde bereits verwendet oder abgebrochen.');
+    }
+
+    if (!hasImageEditProvider()) {
+      throw new ServiceError(409, 'MODIFICATION_UNAVAILABLE', 'Bildbearbeitung ist derzeit nicht ausführbar. Es wurde nichts abgebucht.');
+    }
+    const { revalidateModificationPreconditions, executeQuotedImageEdit } = await import('../modification.service.js');
+    await revalidateModificationPreconditions(userId, quote.payload ?? {});
+    if (quote.projectId) {
+      await revalidateQuoteProjectAndReference(userId, quote);
+    }
+
+    const serverCost = coinCostForKind('image-edit');
+    if (quote.coinCost !== serverCost) {
+      throw new ServiceError(409, 'PRICE_CHANGED', 'Der Preis hat sich geändert. Bitte ein neues Angebot bestätigen.');
+    }
+    const gate = evaluateGenerationGate({
+      quoteUserId: quote.userId,
+      requestUserId: userId,
+      status: quote.status === 'processing' ? 'pending' : quote.status,
+      expiresAt: quote.expiresAt,
+      coinCost: serverCost,
+      coinBalance: balance,
+      hasDna: true,
+    });
+    if (gate === 'wrong_user') throw new ServiceError(404, 'QUOTE_NOT_FOUND', 'Angebot nicht gefunden');
+    if (gate === 'not_pending') throw new ServiceError(409, 'QUOTE_USED', 'Dieses Angebot wurde bereits verwendet oder abgebrochen.');
+    if (gate === 'expired') throw new ServiceError(410, 'QUOTE_EXPIRED', 'Das Angebot ist abgelaufen. Bitte neu anfragen.');
+    if (gate === 'insufficient_coins') {
+      throw new ServiceError(402, 'INSUFFICIENT_COINS', `Nicht genügend Coins. Dieses Angebot kostet ${serverCost} Coins.`);
+    }
+
+    quote.status = 'processing';
+    await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
+
+    try {
+      const result = await executeQuotedImageEdit(userId, quote);
+      quote.status = 'confirmed';
+      quote.payload = {
+        ...(quote.payload ?? {}),
+        jobIds: [result.job.id],
+        resultFileId: result.fileId,
+        resultAssetId: result.assetId,
+        coinsSpent: result.coinsSpent,
+        refundedCoins: 0,
+      };
+      await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
+      return {
+        quote,
+        coinsSpent: result.coinsSpent,
+        newBalance: result.newBalance,
+        jobIds: [result.job.id],
+        refundedCoins: 0,
+      };
+    } catch (err) {
+      quote.status = 'pending';
+      quote.payload = {
+        ...(quote.payload ?? {}),
+        lastError: err instanceof Error ? err.message : 'image-edit-failed',
+      };
+      await dsSet(COLLECTION, quote.id, quote as unknown as Record<string, unknown>);
+      throw err;
+    }
+  };
+
+  return withDevLock(quoteLockKey(quoteId), run);
+}
+
 async function confirmQuoteUnlocked(userId: string, quoteId: string): Promise<{
   quote: NexterQuote;
   coinsSpent: number;
@@ -1596,6 +1721,9 @@ async function confirmQuoteUnlocked(userId: string, quoteId: string): Promise<{
   const quote = await getQuote(userId, quoteId);
   if (!quote) throw new ServiceError(404, 'QUOTE_NOT_FOUND', 'Angebot nicht gefunden');
   await assertCurrentContentRightsAck(userId);
+  if (quote.kind === 'image-edit') {
+    return confirmImageEditQuote(userId, quoteId);
+  }
   if (quote.payload?.operation === 'MODIFY_ASSET') {
     const { revalidateModificationPreconditions } = await import('../modification.service.js');
     await revalidateModificationPreconditions(userId, quote.payload);

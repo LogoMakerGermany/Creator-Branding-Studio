@@ -233,6 +233,25 @@ export async function deleteOwnedStorageObject(userId: string, storagePath: stri
   await deleteStorageObject(storagePath);
 }
 
+/**
+ * Read owned object bytes from private storage. Does not mint or persist a signed URL.
+ */
+export async function downloadOwnedObjectBytes(userId: string, storagePath: string): Promise<Buffer> {
+  if (!isOwnedStoragePath(userId, storagePath)) {
+    throw new ServiceError(403, 'FORBIDDEN', 'Zugriff auf diesen Storage-Pfad ist nicht erlaubt');
+  }
+  if (isDevMode()) {
+    throw new ServiceError(404, 'NOT_FOUND', 'Die Datei ist nicht verfügbar.');
+  }
+  try {
+    const storage = getStorage();
+    const [buffer] = await storage.bucket().file(storagePath).download();
+    return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  } catch {
+    throw new ServiceError(404, 'NOT_FOUND', 'Die Datei ist nicht verfügbar.');
+  }
+}
+
 function extensionFromContentType(contentType: string): string {
   const map: Record<string, string> = {
     'image/png': 'png',

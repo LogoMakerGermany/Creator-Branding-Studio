@@ -546,9 +546,14 @@ export function NexterPanel({
                   <p className="mt-1">Unverändert: {m.modificationPrep.preserve.join(', ')}</p>
                 ) : null}
                 <p className="mt-1">
-                  Projekt-Aktuell: {m.modificationPrep.replaceCurrent ? 'später ersetzen, nur nach Bestätigung' : 'nicht still ersetzen'}
+                  Projekt-Aktuell: {m.modificationPrep.replaceCurrent ? 'neue Version ersetzt aktuell nach Bestätigung' : 'neue Version, aktuell bleibt aktuell'}
                 </p>
-                <p className="mt-1 text-amber-200/90">Ausführung derzeit nicht verfügbar.</p>
+                {m.modificationPrep.coinCost != null ? (
+                  <p className="mt-1">Preis: {formatCoins(m.modificationPrep.coinCost)} Coins</p>
+                ) : null}
+                {m.modificationPrep.executionAvailable ? null : (
+                  <p className="mt-1 text-amber-200/90">Ausführung derzeit nicht verfügbar.</p>
+                )}
               </div>
             ) : null}
             {m.role === 'assistant' && ttsSupported ? (

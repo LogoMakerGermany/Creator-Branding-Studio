@@ -83,6 +83,7 @@ import {
   wantsModificationSummary,
   type NexterChatMessage,
   type NexterModificationPrep,
+  type NexterAction,
   type NexterQuoteKind,
   type NexterSession,
 } from '@ucbs/shared';
@@ -170,6 +171,7 @@ import {
   prepareModificationRequest,
   modificationUserReply,
   toModificationSessionState,
+  buildModificationQuotePayload,
 } from '../modification.service.js';
 import { nexterSessionLockKey, withDevLock } from '../../lib/dev-mutex.js';
 import {
@@ -293,6 +295,8 @@ function modificationPrepView(
     replaceCurrent: boolean;
     contradictions: string[];
     missingInformation: string[];
+    executable?: boolean;
+    pricing?: { defined: true; coins: number } | { defined: false };
   },
   clarification?: string
 ): NexterModificationPrep {
@@ -301,7 +305,8 @@ function modificationPrepView(
     changes: req.changes.map((c) => [c.kind.replace(/_/g, ' ').toLowerCase(), c.to || c.value || c.element].filter(Boolean).join(': ')),
     preserve: req.preserve.map((p) => p.element || p.kind),
     replaceCurrent: req.replaceCurrent === true,
-    executionAvailable: false,
+    executionAvailable: req.executable === true,
+    coinCost: req.pricing && req.pricing.defined ? req.pricing.coins : undefined,
     clarification:
       clarification ||
       (req.contradictions.length ? 'Widerspruch klären' : req.missingInformation.includes('target') ? 'Ziel unklar' : req.missingInformation.includes('changes') ? 'Änderung unklar' : undefined),
@@ -968,12 +973,36 @@ export async function nexterChat(
     const nextState = toModificationSessionState(prepared.request);
     if (nextState) session.lastModificationRequest = nextState;
     const noPaid = !content.includes('assetId') && !content.includes('fileId') && !content.includes('MODIFY_ASSET');
+    let actions: NexterAction[] | undefined;
+    let reply = noPaid ? content : content.replace(/assetId|fileId|MODIFY_ASSET|TEXT_REPLACE/g, 'Asset');
+    if (
+      prepared.request.executable &&
+      prepared.request.providerCapability === 'IMAGE_EDIT' &&
+      !prepared.request.requiresClarification
+    ) {
+      try {
+        const quote = await createQuote(
+          userId,
+          'image-edit',
+          prepared.request.projectId,
+          buildModificationQuotePayload(prepared.request)
+        );
+        const balance = ctx?.coinBalance ?? 0;
+        actions = quoteActions('image-edit', quote.id, false, quoteUiExtras(quote, balance));
+        if (balance < quote.coinCost) {
+          reply = `${insufficientCoinsPrefix(balance, quote.coinCost)}${reply}`;
+        }
+      } catch {
+        actions = undefined;
+      }
+    }
     session.messages.push({
       id: randomUUID(),
       role: 'assistant',
-      content: noPaid ? content : content.replace(/assetId|fileId|MODIFY_ASSET|TEXT_REPLACE/g, 'Asset'),
+      content: reply,
       createdAt: new Date().toISOString(),
       modificationPrep: modificationPrepView(prepared.request),
+      ...(actions ? { actions } : {}),
     });
     await persistSession(session);
     return session;
