@@ -39,7 +39,7 @@ export function findAttachedAsset(project: Project, input: AttachAssetInput): Pr
   });
 }
 
-/** Reference-only attach. Does not copy bytes. Idempotent by jobId/fileId/url. */
+/** Reference-only attach. Does not copy bytes. Idempotent by jobId/fileId/url. Does not auto-replace a current asset. */
 export async function attachAssetToProject(
   userId: string,
   projectId: string,

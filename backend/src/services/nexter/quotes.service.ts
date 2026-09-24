@@ -1552,6 +1552,23 @@ async function confirmTextQuote(
   return withDevLock(quoteLockKey(quoteId), run);
 }
 
+async function revalidateQuoteProjectAndReference(userId: string, quote: NexterQuote): Promise<void> {
+  if (quote.projectId && quote.kind !== 'captions') {
+    const { assertOwnedProjectId } = await import('../project.service.js');
+    await assertOwnedProjectId(userId, quote.projectId);
+  }
+  const ref = sanitizeSafeAssetReference(quote.payload?.assetReference);
+  if (!ref) return;
+  const { resolveProjectAssetReference } = await import('../project-memory.service.js');
+  const check = await resolveProjectAssetReference(userId, ref.projectId, ref.role, { assetId: ref.assetId });
+  if (!check.ok) {
+    throw new ServiceError(403, 'ASSET_REFERENCE_DENIED', 'Diese Projektreferenz ist nicht mehr verfügbar.');
+  }
+  if (quote.projectId && check.ref.projectId !== quote.projectId) {
+    throw new ServiceError(403, 'ASSET_REFERENCE_DENIED', 'Diese Projektreferenz gehört nicht zum gewählten Projekt.');
+  }
+}
+
 export async function confirmQuote(userId: string, quoteId: string): Promise<{
   quote: NexterQuote;
   coinsSpent: number;
@@ -1576,10 +1593,7 @@ async function confirmQuoteUnlocked(userId: string, quoteId: string): Promise<{
   const quote = await getQuote(userId, quoteId);
   if (!quote) throw new ServiceError(404, 'QUOTE_NOT_FOUND', 'Angebot nicht gefunden');
   await assertCurrentContentRightsAck(userId);
-  if (quote.projectId && quote.kind !== 'captions') {
-    const { assertOwnedProjectId } = await import('../project.service.js');
-    await assertOwnedProjectId(userId, quote.projectId);
-  }
+  await revalidateQuoteProjectAndReference(userId, quote);
 
   if (quote.kind === 'streamset') {
     return confirmStreamsetQuote(userId, quoteId);

@@ -493,8 +493,14 @@ export function ProjectDetailPage() {
                         <p className="font-medium text-zinc-100">{a.name}</p>
                         <p className="text-xs text-zinc-500">
                           {a.role || a.type}
-                          {a.isCurrent ? ' · aktuell' : ''}
-                          {a.available === false || a.availability === 'unavailable' ? ' · nicht verfügbar' : ''}
+                          {a.isCurrent
+                            ? a.available === false || a.availability === 'unavailable'
+                              ? ' · aktuell — nicht verfügbar'
+                              : ' · aktuell'
+                            : ''}
+                          {!a.isCurrent && (a.available === false || a.availability === 'unavailable')
+                            ? ' · nicht verfügbar'
+                            : ''}
                           {a.availability === 'missing' ? ' · fehlt' : ''}
                           {' · '}
                           {a.createdAt.slice(0, 10)}

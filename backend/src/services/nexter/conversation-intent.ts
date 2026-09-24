@@ -38,7 +38,7 @@ export type NexterIntentDecision = {
 
 export type NexterIntentHistoryTurn = { role: string; content: string };
 
-const CREATE_VERB = /(mach|erstell|generier|erzeug|ich brauche|ich möchte|need |create |make me)/i;
+const CREATE_VERB = /(mach|erstell|generier|erzeug|ich brauche|ich möchte|need |create |make me|make a new|for a new)/i;
 
 export function resolveNexterConversationIntent(
   message: string,

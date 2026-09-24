@@ -10,8 +10,11 @@ import {
   isSingularProjectAssetRole,
   matchProjectsByName,
   parseProjectCommand,
+  queryCurrentAssetState,
+  canonicalCurrentAssetState,
   sanitizeProjectAssetUrl,
   PROJECT_MEMORY_BOUNDS,
+  type CanonicalCurrentAssetState,
 } from '@ucbs/shared';
 import { isDevMode } from '../lib/dev-store.js';
 import { getFirestore } from '../config/firebase.js';
@@ -361,6 +364,24 @@ export async function resolveProjectAssetReference(
     source: asset.isCurrent ? ('project_current_asset' as const) : ('project_historical_asset' as const),
   };
   return { ok: true, ref, asset };
+}
+
+export async function resolveCurrentProjectAsset(
+  userId: string,
+  projectId: string,
+  role: ProjectAssetRole
+): Promise<{
+  state: CanonicalCurrentAssetState;
+  current?: ProjectAsset;
+  historical: ProjectAsset[];
+}> {
+  const assets = await listProjectAssets(userId, projectId);
+  const queried = queryCurrentAssetState(assets, role);
+  return {
+    state: canonicalCurrentAssetState(queried.state),
+    current: queried.current,
+    historical: queried.historical,
+  };
 }
 
 export function findProjectAssetByVersion(

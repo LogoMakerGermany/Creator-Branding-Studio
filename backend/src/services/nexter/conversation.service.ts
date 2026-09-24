@@ -74,6 +74,7 @@ import {
   queryCurrentAssetState,
   buildMatchProjectContext,
   wantsCurrentLogoReference,
+  wantsPronounAssetReference,
   extractExplicitRequestOverrides,
   resolveProjectAwarePreference,
   parseProjectAssetRoleFromText,
@@ -154,6 +155,7 @@ import {
   resolveNexterProject,
   setCurrentProjectAsset,
   resolveProjectAssetReference,
+  resolveCurrentProjectAsset,
   findProjectAssetByVersion,
 } from '../project-memory.service.js';
 import { nexterSessionLockKey, withDevLock } from '../../lib/dev-mutex.js';
@@ -229,13 +231,46 @@ function capSessionMessages(session: NexterSession): void {
   session.messages = [head, ...session.messages.slice(-(MAX_NEXTER_MESSAGES - 1))];
 }
 
+function normalizeSession(session: NexterSession): NexterSession {
+  if (!session.activeProjectId) delete session.activeProjectId;
+  if (!session.lastReferencedProjectId) delete session.lastReferencedProjectId;
+  if (!session.lastReferencedAssetRole) delete session.lastReferencedAssetRole;
+  if (!session.lastReferencedAssetId) delete session.lastReferencedAssetId;
+  return session;
+}
+
 async function persistSession(session: NexterSession): Promise<void> {
   capSessionMessages(session);
   session.updatedAt = new Date().toISOString();
   await dsSet(COLLECTION, session.id, {
     ...(session as unknown as Record<string, unknown>),
     activeProjectId: session.activeProjectId ?? null,
+    lastReferencedProjectId: session.lastReferencedProjectId ?? null,
+    lastReferencedAssetRole: session.lastReferencedAssetRole ?? null,
+    lastReferencedAssetId: session.lastReferencedAssetId ?? null,
   });
+}
+
+function clearSessionReferents(session: NexterSession): void {
+  delete session.lastReferencedProjectId;
+  delete session.lastReferencedAssetRole;
+  delete session.lastReferencedAssetId;
+}
+
+function rememberSessionReferent(
+  session: NexterSession,
+  projectId: string,
+  role: string,
+  assetId?: string
+): void {
+  session.lastReferencedProjectId = projectId;
+  session.lastReferencedAssetRole = role;
+  if (assetId) session.lastReferencedAssetId = assetId;
+  else delete session.lastReferencedAssetId;
+}
+
+function studioPreferredPlatform(ctx: { projectPlatform?: string; preferredPlatforms?: string[]; dnaPlatforms?: string[] }): string | undefined {
+  return ctx.projectPlatform || ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0];
 }
 
 function quoteUiExtras(quote: { expiresAt: string; coinCost?: number }, coinBalance: number) {
@@ -266,7 +301,8 @@ export { greeting as buildNexterSessionGreeting };
 
 export async function getNexterSessionForUser(sessionId: string, userId: string): Promise<NexterSession | null> {
   const row = await dsGet(COLLECTION, sessionId);
-  return recordOwnedByUser(row as unknown as NexterSession | null, userId);
+  const session = recordOwnedByUser(row as unknown as NexterSession | null, userId);
+  return session ? normalizeSession(session) : null;
 }
 
 export async function getOrCreateNexterSession(userId: string): Promise<NexterSession> {
@@ -275,7 +311,7 @@ export async function getOrCreateNexterSession(userId: string): Promise<NexterSe
   if (existing) {
     const session = existing as unknown as NexterSession;
     capSessionMessages(session);
-    return session;
+    return normalizeSession(session);
   }
 
   const now = new Date().toISOString();
@@ -355,12 +391,16 @@ export async function setNexterActiveProject(
   return withDevLock(nexterSessionLockKey(session.id), async () => {
     if (!projectId) {
       delete session.activeProjectId;
+      clearSessionReferents(session);
       await persistSession(session);
       return { session, archived: false };
     }
     const project = await getProject(projectId, userId);
     if (!project || project.deletedAt) {
       throw new ServiceError(404, 'PROJECT_NOT_FOUND', 'Projekt nicht gefunden');
+    }
+    if (session.activeProjectId && session.activeProjectId !== project.id) {
+      clearSessionReferents(session);
     }
     session.activeProjectId = project.id;
     await persistSession(session);
@@ -398,6 +438,7 @@ export async function nexterChat(
 
   if (resolved.status === 'stale' && session.activeProjectId) {
     delete session.activeProjectId;
+    clearSessionReferents(session);
   }
 
   const askWhichProject = () => {
@@ -407,6 +448,7 @@ export async function nexterChat(
 
   if (command.action === 'clear') {
     delete session.activeProjectId;
+    clearSessionReferents(session);
     session.messages.push({
       id: randomUUID(),
       role: 'assistant',
@@ -443,6 +485,9 @@ export async function nexterChat(
       await persistSession(session);
       return session;
     }
+    if (session.activeProjectId && session.activeProjectId !== resolved.project.id) {
+      clearSessionReferents(session);
+    }
     session.activeProjectId = resolved.project.id;
     const archivedNote = resolved.archived ? ' Es ist archiviert — ich reaktiviere es nicht still.' : '';
     session.messages.push({
@@ -469,6 +514,9 @@ export async function nexterChat(
   const ctx = await buildNexterContext(userId, boundProjectId);
   ctx.projectResolutionSource = resolved.source;
   if (resolved.status === 'resolved' && resolved.project && resolved.source !== 'session' && !skipSessionProject) {
+    if (session.activeProjectId && session.activeProjectId !== resolved.project.id) {
+      clearSessionReferents(session);
+    }
     session.activeProjectId = resolved.project.id;
   }
   if (meta?.projectId && resolved.status === 'foreign') {
@@ -561,14 +609,33 @@ export async function nexterChat(
   if (command.action === 'use_reference') {
     const project = await requireBoundProject();
     if (!project) return session;
-    const role = command.role ?? 'logo';
-    const ref = await resolveProjectAssetReference(userId, project.id, role);
+    const role = command.role ?? (session.lastReferencedAssetRole as 'logo' | undefined) ?? 'logo';
+    const pronoun = wantsPronounAssetReference(message);
+    if (pronoun && session.lastReferencedProjectId && session.lastReferencedProjectId !== project.id) {
+      session.messages.push({
+        id: randomUUID(),
+        role: 'assistant',
+        content:
+          'Die vorherige Asset-Referenz gilt nicht für dieses Projekt. Ich übernehme sie nicht still. Welches Asset in diesem Projekt meinst du?',
+        createdAt: new Date().toISOString(),
+      });
+      await persistSession(session);
+      return session;
+    }
+    const selection =
+      pronoun && session.lastReferencedAssetId && session.lastReferencedProjectId === project.id
+        ? { assetId: session.lastReferencedAssetId }
+        : undefined;
+    const ref = await resolveProjectAssetReference(userId, project.id, role, selection);
+    if (ref.ok) rememberSessionReferent(session, project.id, role, ref.asset.id);
     session.messages.push({
       id: randomUUID(),
       role: 'assistant',
       content: ref.ok
         ? `Ich kann das aktuelle ${role} aus „${project.name}“ intern als Referenz nutzen (Datei vorhanden). Keine Provider-URL wird gespeichert.`
-        : `Ich kann keine sichere ${role}-Referenz aus diesem Projekt ableiten.`,
+        : ref.reason === 'UNAVAILABLE' || ref.reason === 'FOREIGN_FILE'
+          ? `Diese ${role}-Referenz ist nicht mehr verfügbar. Ich verwende sie nicht.`
+          : `Ich kann keine sichere ${role}-Referenz aus diesem Projekt ableiten.`,
       createdAt: new Date().toISOString(),
     });
     await persistSession(session);
@@ -638,11 +705,13 @@ export async function nexterChat(
     const bound = { ...project, assets };
     if (command.action === 'inspect_current') {
       const role = command.role ?? 'logo';
-      const state = queryCurrentAssetState(assets, role);
+      const state = await resolveCurrentProjectAsset(userId, project.id, role);
       let line: string;
-      if (state.state === 'CURRENT' && state.current) {
+      if (state.state === 'CURRENT_AVAILABLE' && state.current) {
+        rememberSessionReferent(session, project.id, role, state.current.id);
         line = `Aktuelles ${role} in „${project.name}“: ${state.current.name} (verfügbar).`;
-      } else if (state.state === 'UNAVAILABLE' && state.current) {
+      } else if (state.state === 'CURRENT_UNAVAILABLE' && state.current) {
+        rememberSessionReferent(session, project.id, role, state.current.id);
         line = `Das aktuelle ${role} in „${project.name}“ ist gespeichert, aber die Datei ist nicht verfügbar. Ich ersetze es nicht still.`;
       } else if (state.state === 'HISTORICAL_ONLY') {
         line = `In „${project.name}“ gibt es ältere ${role}-Dateien, aber kein aktuelles ${role}.`;
@@ -690,7 +759,12 @@ export async function nexterChat(
       project: projectMemoryFromProject(resolved.project),
       requestText: session.messages.filter((m) => m.role === 'user').slice(-2, -1)[0]?.content ?? message,
     });
-    const source = String(spec.colorSource || spec.visualSource || spec.mascotSource || 'none') as
+    const askedStyle = /stil|style|minimal|cinematic|look/.test(message.toLowerCase());
+    const askedColor = /farbe|color|rot|red|gold|blau|blue/.test(message.toLowerCase());
+    const source = String(
+      (askedStyle ? spec.visualSource : askedColor ? spec.colorSource : spec.colorSource || spec.visualSource || spec.mascotSource) ||
+        'none'
+    ) as
       | 'current_request'
       | 'project_explicit'
       | 'explicit_dna'
@@ -699,10 +773,11 @@ export async function nexterChat(
       | 'platform_default'
       | 'system_default'
       | 'none';
+    const explained = askedStyle ? spec.visual : askedColor ? spec.colors : spec.colors || spec.visual || spec.mascot;
     session.messages.push({
       id: randomUUID(),
       role: 'assistant',
-      content: explainProjectAwareSource(source, 'diese Wahl', spec.colors || spec.visual || spec.mascot),
+      content: explainProjectAwareSource(source, 'diese Wahl', explained),
       createdAt: new Date().toISOString(),
     });
     await persistSession(session);
@@ -1627,13 +1702,45 @@ export async function nexterChat(
 
   if (conversationIntent.intent === 'MODIFY_ASSET' && resolved.status === 'resolved' && resolved.project) {
     const role = parseProjectAssetRoleFromText(message);
-    if (role && /aktuell|current/.test(message.toLowerCase())) {
-      const assets = await listProjectAssets(userId, resolved.project.id);
-      const state = queryCurrentAssetState(assets, role);
-      const content =
-        state.state === 'CURRENT' && state.current
-          ? `Aktuelles ${role} in „${resolved.project.name}“: ${state.current.name}. Anpassungen daran gehören zum späteren Anpassungs-Assistenten. Ich starte keine Bearbeitung und rufe keinen Provider.`
-          : `Ich finde kein eindeutiges aktuelles ${role} in diesem Projekt. Welches meinst du?`;
+    const lower = message.toLowerCase();
+    const projectModify =
+      Boolean(role) &&
+      (/\b(change|änder)\b.{0,48}\b(current|aktuell|old|alte[sn]?|historisch)\b/.test(lower) ||
+        /\b(change|änder)\b.{0,16}\b(the|das|die)\s+(?:current\s+|old\s+|aktuell(?:e[sn]?)?\s+|alte[sn]?\s+)?(logo|banner|facecam|overlay)\b/i.test(
+          message
+        ));
+    if (role && projectModify) {
+      if (resolved.archived) {
+        session.messages.push({
+          id: randomUUID(),
+          role: 'assistant',
+          content:
+            `„${resolved.project.name}“ ist archiviert. Ich behandle es nicht still als normales aktives Projekt und starte keine Bearbeitung.`,
+          createdAt: new Date().toISOString(),
+        });
+        await persistSession(session);
+        return session;
+      }
+      const state = await resolveCurrentProjectAsset(userId, resolved.project.id, role);
+      const wantsHistorical = /\b(old|alte[sn]?|historisch|früher|previous)\b/.test(lower);
+      let content: string;
+      if (wantsHistorical) {
+        if (state.historical.length > 1) {
+          content = `Es gibt mehrere historische ${role}-Versionen in „${resolved.project.name}“. Welche meinst du? Ich rate nicht.`;
+        } else if (state.historical.length === 1 && state.historical[0]) {
+          rememberSessionReferent(session, resolved.project.id, role, state.historical[0].id);
+          content = `Historisches ${role} in „${resolved.project.name}“: ${state.historical[0].name}. Anpassungen daran gehören zum späteren Anpassungs-Assistenten. Ich starte keine Bearbeitung und rufe keinen Provider.`;
+        } else {
+          content = `Ich finde kein eindeutiges älteres ${role} in diesem Projekt. Welches meinst du?`;
+        }
+      } else if (state.state === 'CURRENT_AVAILABLE' && state.current) {
+        rememberSessionReferent(session, resolved.project.id, role, state.current.id);
+        content = `Aktuelles ${role} in „${resolved.project.name}“: ${state.current.name}. Anpassungen daran gehören zum späteren Anpassungs-Assistenten. Ich starte keine Bearbeitung und rufe keinen Provider.`;
+      } else if (state.state === 'CURRENT_UNAVAILABLE' && state.current) {
+        content = `Das aktuelle ${role} in „${resolved.project.name}“ ist nicht verfügbar. Ich starte keine Bearbeitung.`;
+      } else {
+        content = `Ich finde kein eindeutiges aktuelles ${role} in diesem Projekt. Welches meinst du?`;
+      }
       session.messages.push({
         id: randomUUID(),
         role: 'assistant',
@@ -1729,6 +1836,17 @@ export async function nexterChat(
     (changeIntent || detectQuoteKind(message)) && intentAllowsQuote(conversationIntent.intent)
   );
   const openPath = detectOpenStudio(message);
+
+  if (resolved.archived && wantsGenerate && conversationIntent.intent === 'CREATE_ASSET') {
+    session.messages.push({
+      id: randomUUID(),
+      role: 'assistant',
+      content: `„${resolved.project?.name ?? 'Dieses Projekt'}“ ist archiviert. Ich behandle es nicht still als normales Generierungsziel und starte keinen Provider-Job.`,
+      createdAt: new Date().toISOString(),
+    });
+    await persistSession(session);
+    return session;
+  }
 
   if (
     incomplete &&
@@ -1860,7 +1978,7 @@ export async function nexterChat(
     return session;
   }
 
-  if (detectQuoteKind(message) === 'banner' && bannerNeedsFollowUp(message, ctx) && !changeIntent && !openPath) {
+  if (detectQuoteKind(message) === 'banner' && bannerNeedsFollowUp(message, { ...ctx, preferredPlatform: studioPreferredPlatform(ctx) }) && !changeIntent && !openPath) {
     session.messages.push({
       id: randomUUID(),
       role: 'assistant',
@@ -2107,7 +2225,7 @@ export async function nexterChat(
         dnaName: ctx.dnaName,
         lastLogoId: ctx.lastLogoId,
         lastBannerId: ctx.lastBannerId,
-        preferredPlatform: ctx.preferredPlatforms?.[0] || ctx.dnaPlatforms?.[0],
+        preferredPlatform: studioPreferredPlatform(ctx),
       });
       if (settings.convertFromExisting && !ctx.lastBannerId) {
         session.messages.push({
@@ -2513,9 +2631,18 @@ export async function nexterChat(
       projectPrep.projectStyleSource = style.source;
       projectPrep.projectColors = colors.value;
       projectPrep.projectColorSource = colors.source;
-      if (wantsCurrentLogoReference(message) && resolved.project) {
-        const ref = await resolveProjectAssetReference(userId, resolved.project.id, 'logo');
-        if (ref.ok) projectPrep.assetReference = ref.ref;
+      if (wantsCurrentLogoReference(message) || (wantsPronounAssetReference(message) && resolved.project)) {
+        if (session.lastReferencedProjectId && resolved.project && session.lastReferencedProjectId !== resolved.project.id) {
+          // Stale cross-project pronoun: do not attach a hidden/wrong reference.
+        } else if (resolved.project) {
+          const refRole = /\blogo\b/i.test(message) ? 'logo' : command.role ?? 'logo';
+          const selection =
+            session.lastReferencedAssetId && session.lastReferencedProjectId === resolved.project.id
+              ? { assetId: session.lastReferencedAssetId }
+              : undefined;
+          const ref = await resolveProjectAssetReference(userId, resolved.project.id, refRole, selection);
+          if (ref.ok) projectPrep.assetReference = ref.ref;
+        }
       }
     }
     const quote = await createQuote(userId, quoteKind, meta?.projectId || ctx.projectId, {

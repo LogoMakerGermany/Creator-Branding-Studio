@@ -108,6 +108,10 @@ export interface NexterSession {
   updatedAt: string;
   /** Session-scoped active project. Never shared across users. */
   activeProjectId?: string;
+  /** Bounded short-term asset referent. Revalidated; never transcript memory. */
+  lastReferencedProjectId?: string;
+  lastReferencedAssetRole?: string;
+  lastReferencedAssetId?: string;
 }
 
 export interface NexterMemoryEntry {

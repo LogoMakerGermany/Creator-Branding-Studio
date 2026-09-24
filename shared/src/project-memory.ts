@@ -127,6 +127,17 @@ export interface ProjectCommand {
 }
 
 export type CurrentAssetQueryState = 'CURRENT' | 'HISTORICAL_ONLY' | 'MISSING' | 'UNAVAILABLE';
+export type CanonicalCurrentAssetState =
+  | 'CURRENT_AVAILABLE'
+  | 'CURRENT_UNAVAILABLE'
+  | 'HISTORICAL_ONLY'
+  | 'MISSING';
+
+export function canonicalCurrentAssetState(state: CurrentAssetQueryState): CanonicalCurrentAssetState {
+  if (state === 'CURRENT') return 'CURRENT_AVAILABLE';
+  if (state === 'UNAVAILABLE') return 'CURRENT_UNAVAILABLE';
+  return state;
+}
 
 export const STREAMSET_OPTIONAL_ROLES: readonly ProjectAssetRole[] = [
   'pause_screen',
@@ -380,13 +391,23 @@ export function matchProjectsByName(
 
 const CREATE_ASSET_VERB = /\b(mach|erstell|generier|erzeug|create|make me|make a new|ich brauche|ich möchte)\b/i;
 
+function isCreatingProjectAsset(raw: string): boolean {
+  return (
+    CREATE_ASSET_VERB.test(raw) ||
+    /\b(for a new|a new|ein neues?|einen neuen)\s+(banner|logo|facecam|overlay|sticker)\b/i.test(raw)
+  );
+}
+
 export function parseProjectCommand(message: string): ProjectCommand {
   const raw = String(message ?? '').trim();
   if (!raw) return { action: null };
   if (/diese datei|file(?:[- ]?id)|benutze diese/i.test(raw)) return { action: null };
   const lower = raw.toLowerCase();
 
-  if (/warum (hast du|wurde|nimmst du)|why did you|quelle|woher/.test(lower) && /wolf|maskottchen|mascot|farbe|stil|logo|rot|blau|red|blue/.test(lower)) {
+  if (
+    /warum (hast du|wurde|nimmst du)|why did you|quelle|woher/.test(lower) &&
+    /wolf|maskottchen|mascot|farbe|stil|style|logo|rot|blau|red|blue|gold|minimal|cinematic/.test(lower)
+  ) {
     return { action: 'explain' };
   }
 
@@ -448,11 +469,15 @@ export function parseProjectCommand(message: string): ProjectCommand {
     return { action: 'inspect_summary', query: extractNamedProject(raw) };
   }
 
-  if (/welche assets|was (hat|gehört)|assets (hat|does)|inventar/.test(lower) && /projekt|project|streamset/.test(lower)) {
+  if (
+    (/welche assets|was (hat|gehört)|assets (hat|does)|inventar|what assets|which assets|assets do i have/.test(lower) &&
+      (/projekt|project|streamset/.test(lower) || /what assets|which assets|assets do i have/.test(lower))) &&
+    !/coin|preis|cost|kostet|credits|password|passwort/.test(lower)
+  ) {
     return { action: 'inspect_assets', query: extractNamedProject(raw) };
   }
 
-  const creating = CREATE_ASSET_VERB.test(raw);
+  const creating = isCreatingProjectAsset(raw);
   if (/match (this|the|my) project|passend zu (diesem|dem) projekt|nächste[s]? asset .{0,24}projekt/.test(lower)) {
     const matchRole = parseProjectAssetRoleFromText(raw);
     if (!matchRole || !creating) {
@@ -480,8 +505,16 @@ export function parseProjectCommand(message: string): ProjectCommand {
     /^(?:öffne|open|nutze|benutze|use)\s+(?:mein[e]?|das|the|my)?\s*(?:projekt|project)?\s*[„"']?(.+?)[""']?\s*\.?$/i
   );
   if (open?.[1]) {
+    if (creating) return { action: null };
     const query = sanitizeProjectQuery(open[1]);
     if (!query || STUDIO_UTTERANCE.test(query)) return { action: null };
+    const roleOnly = parseProjectAssetRoleFromText(query);
+    if (
+      roleOnly &&
+      /^(that|this|the current|dieses|das aktuelle|aktuell)\s+(logo|banner|facecam|overlay)s?$/i.test(query.trim())
+    ) {
+      return { action: 'use_reference', role: roleOnly };
+    }
     const action: ProjectCommandAction = /^(nutze|benutze|use|wechsel|switch)\b/i.test(raw) ? 'use' : 'open';
     return { action, query };
   }
@@ -748,6 +781,9 @@ export function buildProjectInventory(project: Pick<Project, 'type' | 'assets'>)
 }
 
 export function formatProjectInventory(project: Pick<Project, 'name' | 'type' | 'assets'>): string {
+  if (!boundProjectAssets(project.assets).length) {
+    return `In „${project.name}“ sind noch keine Assets gespeichert.`;
+  }
   const inv = buildProjectInventory(project);
   const have = inv.availableAssets.map((a) => a.role).join(', ') || 'keine aktuellen Rollen';
   const missing = inv.missingCommonAssets.join(', ');
@@ -828,9 +864,13 @@ export function sanitizeSafeAssetReference(value: unknown): SafeProjectAssetRefe
 }
 
 export function wantsCurrentLogoReference(message: string): boolean {
-  return /aktuelles? logo|current logo|logo as reference|logo als referenz|passend zum (aktuellen )?logo|matching my current logo/i.test(
+  return /aktuelles? logo|current logo|logo as reference|logo als referenz|passend zum (aktuellen )?logo|matching (my |the )?current logo|that logo as reference|this logo as reference/i.test(
     message
   );
+}
+
+export function wantsPronounAssetReference(message: string): boolean {
+  return /\b(that|this|dieses|das aktuelle|the current one)\b.{0,32}\b(logo|banner|facecam|overlay)\b/i.test(message);
 }
 
 export function isBareAssetKindUtterance(message: string): boolean {
