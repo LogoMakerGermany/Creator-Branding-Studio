@@ -1,4 +1,5 @@
 import { isFirebaseConfigured } from '@/lib/runtime-config';
+import { getIdToken } from '@/lib/firebase';
 import { AUTH_TOKEN_STORAGE_KEY, resolveAuthRequestToken } from '@/lib/auth-session';
 import type {
   BannerGenerationOptions,
@@ -62,7 +63,6 @@ function readLegacyAuthToken(): string | null {
 
 async function getToken(): Promise<string | null> {
   if (isFirebaseConfigured()) {
-    const { getIdToken } = await import('@/lib/firebase');
     return resolveAuthRequestToken({
       firebaseConfigured: true,
       firebaseIdToken: await getIdToken(),
@@ -147,6 +147,10 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
       INTRO_REQUIRES_QUOTE: 'Intro/Outro startet nur über Nexter nach Bestätigung.',
       VTUBER_REQUIRES_QUOTE: 'VTuber-Generierung startet nur über Nexter nach Bestätigung.',
       GENERATIONS_DISABLED: 'Generierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.',
+      TEXT_GENERATION_DISABLED:
+        'Die Textgenerierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.',
+      CAPTIONS_GENERATION_DISABLED:
+        'Automatische Untertitel sind momentan nicht verfügbar. Es wurden keine Coins abgebucht.',
       NEXTER_CHAT_LIMIT: 'Nexter-Chat-Limit erreicht. Bitte später erneut versuchen.',
       SPEAK_RATE_LIMIT: 'Bitte kurz warten, bevor die Sprachausgabe erneut gestartet wird.',
       AI_UNAVAILABLE: 'AI PROVIDER NOT CONFIGURED. Nexter-Chat ist nicht verfügbar, Studios funktionieren weiter.',
@@ -2342,6 +2346,19 @@ export interface AdminSystemStatus {
     updatedAt?: string;
   };
   providers: Record<string, { configured: boolean; liveChecked?: boolean; available?: boolean | null }>;
+  readiness?: {
+    checkedAt: string;
+    liveChecked: false;
+    rows: Array<{
+      feature: string;
+      flag: string | null;
+      flagEnabled: boolean | null;
+      variables: Array<{ name: string; present: boolean }>;
+      anyVariable?: boolean;
+      optional: boolean;
+      status: 'READY' | 'NOT READY';
+    }>;
+  };
 }
 
 export interface TesterFeedbackRow {

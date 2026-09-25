@@ -13,6 +13,22 @@ import {
   transactionalAppUrl,
 } from '../lib/email-address.js';
 
+const CONFIGURED_VARIABLE_NAMES = new Set([
+  'DISCORD_CLIENT_ID',
+  'DISCORD_CLIENT_SECRET',
+  'TWITCH_CLIENT_ID',
+  'TWITCH_CLIENT_SECRET',
+  'TIKTOK_CLIENT_ID',
+  'TIKTOK_CLIENT_SECRET',
+  'MICROSOFT_CLIENT_ID',
+]);
+
+/** Allowlisted presence check. Never returns the variable value. */
+export function isConfiguredVariablePresent(name: string): boolean {
+  if (!CONFIGURED_VARIABLE_NAMES.has(name)) return false;
+  return Boolean(readEnv(name));
+}
+
 function readEnv(key: string): string | undefined {
   const value = process.env[key];
   if (value === undefined) return undefined;
@@ -156,6 +172,44 @@ export function getNexterChatModel(): string {
 /** Chat is available only when the explicit gate is on AND a server-side OpenAI key exists. */
 export function isNexterChatProviderAvailable(): boolean {
   return isNexterChatEnabled() && Boolean(getOpenAiApiKey());
+}
+
+/**
+ * Paid text packages (OpenAI chat completions). Fail-closed.
+ * OPENAI_API_KEY alone must not enable text generation.
+ * Only the exact value "true" on TEXT_GENERATIONS_ENABLED allows a provider call.
+ * This helper is the flag alone. The global generations switch is applied in areTextGenerationsEnabled.
+ */
+export function isTextGenerationsFlagEnabled(): boolean {
+  return isEnvFlagTrue('TEXT_GENERATIONS_ENABLED');
+}
+
+export function areTextGenerationsEnabled(): boolean {
+  return areGenerationsEnabled() && isTextGenerationsFlagEnabled();
+}
+
+/** Text is available only when the explicit gate is on AND a server-side OpenAI key exists. */
+export function hasTextAiProvider(): boolean {
+  return areTextGenerationsEnabled() && Boolean(getOpenAiApiKey());
+}
+
+/**
+ * Automatic captions (Whisper). Fail-closed.
+ * OPENAI_API_KEY alone must not enable transcription.
+ * Only the exact value "true" on CAPTIONS_GENERATIONS_ENABLED allows a provider call.
+ * This helper is the flag alone. The global generations switch is applied in areCaptionsGenerationsEnabled.
+ */
+export function isCaptionsGenerationsFlagEnabled(): boolean {
+  return isEnvFlagTrue('CAPTIONS_GENERATIONS_ENABLED');
+}
+
+export function areCaptionsGenerationsEnabled(): boolean {
+  return areGenerationsEnabled() && isCaptionsGenerationsFlagEnabled();
+}
+
+/** Captions are available only when the explicit gate is on AND a server-side OpenAI key exists. */
+export function hasCaptionsAiProvider(): boolean {
+  return areCaptionsGenerationsEnabled() && Boolean(getOpenAiApiKey());
 }
 
 export function arePaymentsEnabled(): boolean {
@@ -551,6 +605,8 @@ export function getPaidGenerationAvailability(): {
   music: boolean;
   tts: boolean;
   chat: boolean;
+  text: boolean;
+  captions: boolean;
 } {
   return {
     image: hasImageAiProvider(),
@@ -559,6 +615,8 @@ export function getPaidGenerationAvailability(): {
     music: hasMusicAiProvider(),
     tts: isElevenLabsTtsLiveEnabled(),
     chat: isNexterChatProviderAvailable(),
+    text: hasTextAiProvider(),
+    captions: hasCaptionsAiProvider(),
   };
 }
 

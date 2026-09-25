@@ -183,7 +183,7 @@ describe('Block I — NEXTER production branding / legacy cleanup', () => {
   });
 
   it('24-27. new export names, old Railway links, denylist, and Firebase project', () => {
-    assert.match(providers, /PRODUCT_NAME\} Track/);
+    assert.equal(providers.includes('sunoapi.org'), false);
     assert.doesNotMatch(providers, /UCBS Track/);
     assert.doesNotMatch(projectExport, /ucbs-/i);
     assert.doesNotMatch(landing, /creatorbrandingstudioultimate-production\.up\.railway\.app/);

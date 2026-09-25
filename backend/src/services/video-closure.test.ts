@@ -239,7 +239,7 @@ describe('video closure — automatic captions (provider-gated)', () => {
     );
     await assert.rejects(
       () => executeQuotedCaptions(user.id, video.id),
-      (err: unknown) => err instanceof ServiceError && err.code === 'AI_NOT_CONFIGURED'
+      (err: unknown) => err instanceof ServiceError && err.code === 'CAPTIONS_GENERATION_DISABLED'
     );
     const convo = readFileSync(join(dir, 'nexter/conversation.service.ts'), 'utf8');
     assert.equal(convo.includes('executeQuotedCaptions'), false);
@@ -252,26 +252,33 @@ describe('video closure — automatic captions (provider-gated)', () => {
 
   it('confirmed caption quote applies mock transcript and leaves review required', async () => {
     const { user, video } = await seed(8);
+    const previous = process.env.CAPTIONS_GENERATIONS_ENABLED;
+    process.env.CAPTIONS_GENERATIONS_ENABLED = 'true';
     setCaptionTestHooks({
       transcript: [
         { start: 1, end: 3, text: 'Caption A' },
         { start: 4, end: 6, text: 'Caption B' },
       ],
     });
-    const quote = await createQuote(user.id, 'captions', video.id, { videoProjectId: video.id });
-    const result = await confirmQuote(user.id, quote.id);
-    assert.equal(result.jobIds.length, 1);
-    const loaded = await getVideoProject(video.id, user.id);
-    assert.equal(loaded?.subtitles.length, 2);
-    assert.equal(loaded?.subtitles[0]?.text, 'Caption A');
-    assert.equal(loaded?.captionsNeedReview, true);
-    assert.equal(loaded?.editPlan?.subtitleTrack, false);
-    const reviewed = await saveSubtitleEdits(video.id, user.id, [
-      { start: 1, end: 3, text: 'Caption A fix' },
-      { start: 4, end: 6, text: 'Caption B' },
-    ]);
-    assert.equal(reviewed.captionsNeedReview, false);
-    assert.equal(reviewed.subtitles[0]?.text, 'Caption A fix');
+    try {
+      const quote = await createQuote(user.id, 'captions', video.id, { videoProjectId: video.id });
+      const result = await confirmQuote(user.id, quote.id);
+      assert.equal(result.jobIds.length, 1);
+      const loaded = await getVideoProject(video.id, user.id);
+      assert.equal(loaded?.subtitles.length, 2);
+      assert.equal(loaded?.subtitles[0]?.text, 'Caption A');
+      assert.equal(loaded?.captionsNeedReview, true);
+      assert.equal(loaded?.editPlan?.subtitleTrack, false);
+      const reviewed = await saveSubtitleEdits(video.id, user.id, [
+        { start: 1, end: 3, text: 'Caption A fix' },
+        { start: 4, end: 6, text: 'Caption B' },
+      ]);
+      assert.equal(reviewed.captionsNeedReview, false);
+      assert.equal(reviewed.subtitles[0]?.text, 'Caption A fix');
+    } finally {
+      if (previous === undefined) delete process.env.CAPTIONS_GENERATIONS_ENABLED;
+      else process.env.CAPTIONS_GENERATIONS_ENABLED = previous;
+    }
   });
 });
 

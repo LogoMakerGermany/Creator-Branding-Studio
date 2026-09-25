@@ -137,22 +137,29 @@ describe('provider confirmation gate — legacy and listen/speak/captions', () =
       () => generateSubtitles(video.id, user.id),
       (err: unknown) => err instanceof ServiceError && err.code === 'AI_NOT_CONFIGURED'
     );
+    const previous = process.env.CAPTIONS_GENERATIONS_ENABLED;
+    process.env.CAPTIONS_GENERATIONS_ENABLED = 'true';
     setCaptionTestHooks({
       transcript: [
         { start: 1, end: 3, text: 'Caption A' },
         { start: 4, end: 6, text: 'Caption B' },
       ],
     });
-    const quote = await createQuote(user.id, 'captions', video.id, { videoProjectId: video.id });
-    const result = await confirmQuote(user.id, quote.id);
-    assert.equal(result.jobIds.length, 1);
-    const loaded = await getVideoProject(video.id, user.id);
-    assert.equal(loaded?.subtitles[0]?.text, 'Caption A');
-    const other = await getOrCreateUser(randomUUID(), `${randomUUID()}@gate-vid-b.test`, 'B');
-    await assert.rejects(
-      () => generateSubtitles(video.id, other.id),
-      (err: unknown) => err instanceof ServiceError && err.code === 'NOT_FOUND'
-    );
+    try {
+      const quote = await createQuote(user.id, 'captions', video.id, { videoProjectId: video.id });
+      const result = await confirmQuote(user.id, quote.id);
+      assert.equal(result.jobIds.length, 1);
+      const loaded = await getVideoProject(video.id, user.id);
+      assert.equal(loaded?.subtitles[0]?.text, 'Caption A');
+      const other = await getOrCreateUser(randomUUID(), `${randomUUID()}@gate-vid-b.test`, 'B');
+      await assert.rejects(
+        () => generateSubtitles(video.id, other.id),
+        (err: unknown) => err instanceof ServiceError && err.code === 'NOT_FOUND'
+      );
+    } finally {
+      if (previous === undefined) delete process.env.CAPTIONS_GENERATIONS_ENABLED;
+      else process.env.CAPTIONS_GENERATIONS_ENABLED = previous;
+    }
   });
 });
 

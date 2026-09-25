@@ -7,6 +7,7 @@ import { generateMusic, generateSpeech, generateVideo, assertMusicDurationSuppor
 import {
   analyzeVideoFromSource,
   analyzeVideoLocal,
+  assertCaptionsProviderReady,
   transcribeVideoSource,
 } from '../lib/video-analysis.js';
 import {
@@ -702,13 +703,7 @@ export async function executeQuotedCaptions(
   if (!project) throw new ServiceError(404, 'NOT_FOUND', 'Projekt nicht gefunden');
   if (!project.sourceFileId && !project.sourceUrl) throw new ServiceError(400, 'NO_SOURCE', 'Video-Quelle fehlt');
 
-  if (isPaidProviderTestBlocked() && !captionTestTranscript) {
-    throw new ServiceError(
-      503,
-      'AI_NOT_CONFIGURED',
-      'Automatische Untertitel sind provider-gated. Bestätigung allein startet keinen Provider.'
-    );
-  }
+  assertCaptionsProviderReady(Boolean(captionTestTranscript));
 
   const result = await withCoinCharge(
     userId,

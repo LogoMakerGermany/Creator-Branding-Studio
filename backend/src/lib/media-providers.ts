@@ -31,7 +31,6 @@ import {
   defaultVoiceSettings,
   type MusicProviderId,
   type VoiceSettings,
-  PRODUCT_NAME,
 } from '@ucbs/shared';
 
 export { RUNWAY_HTTP_TIMEOUT_MS };
@@ -274,43 +273,6 @@ async function generateMusicWithReplicate(
   }
 
   return { audioUrl, provider: 'replicate-musicgen', duration };
-}
-
-async function generateMusicWithSuno(
-  prompt: string,
-  options?: { duration?: number; title?: string }
-): Promise<{ audioUrl: string; provider: string; duration: number }> {
-  throw new ServiceError(503, 'MUSIC_PROVIDER_DISABLED', UNOFFICIAL_SUNO_DISABLED_MESSAGE);
-
-  // Retained unofficial request shape for a future official adapter — never executed.
-  const res = await fetch('https://api.sunoapi.org/api/v1/generate', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${getSunoApiKey()}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      prompt,
-      title: options?.title || `${PRODUCT_NAME} Track`,
-      duration: options?.duration || 120,
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(`Suno API error: ${await res.text()}`);
-  }
-
-  const data = (await res.json()) as { audio_url?: string; url?: string };
-  const audioUrl = data.audio_url || data.url;
-  if (!audioUrl) {
-    throw new Error('Suno returned no audio URL');
-  }
-
-  return {
-    audioUrl: audioUrl as string,
-    provider: 'suno',
-    duration: options?.duration || 120,
-  };
 }
 
 export async function generateVideoThumbnail(

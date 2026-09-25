@@ -320,6 +320,14 @@ export function AdminPage() {
         {system && (
           <div className="mt-3 rounded-xl border border-white/10 p-4 text-xs text-zinc-400">
             <p className="mb-2 font-semibold text-white">Diagnose (keine Keys, keine Live-Pings)</p>
+            {system.readiness?.rows?.map((row) => (
+              <p key={row.feature}>
+                {row.feature}: Flag {row.flag ? (row.flagEnabled ? 'ON' : 'OFF') : 'n/a'}
+                {row.flag ? ` (${row.flag})` : ''} · {row.status}
+                {row.optional ? ' · optional' : ''}
+                {row.variables.map((item) => ` · ${item.name} ${item.present ? 'JA' : 'NEIN'}`).join('')}
+              </p>
+            ))}
             <p>
               Firestore:{' '}
               {system.firestore

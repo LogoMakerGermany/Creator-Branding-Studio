@@ -38,6 +38,7 @@ import { writeAdminAudit, listAdminAudit } from '../services/admin-audit.service
 import { recoverStaleJobs } from '../services/job-recovery.service.js';
 import { listPaymentClaims } from '../services/session-store.service.js';
 import { deliverAssignedInviteEmail } from '../services/email.service.js';
+import { buildReadinessReport } from '../services/readiness.service.js';
 import {
   assertSafeAdminDisable,
   assertSafeAdminRoleChange,
@@ -53,6 +54,13 @@ import {
 export const adminRoutes = Router();
 
 adminRoutes.use(authenticate, requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN));
+
+adminRoutes.get(
+  '/readiness',
+  asyncHandler(async (_req, res) => {
+    sendSuccess(res, { readiness: buildReadinessReport() });
+  })
+);
 
 adminRoutes.get(
   '/settings',

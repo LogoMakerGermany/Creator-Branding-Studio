@@ -13,7 +13,8 @@ import {
   type PlatformVariant,
   type TextKind,
 } from '@ucbs/shared';
-import { getOpenAiApiKey, areGenerationsEnabled } from '../config/env.js';
+import { getOpenAiApiKey, areGenerationsEnabled, isTextGenerationsFlagEnabled } from '../config/env.js';
+import { assertTextLiveProviderReady } from './text-provider-gate.js';
 import { dsGet, dsList, dsSet } from '../lib/data-store.js';
 import { withCoinCharge } from '../lib/billable-job.js';
 import { ServiceError } from '../lib/errors.js';
@@ -510,6 +511,9 @@ async function callOpenAiJson(system: string, user: string): Promise<unknown> {
   if (!areGenerationsEnabled()) {
     throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
   }
+  if (!isTextGenerationsFlagEnabled()) {
+    throw new ServiceError(503, 'TEXT_GENERATION_DISABLED', 'Die Textgenerierung ist momentan nicht verfügbar. Es wurden keine Coins abgebucht.');
+  }
   const key = getOpenAiApiKey();
   if (!key) {
     throw new ServiceError(503, 'AI_NOT_CONFIGURED', 'Textgenerierung benötigt OPENAI_API_KEY');
@@ -604,9 +608,7 @@ export async function generateContentPackage(
   payload: TextQuotePayload = {}
 ): Promise<{ job: ContentPackage; coinsSpent: number; newBalance: number }> {
   const mockResult = textTestHooks?.result;
-  if (!getOpenAiApiKey() && mockResult !== 'success' && mockResult !== 'fail') {
-    throw new ServiceError(503, 'AI_NOT_CONFIGURED', 'Textgenerierung benötigt OPENAI_API_KEY');
-  }
+  assertTextLiveProviderReady(mockResult === 'success' || mockResult === 'fail');
 
   const resolved = await resolveDnaForRequest(userId, projectId || payload.projectId);
   const dna = resolved.dna;

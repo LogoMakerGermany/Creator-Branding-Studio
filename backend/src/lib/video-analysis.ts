@@ -1,6 +1,11 @@
 import { ServiceError } from './errors.js';
-import { getOpenAiApiKey } from '../config/env.js';
+import {
+  areGenerationsEnabled,
+  getOpenAiApiKey,
+  isCaptionsGenerationsFlagEnabled,
+} from '../config/env.js';
 import { isPaidProviderTestBlocked } from './media-providers.js';
+import { assertTextLiveProviderReady } from '../services/text-provider-gate.js';
 import type { SubtitleSegment } from './video-processing.js';
 import { detectScenesAndPauses, extractAudioFromVideo } from './video-processing.js';
 import {
@@ -22,14 +27,33 @@ export interface VideoAnalysisResult {
   analyzerVersion: string;
 }
 
-export async function transcribeVideoSource(sourceUrl: string): Promise<SubtitleSegment[]> {
-  if (isPaidProviderTestBlocked() || !getOpenAiApiKey()) {
+export const CAPTIONS_GENERATION_DISABLED_CODE = 'CAPTIONS_GENERATION_DISABLED';
+export const CAPTIONS_GENERATION_DISABLED_MESSAGE =
+  'Automatische Untertitel sind momentan nicht verfügbar. Es wurden keine Coins abgebucht.';
+
+/** Live Whisper is allowed only with the captions flag, a key, and a non-test runtime. Mock transcripts skip this. */
+export function assertCaptionsProviderReady(mockActive: boolean): void {
+  if (!areGenerationsEnabled()) {
+    throw new ServiceError(503, 'GENERATIONS_DISABLED', 'KI-Generierung ist deaktiviert.');
+  }
+  if (!isCaptionsGenerationsFlagEnabled()) {
+    throw new ServiceError(503, CAPTIONS_GENERATION_DISABLED_CODE, CAPTIONS_GENERATION_DISABLED_MESSAGE);
+  }
+  if (mockActive) return;
+  if (!getOpenAiApiKey()) {
+    throw new ServiceError(503, 'AI_NOT_CONFIGURED', 'Automatische Untertitel benötigen OPENAI_API_KEY');
+  }
+  if (isPaidProviderTestBlocked()) {
     throw new ServiceError(
       503,
       'AI_NOT_CONFIGURED',
-      'Untertitel per Sprache-zu-Text sind provider-gated und in diesem Block deaktiviert'
+      'Automatische Untertitel sind provider-gated und in Tests blockiert'
     );
   }
+}
+
+export async function transcribeVideoSource(sourceUrl: string): Promise<SubtitleSegment[]> {
+  assertCaptionsProviderReady(false);
   const apiKey = getOpenAiApiKey()!;
 
   const audioBuffer = await extractAudioFromVideo(sourceUrl);
@@ -46,7 +70,7 @@ export async function transcribeVideoSource(sourceUrl: string): Promise<Subtitle
   });
 
   if (!res.ok) {
-    throw new ServiceError(502, 'TRANSCRIPTION_FAILED', `Whisper-Fehler: ${await res.text()}`);
+    throw new ServiceError(502, 'TRANSCRIPTION_FAILED', 'Die Untertitel-Anfrage ist fehlgeschlagen.');
   }
 
   const data = (await res.json()) as {
@@ -71,13 +95,7 @@ export async function detectHighlightsFromSubtitles(
   subtitles: SubtitleSegment[],
   styleDirection?: string
 ): Promise<VideoAnalysisResult['highlights']> {
-  if (isPaidProviderTestBlocked() || !getOpenAiApiKey()) {
-    throw new ServiceError(
-      503,
-      'AI_NOT_CONFIGURED',
-      'Semantische Highlight-KI ist provider-gated und wird nicht aufgerufen'
-    );
-  }
+  assertTextLiveProviderReady(false);
   const apiKey = getOpenAiApiKey()!;
 
   const transcript = subtitles
@@ -109,7 +127,7 @@ export async function detectHighlightsFromSubtitles(
   });
 
   if (!res.ok) {
-    throw new ServiceError(502, 'HIGHLIGHT_ANALYSIS_FAILED', `OpenAI-Fehler: ${await res.text()}`);
+    throw new ServiceError(502, 'HIGHLIGHT_ANALYSIS_FAILED', 'Die Highlight-Anfrage ist fehlgeschlagen.');
   }
 
   const data = (await res.json()) as { choices: { message: { content: string } }[] };
@@ -168,11 +186,5 @@ export async function analyzeVideoFromSource(
 }
 
 export function requireVideoAnalysisConfigured(): void {
-  if (isPaidProviderTestBlocked() || !getOpenAiApiKey()) {
-    throw new ServiceError(
-      503,
-      'AI_NOT_CONFIGURED',
-      'Video-Analyse per Whisper/GPT ist provider-gated und wird nicht aufgerufen'
-    );
-  }
+  assertCaptionsProviderReady(false);
 }

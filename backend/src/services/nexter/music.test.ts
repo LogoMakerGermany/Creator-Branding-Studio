@@ -1,5 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { checkMusicDuration, parseMusicIntent, MUSIC_PROVIDERS } from '@ucbs/shared';
 import { getMusicProviderLimits, assertMusicDurationSupported } from '../../lib/media-providers.js';
 import { ServiceError } from '../../lib/errors.js';
@@ -75,6 +78,9 @@ describe('unofficial Suno disabled', () => {
     try {
       const limits = getMusicProviderLimits();
       assert.equal(limits.ok, false);
+      const media = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../lib/media-providers.ts'), 'utf8');
+      assert.equal(media.includes('sunoapi.org'), false);
+      assert.equal(media.includes('res.text()'), false);
       if (!limits.ok) {
         assert.equal(limits.code, 'MUSIC_PROVIDER_DISABLED');
         assert.match(limits.message, /inoffizielle Suno/i);

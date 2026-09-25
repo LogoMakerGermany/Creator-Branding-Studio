@@ -20,6 +20,7 @@ import { listUserFiles } from './file-cloud.service.js';
 import { listAdminAuditForTarget } from './admin-audit.service.js';
 import { dsList, dsListWhere } from '../lib/data-store.js';
 import { getSystemSettings } from './system-settings.service.js';
+import { buildReadinessReport } from './readiness.service.js';
 import { listInviteCodes } from './invite.service.js';
 import { inviteEmailDeliveryFromStore } from './email.service.js';
 import { getAdminAnalytics } from './admin-analytics.service.js';
@@ -346,6 +347,7 @@ export async function getAdminSystemStatus() {
     },
     providers: getAiProviderStatus(),
     generationAvailability: getPaidGenerationAvailability(),
+    readiness: buildReadinessReport(),
   };
 }
 

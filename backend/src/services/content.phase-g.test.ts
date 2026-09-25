@@ -159,9 +159,13 @@ describe('phase G — quote gate source', () => {
     assert.match(textSrc, /withCoinCharge/);
     const start = textSrc.indexOf('export async function generateContentPackage');
     const slice = textSrc.slice(start, start + 2500);
-    assert.ok(slice.includes('getOpenAiApiKey()'));
+    assert.ok(slice.includes('assertTextLiveProviderReady'));
     assert.ok(slice.includes('withCoinCharge'));
-    assert.ok(slice.indexOf('getOpenAiApiKey()') < slice.indexOf('withCoinCharge'));
+    assert.ok(slice.indexOf('assertTextLiveProviderReady') < slice.indexOf('withCoinCharge'));
+    const gate = readFileSync(join(dir, 'text-provider-gate.ts'), 'utf8');
+    assert.match(gate, /getOpenAiApiKey\(\)/);
+    assert.match(gate, /isTextGenerationsFlagEnabled\(\)/);
+    assert.doesNotMatch(gate, /withCoinCharge/);
   });
 
   it('TEXT_GENERATION is 2 coins from central pricing', () => {
@@ -350,7 +354,7 @@ describe('phase G — ownership, DNA priority, persist, planner', () => {
     delete process.env.OPENAI_API_KEY;
     await assert.rejects(
       () => generateContentPackage(userA, projectA.id, { kind: 'package', topic: 'raid', sourceType: 'topic' }),
-      (err: Error & { code?: string }) => err.code === 'AI_NOT_CONFIGURED' || /OPENAI_API_KEY/.test(err.message)
+      (err: Error & { code?: string }) => err.code === 'TEXT_GENERATION_DISABLED'
     );
     assert.equal(await getCoinBalance(userA), coinsBefore);
 
