@@ -487,22 +487,63 @@ describe('file cloud local closure — projects, assets, studios, nexter', () =>
 
   it('looks up recent own assets by createdAt', async () => {
     const { user } = await seed('recent');
-    await saveUserFile(user.id, {
+    const oldId = '00000000-0000-4000-8000-000000000101';
+    const latestId = '00000000-0000-4000-8000-000000000102';
+    await dsSet('files', oldId, {
+      id: oldId,
+      userId: user.id,
       name: 'old.png',
       mimeType: 'image/png',
+      size: 1,
       category: 'banner',
-      dataUrl: PIXEL,
+      downloadUrl: PIXEL,
+      source: 'upload',
+      deletionState: 'active',
+      createdAt: '2024-01-01T00:00:00.000Z',
     });
-    const latest = await saveUserFile(user.id, {
+    await dsSet('files', latestId, {
+      id: latestId,
+      userId: user.id,
       name: 'newest-logo.png',
       mimeType: 'image/png',
+      size: 1,
       category: 'logo',
-      dataUrl: PIXEL,
+      downloadUrl: PIXEL,
+      source: 'upload',
+      deletionState: 'active',
+      createdAt: '2025-01-01T00:00:00.000Z',
     });
     const recent = await getRecentUserFiles(user.id, { limit: 5 });
-    assert.equal(recent[0]?.id, latest.id);
+    assert.equal(recent[0]?.id, latestId);
     const logos = await getRecentUserFiles(user.id, { category: 'logo', limit: 1 });
-    assert.equal(logos[0]?.id, latest.id);
+    assert.equal(logos[0]?.id, latestId);
+  });
+
+  it('uses the file id as a deterministic newest tie-breaker', async () => {
+    const { user } = await seed('recent-tie');
+    const lowerId = '00000000-0000-4000-8000-000000000201';
+    const higherId = '00000000-0000-4000-8000-000000000202';
+    const createdAt = '2025-02-01T00:00:00.000Z';
+    for (const [id, name] of [
+      [lowerId, 'tie-lower.png'],
+      [higherId, 'tie-higher.png'],
+    ] as const) {
+      await dsSet('files', id, {
+        id,
+        userId: user.id,
+        name,
+        mimeType: 'image/png',
+        size: 1,
+        category: 'logo',
+        downloadUrl: PIXEL,
+        source: 'upload',
+        deletionState: 'active',
+        createdAt,
+      });
+    }
+
+    const recent = await getRecentUserFiles(user.id, { limit: 2 });
+    assert.deepEqual(recent.map((file) => file.id), [higherId, lowerId]);
   });
 
   it('lets Nexter list own recent files', async () => {

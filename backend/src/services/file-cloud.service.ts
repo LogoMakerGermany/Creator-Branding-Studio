@@ -181,7 +181,8 @@ export function sortUserFiles(files: UserFile[], sort: FileSort = 'newest'): Use
     if (sort === 'name') return a.name.localeCompare(b.name, 'de');
     if (sort === 'name-desc') return b.name.localeCompare(a.name, 'de');
     if (sort === 'size') return (b.size || 0) - (a.size || 0);
-    return b.createdAt.localeCompare(a.createdAt);
+    const createdAtOrder = b.createdAt.localeCompare(a.createdAt);
+    return createdAtOrder || b.id.localeCompare(a.id);
   });
   return copy;
 }
