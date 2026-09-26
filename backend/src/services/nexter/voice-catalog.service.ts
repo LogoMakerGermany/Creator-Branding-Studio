@@ -6,7 +6,14 @@ import {
   NEXTER_VOICE_MALE_ID,
   isInternalNexterVoiceId,
 } from '@ucbs/shared';
-import { getElevenLabsApiKey, getElevenLabsVoiceId, getNexterVoiceCatalogExtra } from '../../config/env.js';
+import {
+  areGenerationsEnabled,
+  getElevenLabsApiKey,
+  getElevenLabsVoiceId,
+  getNexterVoiceCatalogExtra,
+  isTtsGenerationEnabled,
+} from '../../config/env.js';
+import { isPaidProviderTestBlocked } from '../../lib/media-providers.js';
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const CATALOG_ID_RE = /^el-[a-f0-9]{16}$/;
@@ -179,7 +186,8 @@ function mapOfficialVoice(raw: ElevenLabsVoiceRaw): VoiceCatalogInternalEntry | 
 
 async function fetchOfficialVoices(): Promise<ElevenLabsVoiceRaw[]> {
   if (testLoader) return testLoader();
-  if (process.env.NODE_TEST) return [];
+  if (!areGenerationsEnabled() || !isTtsGenerationEnabled()) return [];
+  if (isPaidProviderTestBlocked()) return [];
   const apiKey = getElevenLabsApiKey();
   if (!apiKey) return [];
   const res = await fetch('https://api.elevenlabs.io/v1/voices', {

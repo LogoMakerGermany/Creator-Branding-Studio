@@ -33,7 +33,7 @@ Microsoft-Client-Secret gehört in die Firebase Console, nicht in dieses Reposit
 | `VIDEO_GENERATIONS_ENABLED` | Exakt `true` schaltet KI-Video und Animation frei. Default aus | Runway oder Replicate | Flag | `VIDEO_GENERATIONS_ENABLED` |
 | `RUNWAY_API_KEY` | Server-Key | Runway | alternativ zu Replicate für Video | `VIDEO_GENERATIONS_ENABLED` |
 | `MUSIC_GENERATIONS_ENABLED` | Exakt `true` schaltet MusicGen frei. Default aus | Replicate | Flag | `MUSIC_GENERATIONS_ENABLED` |
-| `TTS_GENERATION_ENABLED` | Exakt `true` schaltet Katalog-TTS frei. Default aus. Browser-TTS bleibt kostenlos | ElevenLabs | Flag | `TTS_GENERATION_ENABLED` |
+| `TTS_GENERATION_ENABLED` | Exakt `true` schaltet Katalog-TTS und die ElevenLabs-Stimmenliste frei. Default aus. Browser-TTS bleibt kostenlos. Ein Key allein ruft ElevenLabs nicht auf | ElevenLabs | Flag | `TTS_GENERATION_ENABLED` |
 | `ELEVENLABS_API_KEY` | Server-Key | ElevenLabs | notwendig für Katalog-TTS | `TTS_GENERATION_ENABLED` |
 | `ELEVENLABS_VOICE_ID` | Optionale Default-Stimme, Provider-ID nur serverseitig | ElevenLabs | optional | `TTS_GENERATION_ENABLED` |
 | `PAYMENTS_ENABLED` | Exakt `true` erlaubt neue Checkouts. Default aus | Stripe | Flag | `PAYMENTS_ENABLED` |

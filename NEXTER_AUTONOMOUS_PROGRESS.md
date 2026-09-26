@@ -2,7 +2,7 @@
 
 Stand: 25. September 2026. Baseline davor: Typecheck grün, 1245 Tests grün, Build grün.
 
-Abschluss dieses Laufs: Typecheck grün, **1264 Tests grün, 0 fehlgeschlagen**, 286 Suites, Build grün.
+Abschluss dieses Laufs: Typecheck grün, **1265 Tests grün, 0 fehlgeschlagen**, 286 Suites, Build grün.
 
 ---
 
@@ -112,6 +112,14 @@ Abschluss dieses Laufs: Typecheck grün, **1264 Tests grün, 0 fehlgeschlagen**,
 - Typecheck: grün
 - Build: grün
 - Nicht angefasst: Chunk-Splitting, Railway-Migration, Replica-Lock, Rechtstexte, Feature-Flags, Deploy
+
+## Phase M — Stimmenliste fail-closed
+
+- Datum: 26. September 2026
+- Änderung: `GET /v1/voices` läuft nur, wenn `TTS_GENERATION_ENABLED` exakt `true` ist und die globale Generierung an ist. Ein ElevenLabs-Key allein ruft die Liste nicht ab. In Tests bleibt der Live-Call blockiert. Test-Loader bleiben der Mock-Pfad. Nexter-Chat prüft `isNexterChatProviderAvailable()` unmittelbar vor dem Chat-Completion-Request.
+- Prüfung 1: `voice-catalog.test.ts` und `nexter-tts-e2e.test.ts`, 38 bestanden.
+- Prüfung 2: volle Suite 1265 bestanden, Typecheck grün.
+- Verbleibend: Die vier in Railway auf `true` stehenden Flags werden nicht von hier geändert.
 
 ## Verbleibende Blocker
 

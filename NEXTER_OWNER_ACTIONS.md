@@ -8,6 +8,20 @@ Nur Schritte, die nicht ohne echte Angaben, Secrets oder eine Produktionsfreigab
 2. AGB, Datenschutz, Impressum, Widerruf und Cookies juristisch freigeben. Die öffentlichen Texte sind Entwürfe. In den AGB stehen sechs Absätze mit `TODO` und `LEGAL REVIEW REQUIRED` (Nutzungsrechte, Beschwerden, KI-Inhalte, Stimme, kommerzielle Nutzung, Provider-Terms). Die nicht ersetzen, bevor ein freigegebener Wortlaut vorliegt.
 3. Erst danach `LEGAL_TEXT_STATUS` von `draft` auf den freigegebenen Zustand setzen. Das ist eine bewusste Veröffentlichung, kein Code-Fix.
 
+## Produktion: vier Flags stehen aktuell auf true
+
+Manuell geprüft, nichts geändert. Diese Werte nicht nebenbei speichern. Speichern in Railway kann einen Rebuild auslösen.
+
+- `IMAGE_GENERATIONS_ENABLED=true`
+- `IMAGE_EDITS_ENABLED=true`
+- `NEXTER_CHAT_ENABLED=true`
+- `VIDEO_GENERATIONS_ENABLED=true`
+- `PAYMENTS_ENABLED=false`
+- `REGISTRATION_MODE=invite_only`
+- `DEV_AUTH_BYPASS` ist nicht gesetzt
+
+Für den ersten kontrollierten Testerbetrieb diese vier Flags in einem eigenen, freigegebenen Schritt auf `false` setzen, zusammen mit dem Deploy und nicht als stiller Zwischensave. Vorher prüfen, ob `OPENAI_API_KEY`, `REPLICATE_API_TOKEN` und `RUNWAY_API_KEY` nur als „vorhanden“ oder „fehlt“ gemeldet werden. Werte nicht in den Chat kopieren.
+
 ## Secrets in Railway
 
 4. Die Namen aus `NEXTER_SECRETS_CHECKLIST.md` in Railway Variables eintragen. Nicht ins Repository.

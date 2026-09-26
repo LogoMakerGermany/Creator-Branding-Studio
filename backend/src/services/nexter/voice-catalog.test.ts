@@ -27,6 +27,49 @@ afterEach(() => {
   __resetVoiceCatalogCacheForTests();
 });
 
+it('elevenlabs voice list stays off unless the TTS flag is exactly true', async () => {
+  const previousFlag = process.env.TTS_GENERATION_ENABLED;
+  const previousKey = process.env.ELEVENLABS_API_KEY;
+  const previousGenerations = process.env.GENERATIONS_ENABLED;
+  let calls = 0;
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes('api.elevenlabs.io')) calls += 1;
+    return original(input, init);
+  }) as typeof fetch;
+  try {
+    process.env.GENERATIONS_ENABLED = 'true';
+    process.env.ELEVENLABS_API_KEY = 'unit-test-elevenlabs-placeholder';
+    for (const flag of [undefined, 'false', 'yes', '1'] as const) {
+      if (flag === undefined) delete process.env.TTS_GENERATION_ENABLED;
+      else process.env.TTS_GENERATION_ENABLED = flag;
+      __resetVoiceCatalogCacheForTests();
+      const voices = await listPublicNexterVoices();
+      assert.ok(voices.some((voice) => voice.catalogId === DEFAULT_NEXTER_VOICE_CATALOG_ID));
+      assert.equal(calls, 0);
+    }
+    process.env.TTS_GENERATION_ENABLED = 'true';
+    __resetVoiceCatalogCacheForTests();
+    await listPublicNexterVoices();
+    assert.equal(calls, 0);
+    const source = readFileSync(join(dir, 'voice-catalog.service.ts'), 'utf8');
+    const fn = source.slice(source.indexOf('async function fetchOfficialVoices'));
+    const flagAt = fn.indexOf('isTtsGenerationEnabled()');
+    const fetchAt = fn.indexOf('https://api.elevenlabs.io/v1/voices');
+    assert.ok(flagAt > 0 && fetchAt > flagAt);
+  } finally {
+    globalThis.fetch = original;
+    if (previousFlag === undefined) delete process.env.TTS_GENERATION_ENABLED;
+    else process.env.TTS_GENERATION_ENABLED = previousFlag;
+    if (previousKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = previousKey;
+    if (previousGenerations === undefined) delete process.env.GENERATIONS_ENABLED;
+    else process.env.GENERATIONS_ENABLED = previousGenerations;
+    __resetVoiceCatalogCacheForTests();
+  }
+});
+
 function fixtureVoice(i: number) {
   const gender = i % 3 === 0 ? 'female' : i % 3 === 1 ? 'male' : 'neutral';
   return {

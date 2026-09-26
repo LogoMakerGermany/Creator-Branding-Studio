@@ -15,13 +15,14 @@ Stand: 25. September 2026. Kein Produktionsdeploy, keine Zahlung, kein Provider-
 - Rechtliche Seiten kennzeichnen sich als Entwurf und nennen fehlende Impressum-Pflichtfelder, ohne sie zu erfinden.
 - Firebase-Import in `api.ts` ist statisch. Die Vite-Warnung zum gemischten Import ist im Build verschwunden.
 - Whisper- und Highlight-Fehler enthalten keinen Provider-Body. Der ungenutzte inoffizielle Suno-Client ist entfernt.
+- Die ElevenLabs-Stimmenliste bleibt aus, solange `TTS_GENERATION_ENABLED` nicht exakt `true` ist. Ein Key allein ruft sie nicht ab.
 
 ## Getestet
 
 Abschluss nach den letzten Änderungen:
 
 - `npm run typecheck`: grün (frontend, backend, shared)
-- `npm test`: 286 Suites, **1264 bestanden, 0 fehlgeschlagen**, etwa 77 s. Baseline dieses Auftrags: 1264. Davor: 1253.
+- `npm test`: 286 Suites, **1265 bestanden, 0 fehlgeschlagen**. Baseline davor: 1264.
 - `npm run build`: grün. Die Chunk-Warnung bei etwa 1,32 MB bleibt.
 
 Nicht ausgeführt: Playwright-E2E, Firestore-Emulator, GitHub Actions, Produktions-Smoke, echte Provider, echte Payments.
@@ -77,6 +78,10 @@ Stehen in `NEXTER_OWNER_ACTIONS.md`. Kurz: Betreiberadresse und Kontakt-E-Mail l
 - `LEGAL_TEXT_STATUS` ist `draft`. Die Seiten sind nicht als juristisch geprüft markiert.
 - Content-Rights-Klassifikation bleibt technisch und nicht rechtsverbindlich.
 
+## Railway-Befund, nicht von hier geändert
+
+In Produktion stehen `IMAGE_GENERATIONS_ENABLED`, `IMAGE_EDITS_ENABLED`, `NEXTER_CHAT_ENABLED` und `VIDEO_GENERATIONS_ENABLED` auf `true`. `PAYMENTS_ENABLED` ist `false`. `REGISTRATION_MODE` ist `invite_only`. `DEV_AUTH_BYPASS` fehlt. Diese Flags werden nicht aus diesem Lauf gespeichert, weil Speichern einen Rebuild auslösen kann. Der kontrollierte Schritt steht in `NEXTER_OWNER_ACTIONS.md`.
+
 ## Deployment-TODOs
 
 - Diesen Stand committen und auf den Produktionsbranch bringen, dann den bestehenden Railway-Service deployen. Hier nicht geschehen.
@@ -98,6 +103,6 @@ Stehen in `NEXTER_OWNER_ACTIONS.md`. Kurz: Betreiberadresse und Kontakt-E-Mail l
 | Prüfung | Ergebnis |
 | --- | --- |
 | Typecheck | grün |
-| Tests | 1264 bestanden, 0 fehlgeschlagen, 286 Suites |
+| Tests | 1265 bestanden, 0 fehlgeschlagen, 286 Suites |
 | Build | grün |
 | Gegenüber dem Stand 1253 | +11 Tests (Text-Gate, Readiness, Captions-Gate, Highlight-Gate) |

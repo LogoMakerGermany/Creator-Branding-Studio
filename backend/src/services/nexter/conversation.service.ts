@@ -200,6 +200,9 @@ async function fetchNexterChatCompletion(
   system: string,
   history: Array<{ role: string; content: string }>
 ): Promise<string> {
+  if (!isNexterChatProviderAvailable() || isPaidProviderTestBlocked()) {
+    throw new ServiceError(503, 'AI_UNAVAILABLE', 'AI PROVIDER NOT CONFIGURED');
+  }
   const key = getOpenAiApiKey();
   if (!key) {
     throw new ServiceError(503, 'AI_UNAVAILABLE', 'AI PROVIDER NOT CONFIGURED');
