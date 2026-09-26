@@ -73,9 +73,9 @@ describe('Block D — legal operator + draft publish readiness', () => {
   const authReg = repo('backend/src/services/auth-registration.service.ts');
   const userService = repo('backend/src/services/user.service.ts');
 
-  it('exposes public impressum, datenschutz and agb without auth or invite', () => {
+  it('exposes every public legal page without auth or invite', () => {
     assert.deepEqual(listLegalSlugs(), [...LEGAL_PUBLIC_SLUGS]);
-    for (const slug of ['impressum', 'datenschutz', 'agb'] as const) {
+    for (const slug of LEGAL_PUBLIC_SLUGS) {
       const page = getLegalPage(slug);
       assert.ok(page);
       assert.match(legalRoutes, new RegExp(`get\\('/${slug}'`));
@@ -92,7 +92,13 @@ describe('Block D — legal operator + draft publish readiness', () => {
   });
 
   it('keeps footer and landing legal links on NEXTER /legal routes', () => {
-    for (const href of ['/legal/impressum', '/legal/datenschutz', '/legal/agb']) {
+    for (const href of [
+      '/legal/impressum',
+      '/legal/datenschutz',
+      '/legal/agb',
+      '/legal/widerruf',
+      '/legal/cookies',
+    ]) {
       assert.match(footer, new RegExp(href.replaceAll('/', '\\/')));
       assert.match(landing, new RegExp(href.replaceAll('/', '\\/')));
     }
@@ -102,19 +108,22 @@ describe('Block D — legal operator + draft publish readiness', () => {
     assert.equal(/nexa|creatorbrandingstudio/i.test(footer), false);
   });
 
-  it('does not present placeholder tokens as live operator data', () => {
+  it('uses only the approved, clearly marked operator placeholders', () => {
+    const impressum = getLegalPage('impressum')!;
+    assert.equal(hasActiveLegalPlaceholderToken(impressum.html), true);
+    assert.match(impressum.html, /\[BETREIBER_NAME\]/);
+    assert.match(impressum.html, /\[STRASSE_HAUSNUMMER\]/);
+    assert.match(impressum.html, /\[PLZ_ORT\]/);
+    assert.match(impressum.html, /\[KONTAKT_EMAIL\]/);
     for (const slug of LEGAL_PUBLIC_SLUGS) {
-      const page = getLegalPage(slug)!;
-      assert.equal(hasActiveLegalPlaceholderToken(page.html), false, slug);
-      assert.equal(/Lorem ipsum/i.test(page.html), false, slug);
-      assert.equal(/\[NAME\]|\[ADRESSE\]/.test(page.html), false, slug);
+      assert.equal(/Lorem ipsum/i.test(getLegalPage(slug)!.html), false, slug);
     }
-    assert.equal(LEGAL_OPERATOR.operatorName, 'Lars Gaube');
+    assert.equal(LEGAL_OPERATOR.operatorName, '[BETREIBER_NAME]');
     assert.ok(missingLegalOperatorFields().includes('street'));
     assert.ok(missingLegalOperatorFields().includes('postalCode'));
     assert.ok(missingLegalOperatorFields().includes('contactEmail'));
-    assert.equal(missingLegalOperatorFields().includes('operatorName'), false);
-    assert.match(getLegalPage('impressum')!.html, /nicht hinterlegt/);
+    assert.equal(missingLegalOperatorFields().includes('operatorName'), true);
+    assert.match(getLegalPage('impressum')!.html, /ausschließlich als Platzhalter markiert/);
     assert.equal(legalService.includes('Max Mustermann'), false);
     assert.equal(legalService.includes('Musterstraße'), false);
   });
@@ -133,7 +142,7 @@ describe('Block D — legal operator + draft publish readiness', () => {
     assert.equal(missing.status, 'incomplete');
     assert.ok(missing.missingOperatorFields.includes('street'));
     assert.ok(missing.missingOperatorFields.includes('contactEmail'));
-    assert.equal(missing.missingOperatorFields.includes('operatorName'), false);
+    assert.equal(missing.missingOperatorFields.includes('operatorName'), true);
     assert.equal(missing.missingOperatorFields.includes('vatId'), false);
     assert.ok(missing.reasons.includes('missing_operator_data'));
 
@@ -247,16 +256,14 @@ describe('Block D/R — confirmed operator data stays draft', () => {
     registerNumber: '',
   };
 
-  it('1-4. shows confirmed operator, business name, city and country', () => {
+  it('1-4. shows approved placeholders and the product name', () => {
     const impressum = getLegalPage('impressum')!;
-    assert.equal(LEGAL_OPERATOR.operatorName, 'Lars Gaube');
+    assert.equal(LEGAL_OPERATOR.operatorName, '[BETREIBER_NAME]');
     assert.equal(LEGAL_OPERATOR.companyName, 'NEXTER');
-    assert.equal(LEGAL_OPERATOR.city, 'Hamburg');
-    assert.equal(LEGAL_OPERATOR.country, 'Deutschland');
-    assert.match(impressum.html, /Lars Gaube/);
+    assert.equal(LEGAL_OPERATOR.city, '');
+    assert.equal(LEGAL_OPERATOR.country, '');
+    assert.match(impressum.html, /\[BETREIBER_NAME\]/);
     assert.match(impressum.html, /Geschäfts-\/Projektname: NEXTER/);
-    assert.match(impressum.html, /Hamburg/);
-    assert.match(impressum.html, /Deutschland/);
     assert.equal(impressum.draft, true);
     assert.equal(impressum.publishable, false);
   });
@@ -269,9 +276,9 @@ describe('Block D/R — confirmed operator data stays draft', () => {
     assert.equal(isLegalPlaceholderValue(LEGAL_OPERATOR.vatId), true);
     assert.equal(isLegalPlaceholderValue(LEGAL_OPERATOR.registerCourt), true);
     assert.equal(isLegalPlaceholderValue(LEGAL_OPERATOR.registerNumber), true);
-    assert.equal(LEGAL_OPERATOR.street, '');
-    assert.equal(LEGAL_OPERATOR.postalCode, '');
-    assert.equal(LEGAL_OPERATOR.contactEmail, '');
+    assert.equal(LEGAL_OPERATOR.street, '[STRASSE_HAUSNUMMER]');
+    assert.equal(LEGAL_OPERATOR.postalCode, '[PLZ_ORT]');
+    assert.equal(LEGAL_OPERATOR.contactEmail, '[KONTAKT_EMAIL]');
     const impressum = getLegalPage('impressum')!.html;
     assert.doesNotMatch(impressum, /Musterstraße|Example Street|Fiktive Straße/i);
     assert.doesNotMatch(impressum, /\b\d{5}\b/);
@@ -279,12 +286,13 @@ describe('Block D/R — confirmed operator data stays draft', () => {
     assert.doesNotMatch(impressum, /\+49|Telefon:/);
     assert.doesNotMatch(impressum, /USt-IdNr\.:|DE\d{9}/);
     assert.doesNotMatch(impressum, /Registergericht:|Registernummer:|HRB\s*\d+/);
-    assert.equal(LEGAL_PLACEHOLDER.street.includes('EINTRAGEN'), true);
+    assert.equal(LEGAL_PLACEHOLDER.street, '[STRASSE_HAUSNUMMER]');
   });
 
   it('11. never prints undefined, null or PLACEHOLDER as operator values', () => {
     assert.equal(displayOperatorValue(undefined), 'noch nicht hinterlegt');
     assert.equal(displayOperatorValue(null), 'noch nicht hinterlegt');
+    assert.equal(displayOperatorValue('[BETREIBER_NAME]'), '[BETREIBER_NAME]');
     for (const slug of LEGAL_PUBLIC_SLUGS) {
       const html = getLegalPage(slug)!.html;
       assert.doesNotMatch(html, /\bundefined\b/);
@@ -309,8 +317,8 @@ describe('Block D/R — confirmed operator data stays draft', () => {
     assert.ok(live.missingOperatorFields.includes('street'));
     assert.ok(live.missingOperatorFields.includes('postalCode'));
     assert.ok(live.missingOperatorFields.includes('contactEmail'));
-    assert.match(getLegalPage('impressum')!.html, /Straße und PLZ noch nicht hinterlegt/);
-    assert.match(getLegalPage('impressum')!.html, /E-Mail: noch nicht hinterlegt/);
+    assert.match(getLegalPage('impressum')!.html, /\[STRASSE_HAUSNUMMER\], \[PLZ_ORT\]/);
+    assert.match(getLegalPage('impressum')!.html, /E-Mail: \[KONTAKT_EMAIL\]/);
   });
 
   it('15-16. empty VAT or register fields alone are not invented publish blockers', () => {

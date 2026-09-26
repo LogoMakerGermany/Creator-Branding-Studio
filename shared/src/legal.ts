@@ -21,14 +21,14 @@ export const LEGAL_LAST_UPDATED = '2026-09-18';
 export const LEGAL_REACCEPTANCE_REQUIRED = false;
 
 export const LEGAL_PLACEHOLDER = {
-  operatorName: '[BETREIBER_NAME_EINTRAGEN]',
+  operatorName: '[BETREIBER_NAME]',
   companyName: '[FIRMENNAME_EINTRAGEN]',
   legalForm: '[RECHTSFORM_EINTRAGEN]',
-  street: '[STRASSE_EINTRAGEN]',
-  postalCode: '[PLZ_EINTRAGEN]',
+  street: '[STRASSE_HAUSNUMMER]',
+  postalCode: '[PLZ_ORT]',
   city: '[ORT_EINTRAGEN]',
   country: '[LAND_EINTRAGEN]',
-  contactEmail: '[KONTAKT_EMAIL_EINTRAGEN]',
+  contactEmail: '[KONTAKT_EMAIL]',
   contactPhone: '[KONTAKT_TELEFON_EINTRAGEN]',
   vatId: '[USt-IdNr._EINTRAGEN]',
   registerCourt: '[REGISTERGERICHT_EINTRAGEN]',
@@ -81,14 +81,14 @@ export const LEGAL_MISSING_DISPLAY = 'noch nicht hinterlegt';
  * Never invent street, e-mail, phone, VAT or register data.
  */
 export const LEGAL_OPERATOR: Record<LegalOperatorField, string> = {
-  operatorName: 'Lars Gaube',
+  operatorName: LEGAL_PLACEHOLDER.operatorName,
   companyName: 'NEXTER',
   legalForm: '',
-  street: '',
-  postalCode: '',
-  city: 'Hamburg',
-  country: 'Deutschland',
-  contactEmail: '',
+  street: LEGAL_PLACEHOLDER.street,
+  postalCode: LEGAL_PLACEHOLDER.postalCode,
+  city: '',
+  country: '',
+  contactEmail: LEGAL_PLACEHOLDER.contactEmail,
   contactPhone: '',
   vatId: '',
   registerCourt: '',
@@ -143,7 +143,7 @@ export function shouldForceLegalReacceptance(
 export function isLegalPlaceholderValue(value: string | undefined | null): boolean {
   const trimmed = (value ?? '').trim();
   if (!trimmed) return true;
-  return /\[[^\]]*EINTRAGEN[^\]]*\]/i.test(trimmed);
+  return /^\[[A-Z0-9_. -]+\]$/i.test(trimmed);
 }
 
 export function isLegalPublishRequiredField(field: LegalOperatorField): boolean {
@@ -151,7 +151,7 @@ export function isLegalPublishRequiredField(field: LegalOperatorField): boolean 
 }
 
 export function hasActiveLegalPlaceholderToken(text: string): boolean {
-  return /\[[^\]]*EINTRAGEN[^\]]*\]/i.test(text) || /Lorem ipsum/i.test(text);
+  return /\[[A-Z0-9_. -]+\]/i.test(text) || /Lorem ipsum/i.test(text);
 }
 
 export function missingLegalOperatorFields(
@@ -161,9 +161,7 @@ export function missingLegalOperatorFields(
 }
 
 export function displayOperatorValue(value: string | undefined | null): string {
-  if (value === undefined || value === null || isLegalPlaceholderValue(value)) {
-    return LEGAL_MISSING_DISPLAY;
-  }
+  if (value === undefined || value === null || !String(value).trim()) return LEGAL_MISSING_DISPLAY;
   return String(value).trim();
 }
 

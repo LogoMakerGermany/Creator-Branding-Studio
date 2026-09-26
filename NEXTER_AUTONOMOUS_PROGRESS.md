@@ -119,8 +119,10 @@ Abschluss dieses Laufs: Typecheck grün, **1265 Tests grün, 0 fehlgeschlagen**,
 - Änderung: `GET /v1/voices` läuft nur, wenn `TTS_GENERATION_ENABLED` exakt `true` ist und die globale Generierung an ist. Ein ElevenLabs-Key allein ruft die Liste nicht ab. In Tests bleibt der Live-Call blockiert. Test-Loader bleiben der Mock-Pfad. Nexter-Chat prüft `isNexterChatProviderAvailable()` unmittelbar vor dem Chat-Completion-Request.
 - Prüfung 1: `voice-catalog.test.ts` und `nexter-tts-e2e.test.ts`, 38 bestanden.
 - Prüfung 2: volle Suite 1265 bestanden, Typecheck grün.
-- Verbleibend: Die vier in Railway auf `true` stehenden Flags werden nicht von hier geändert.
+- Verbleibend: Die vier in Railway auf `true` stehenden Flags werden nicht von hier geändert. `OPENAI_API_KEY` und `RUNWAY_API_KEY` sind vorhanden, `REPLICATE_API_TOKEN` fehlt. Die Railway-Startnamen `FIREBASE_*`, `FRONTEND_URL`, `FRONTEND_URLS` und die genannten `PUBLIC_FIREBASE_*` sind vorhanden. Keine Werte dokumentiert. Der freigegebene Firebase-Schritt ist abgeschlossen: `content_rights_reports` ist live fail-closed, `oauth_identities` ist READY, die bestehenden 42 Composite-Indexes sind weiterhin READY und Storage blieb unverändert. Railway hat einen Service, kein Volume und keine Datenbank. Replica 1 und Region `sfo` sind bestätigt.
 
 ## Verbleibende Blocker
 
-Siehe `NEXTER_OWNER_ACTIONS.md`. Lokal lösbare P0- und P1-Punkte sind erledigt. Offen sind Betreiberdaten, Rechtstexte, Secrets, Flags, Domain/DNS und die Produktionsfreigabe.
+Rechtstext-Technik: Impressum, Datenschutz, AGB, Widerruf und Cookies sind öffentlich geroutet, über API und gemeinsamen Footer erreichbar und bleiben `draft`. Die vier freigegebenen Platzhalter ersetzen keine echten Angaben. Gezielte Prüfung: 22 bestanden, 0 fehlgeschlagen; Typecheck und Build grün.
+
+Siehe `NEXTER_OWNER_ACTIONS.md`. Lokal lösbare P0- und P1-Punkte sind erledigt. Offen sind echte Betreiberdaten vor Veröffentlichung, juristische Freigabe, Flags und Produktionsfreigabe.

@@ -4,6 +4,8 @@ const LINKS = [
   { to: '/legal/impressum', label: 'Impressum' },
   { to: '/legal/datenschutz', label: 'Datenschutz' },
   { to: '/legal/agb', label: 'Nutzungsbedingungen' },
+  { to: '/legal/widerruf', label: 'Widerruf' },
+  { to: '/legal/cookies', label: 'Speicher & Cookies' },
 ] as const;
 
 export function LegalFooter({ className = '' }: { className?: string }) {

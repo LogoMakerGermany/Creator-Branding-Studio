@@ -119,6 +119,9 @@ function operatorAddressLine(): string {
   if (locality) known.push(locality);
   if (country) known.push(country);
   if (!street && !postal) {
+    if (isLegalPlaceholderValue(LEGAL_OPERATOR.street) && isLegalPlaceholderValue(LEGAL_OPERATOR.postalCode)) {
+      return `Anschrift: ${displayOperatorValue(LEGAL_OPERATOR.street)}, ${displayOperatorValue(LEGAL_OPERATOR.postalCode)}`;
+    }
     if (!known.length) return 'Anschrift: noch nicht hinterlegt';
     return `Anschrift: ${known.join(', ')} (Straße und PLZ noch nicht hinterlegt)`;
   }
@@ -180,7 +183,7 @@ function impressumBlocks(): LegalBlock[] {
     { type: 'h2', text: 'Anbieter' },
     {
       type: 'p',
-      text: 'NEXTER Creator Studio ist der Produktname der Anwendung. Bestätigt sind derzeit Betreiber, Geschäfts-/Projektname, Ort und Land. Ladungsfähige Anschrift und geschäftliche E-Mail fehlen noch. Optionale Angaben wie Telefon, USt-IdNr. oder Handelsregister werden nur gezeigt, wenn sie hinterlegt sind — ein leeres Feld begründet keine rechtliche Pflicht. Es werden keine erfundenen Adressen oder Registerdaten verwendet.',
+      text: 'NEXTER Creator Studio ist der Produktname der Anwendung. Betreibername, ladungsfähige Anschrift und geschäftliche E-Mail bleiben bis zur Veröffentlichung klar markierte Platzhalter. Optionale Angaben wie Telefon, USt-IdNr. oder Handelsregister werden nur gezeigt, wenn sie tatsächlich hinterlegt sind — ein leeres Feld begründet keine rechtliche Pflicht. Es werden keine Adressen oder Registerdaten erfunden.',
     },
     {
       type: 'ul',
@@ -192,7 +195,7 @@ function impressumBlocks(): LegalBlock[] {
       { type: 'h2', text: 'Fehlende Pflichtangaben' },
       {
         type: 'p',
-        text: 'Diese Felder sind für eine Veröffentlichung technisch erforderlich und derzeit nicht hinterlegt. USt-IdNr., Handelsregister und Telefon werden dadurch nicht zu erfundenen Pflichten. Es werden keine Platzhalter als echte Angaben dargestellt.',
+        text: 'Diese Felder sind für eine Veröffentlichung technisch erforderlich und derzeit ausschließlich als Platzhalter markiert. USt-IdNr., Handelsregister und Telefon werden dadurch nicht zu erfundenen Pflichten. Die Platzhalter sind keine echten Betreiberangaben.',
       },
       {
         type: 'ul',
@@ -315,7 +318,7 @@ function privacyBlocks(): LegalBlock[] {
     { type: 'h2', text: 'KI- und Medienanbieter' },
     {
       type: 'p',
-      text: 'Im Code sind Integrationen vorbereitet, die nur greifen, wenn sie konfiguriert und die jeweilige Funktion genutzt wird. Ein Request geht nicht automatisch an jeden Anbieter. Image-, Video- und Musikgenerierung sind derzeit deaktiviert. Es wird weder ein Live-Betrieb dieser Anbieter behauptet noch, dass sie niemals verwendet werden.',
+      text: 'Im Code sind Integrationen vorbereitet, die nur greifen, wenn sie konfiguriert, über das jeweilige Laufzeit-Flag freigeschaltet und aktiv genutzt werden. Ein Request geht nicht automatisch an jeden Anbieter. Der konkrete Produktionsstatus ist konfigurationsabhängig; dieser Entwurf behauptet weder eine dauerhafte Aktivierung noch eine dauerhafte Deaktivierung.',
     },
     {
       type: 'ul',
@@ -324,7 +327,7 @@ function privacyBlocks(): LegalBlock[] {
         'Lokal/Test: Mock- und Gating-Pfade, ohne echte Provider-Aufrufe in der Testumgebung',
         'Suno: im Code erwähnt; der inoffizielle Endpunkt ist deaktiviert',
         'Voice: Stimmenpräferenz, lokale Preview und TTS-Generierung sind zu unterscheiden; TTS ist provider-gated',
-        'Musik/Bild/Video: Verarbeitung nur, wenn der jeweilige Pfad aktiviert ist (aktuell DISABLED)',
+        'Musik/Bild/Video: Verarbeitung nur, wenn der jeweilige Pfad per Laufzeit-Flag und Provider-Konfiguration aktiviert ist',
       ],
     },
     {
@@ -576,7 +579,7 @@ const PAGES: Record<LegalPublicSlug, () => LegalPagePayload> = {
     page(
       'impressum',
       'Impressum',
-      'Impressum-Entwurf von NEXTER Creator Studio. Bestätigte Angaben: Lars Gaube, NEXTER, Hamburg, Deutschland. Ladungsfähige Anschrift und Kontakt-E-Mail fehlen noch. Keine Finalfassung.',
+      'Impressum-Entwurf von NEXTER Creator Studio. Betreibername, ladungsfähige Anschrift und Kontakt-E-Mail sind als Platzhalter gekennzeichnet. Keine Finalfassung.',
       impressumBlocks()
     ),
   datenschutz: () =>

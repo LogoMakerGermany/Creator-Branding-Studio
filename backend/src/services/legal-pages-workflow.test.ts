@@ -116,21 +116,22 @@ describe('legal pages local closure', () => {
     assert.ok(fields.includes('street'));
     assert.ok(fields.includes('postalCode'));
     assert.ok(fields.includes('contactEmail'));
-    assert.equal(fields.includes('operatorName'), false);
+    assert.equal(fields.includes('operatorName'), true);
     assert.equal(fields.includes('vatId'), false);
     assert.equal(fields.includes('registerCourt'), false);
     assert.equal(fields.includes('registerNumber'), false);
     const impressum = getLegalPage('impressum')!;
     assert.equal(/EINTRAGEN/.test(impressum.html), false);
-    assert.match(impressum.html, /nicht hinterlegt/);
+    assert.match(impressum.html, /ausschließlich als Platzhalter markiert/);
     assert.match(impressum.html, /Fehlende Pflichtangaben/);
-    assert.match(sharedLegal, /BETREIBER_NAME_EINTRAGEN/);
-    assert.match(sharedLegal, /KONTAKT_EMAIL_EINTRAGEN/);
+    assert.match(impressum.html, /\[BETREIBER_NAME\]/);
+    assert.match(impressum.html, /\[STRASSE_HAUSNUMMER\]/);
+    assert.match(impressum.html, /\[PLZ_ORT\]/);
+    assert.match(impressum.html, /\[KONTAKT_EMAIL\]/);
     assertNoFakeOperator(impressum.html);
     assertNoFakeOperator(legalService);
     assertNoFakeOperator(legalPage);
-    assert.equal(LEGAL_OPERATOR.operatorName, 'Lars Gaube');
-    assert.equal(LEGAL_OPERATOR.operatorName.includes('EINTRAGEN'), false);
+    assert.equal(LEGAL_OPERATOR.operatorName, '[BETREIBER_NAME]');
   });
 
   it('privacy/terms inventory matches actual architecture', () => {
@@ -146,6 +147,8 @@ describe('legal pages local closure', () => {
     assert.match(privacy.html, /Nexter-Sitzungen/);
     assert.match(privacy.html, /Coin-Guthaben/);
     assert.match(privacy.html, /provider-gated/);
+    assert.match(privacy.html, /konfigurationsabhängig/);
+    assert.equal(privacy.html.includes('Image-, Video- und Musikgenerierung sind derzeit deaktiviert'), false);
     assert.match(privacy.html, /Zahlungen sind derzeit deaktiviert/);
     assert.match(privacy.html, /Welcome-Bonus 50/);
     assert.match(privacy.html, /keine Kryptowährung/);
@@ -171,6 +174,8 @@ describe('legal pages local closure', () => {
     assert.match(footer, /\/legal\/impressum/);
     assert.match(footer, /\/legal\/datenschutz/);
     assert.match(footer, /\/legal\/agb/);
+    assert.match(footer, /\/legal\/widerruf/);
+    assert.match(footer, /\/legal\/cookies/);
     assert.match(landing, /\/legal\/impressum/);
     assert.match(landing, /\/legal\/datenschutz/);
     assert.match(landing, /\/legal\/agb/);

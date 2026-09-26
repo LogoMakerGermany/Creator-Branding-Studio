@@ -12,7 +12,7 @@ Stand: 25. September 2026. Kein Produktionsdeploy, keine Zahlung, kein Provider-
 - Admin-Readiness: Feature, Flag ON/OFF, Variablennamen, vorhanden JA/NEIN, READY / NOT READY. Keine Secret-Werte.
 - Checkliste `NEXTER_SECRETS_CHECKLIST.md`.
 - CI führt `npm test` aus.
-- Rechtliche Seiten kennzeichnen sich als Entwurf und nennen fehlende Impressum-Pflichtfelder, ohne sie zu erfinden.
+- Alle fünf Rechtstext-Seiten sind öffentlich eingebunden und als Entwurf gekennzeichnet. Impressumsangaben verwenden bis zur Veröffentlichung ausschließlich klar markierte Platzhalter.
 - Firebase-Import in `api.ts` ist statisch. Die Vite-Warnung zum gemischten Import ist im Build verschwunden.
 - Whisper- und Highlight-Fehler enthalten keinen Provider-Body. Der ungenutzte inoffizielle Suno-Client ist entfernt.
 - Die ElevenLabs-Stimmenliste bleibt aus, solange `TTS_GENERATION_ENABLED` nicht exakt `true` ist. Ein Key allein ruft sie nicht ab.
@@ -69,23 +69,23 @@ Für bezahlte Features jeweils das Flag plus den genannten Provider-Key. `DEV_AU
 
 ## Notwendige manuelle Schritte
 
-Stehen in `NEXTER_OWNER_ACTIONS.md`. Kurz: Betreiberadresse und Kontakt-E-Mail liefern, Rechtstexte freigeben, Secrets nur in Railway setzen, Flags einzelnd auf `true` stellen, Rules deployen, Code deployen, vor dem 1. Dezember 2026 die Railway-Config migrieren.
+Stehen in `NEXTER_OWNER_ACTIONS.md`. Kurz: echte Betreiberangaben erst vor Veröffentlichung liefern, Rechtstexte freigeben, bezahlte Provider für den ersten Test aus lassen, Code kontrolliert deployen und vor dem 1. Dezember 2026 die Railway-Config migrieren.
 
 ## Rechtliche TODOs
 
-- Impressum: Straße, PLZ und Kontakt-E-Mail fehlen und werden als „noch nicht hinterlegt“ gezeigt. Nicht erfunden.
+- Impressum: Betreibername, Straße/Hausnummer, PLZ/Ort und Kontakt-E-Mail bleiben bis zur Veröffentlichung als `[BETREIBER_NAME]`, `[STRASSE_HAUSNUMMER]`, `[PLZ_ORT]` und `[KONTAKT_EMAIL]` markiert. Nicht erfunden.
 - AGB enthalten weiter `TODO — User Content Rights`, `Copyright/Trademark Complaints`, `AI Generated Content`, `Voice Consent`, `Commercial Use`, `Provider Terms`. Alle mit `LEGAL REVIEW REQUIRED`.
 - `LEGAL_TEXT_STATUS` ist `draft`. Die Seiten sind nicht als juristisch geprüft markiert.
 - Content-Rights-Klassifikation bleibt technisch und nicht rechtsverbindlich.
 
 ## Railway-Befund, nicht von hier geändert
 
-In Produktion stehen `IMAGE_GENERATIONS_ENABLED`, `IMAGE_EDITS_ENABLED`, `NEXTER_CHAT_ENABLED` und `VIDEO_GENERATIONS_ENABLED` auf `true`. `PAYMENTS_ENABLED` ist `false`. `REGISTRATION_MODE` ist `invite_only`. `DEV_AUTH_BYPASS` fehlt. Diese Flags werden nicht aus diesem Lauf gespeichert, weil Speichern einen Rebuild auslösen kann. Der kontrollierte Schritt steht in `NEXTER_OWNER_ACTIONS.md`.
+In Produktion stehen `IMAGE_GENERATIONS_ENABLED`, `IMAGE_EDITS_ENABLED`, `NEXTER_CHAT_ENABLED` und `VIDEO_GENERATIONS_ENABLED` auf `true`. `PAYMENTS_ENABLED` ist `false`. `REGISTRATION_MODE` ist `invite_only`. `DEV_AUTH_BYPASS` fehlt. `OPENAI_API_KEY` und `RUNWAY_API_KEY` sind vorhanden, `REPLICATE_API_TOKEN` fehlt. Die Startnamen `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `FIREBASE_STORAGE_BUCKET`, `FRONTEND_URL`, `FRONTEND_URLS`, `PUBLIC_FIREBASE_API_KEY`, `PUBLIC_FIREBASE_AUTH_DOMAIN`, `PUBLIC_FIREBASE_PROJECT_ID` und `PUBLIC_FIREBASE_APP_ID` sind vorhanden. Werte wurden nicht angezeigt. Diese Flags werden nicht aus diesem Lauf gespeichert, weil Speichern einen Rebuild auslösen kann. Der kontrollierte Schritt steht in `NEXTER_OWNER_ACTIONS.md`.
 
 ## Deployment-TODOs
 
 - Diesen Stand committen und auf den Produktionsbranch bringen, dann den bestehenden Railway-Service deployen. Hier nicht geschehen.
-- Firebase Rules/Indexes gegen den Live-Stand prüfen und nur bei Freigabe deployen.
+- Firebase-Production-Schritt abgeschlossen: `content_rights_reports` ist live und fail-closed; der Composite-Index `oauth_identities` auf `firebaseUid` und `createdAt` ist READY. Die bestehenden 42 Composite-Indexes sind unverändert READY. Storage-Rules blieben unverändert.
 - CI-Lauf auf Node 20 abwarten.
 - `railway.toml` vor dem 1. Dezember 2026 migrieren. CLI im Repo ist 4.6.3 und kann das nicht.
 - Replicas bei 1 lassen. Quote-Confirm-Lock und Rate-Limits sind prozesslokal.
