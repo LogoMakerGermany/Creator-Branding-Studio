@@ -317,11 +317,13 @@ describe('Block C — music generation E2E + provider URL persistence', () => {
 
   it('16 download timeout refunds exactly once', async () => {
     const { user, project } = await seed('timeout');
+    let abortCount = 0;
     setProviderAudioFetchTestHooks({
       timeoutMs: 30,
       fetch: ((_input, init) =>
         new Promise((_, reject) => {
           init?.signal?.addEventListener('abort', () => {
+            abortCount += 1;
             const err = new Error('aborted');
             err.name = 'TimeoutError';
             reject(err);
@@ -340,6 +342,7 @@ describe('Block C — music generation E2E + provider URL persistence', () => {
     );
     assert.equal(await getCoinBalance(user.id), before);
     assert.equal(await refundCount(user.id), 1);
+    assert.equal(abortCount, 1);
     assert.equal(PROVIDER_AUDIO_FETCH_TIMEOUT_MS, 30_000);
   });
 

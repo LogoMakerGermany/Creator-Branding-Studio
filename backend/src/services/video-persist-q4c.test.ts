@@ -257,11 +257,13 @@ describe('Q.4c — video validation', () => {
       (err: unknown) => err instanceof ServiceError && err.code === VIDEO_INVALID_PAYLOAD_CODE
     );
 
+    let abortCount = 0;
     setProviderVideoFetchTestHooks({
       timeoutMs: 30,
       fetch: ((_input, init) =>
         new Promise((_, reject) => {
           init?.signal?.addEventListener('abort', () => {
+            abortCount += 1;
             const err = new Error('aborted');
             err.name = 'TimeoutError';
             reject(err);
@@ -272,6 +274,7 @@ describe('Q.4c — video validation', () => {
       () => fetchProviderVideo('https://dncdn.example.runway.test/slow.mp4'),
       (err: unknown) => err instanceof ServiceError && err.code === VIDEO_DOWNLOAD_TIMEOUT_CODE
     );
+    assert.equal(abortCount, 1);
     assert.equal(PROVIDER_VIDEO_FETCH_TIMEOUT_MS, 45_000);
     assert.equal(PROVIDER_VIDEO_MAX_REDIRECTS, 3);
   });

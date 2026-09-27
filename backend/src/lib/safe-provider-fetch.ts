@@ -57,6 +57,21 @@ const BLOCKED_HOSTS = new Set([
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
+async function fetchWithReferencedTimeout(
+  fetchImpl: FetchLike,
+  input: string,
+  init: Omit<RequestInit, 'signal'>,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 let testFetch: FetchLike | undefined;
 let testTimeoutMs: number | undefined;
 
@@ -176,12 +191,11 @@ export async function fetchProviderAudio(url: string): Promise<ProviderAudio> {
   for (let hop = 0; hop <= PROVIDER_AUDIO_MAX_REDIRECTS; hop++) {
     let res: Response;
     try {
-      res = await fetchImpl(current, {
+      res = await fetchWithReferencedTimeout(fetchImpl, current, {
         method: 'GET',
         redirect: 'manual',
-        signal: AbortSignal.timeout(testTimeoutMs ?? PROVIDER_AUDIO_FETCH_TIMEOUT_MS),
         headers: { Accept: 'audio/*,application/octet-stream' },
-      });
+      }, testTimeoutMs ?? PROVIDER_AUDIO_FETCH_TIMEOUT_MS);
     } catch (err) {
       const name = err instanceof Error ? err.name : '';
       if (name === 'TimeoutError' || name === 'AbortError') {
@@ -354,12 +368,11 @@ export async function fetchProviderVideo(url: string): Promise<ProviderVideo> {
   for (let hop = 0; hop <= PROVIDER_VIDEO_MAX_REDIRECTS; hop++) {
     let res: Response;
     try {
-      res = await fetchImpl(current, {
+      res = await fetchWithReferencedTimeout(fetchImpl, current, {
         method: 'GET',
         redirect: 'manual',
-        signal: AbortSignal.timeout(testVideoTimeoutMs ?? PROVIDER_VIDEO_FETCH_TIMEOUT_MS),
         headers: { Accept: 'video/mp4,video/*,application/octet-stream' },
-      });
+      }, testVideoTimeoutMs ?? PROVIDER_VIDEO_FETCH_TIMEOUT_MS);
     } catch (err) {
       const name = err instanceof Error ? err.name : '';
       if (name === 'TimeoutError' || name === 'AbortError') {
