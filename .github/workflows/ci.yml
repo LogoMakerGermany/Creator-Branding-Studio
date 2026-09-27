@@ -25,19 +25,5 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Diagnose phase F FFmpeg roundtrip
-        shell: bash
-        run: |
-          set -euxo pipefail
-          uname -a
-          node --version
-          FFMPEG_PATH="$(node --input-type=module -e "import p from 'ffmpeg-static'; console.log(p)")"
-          echo "FFmpeg path: $FFMPEG_PATH"
-          ls -l "$FFMPEG_PATH"
-          test -x "$FFMPEG_PATH"
-          "$FFMPEG_PATH" -version
-          ./node_modules/.bin/tsx --test --test-concurrency=1 \
-            backend/src/services/video.phase-f.test.ts
-
       - name: Test backend
         run: npm test
