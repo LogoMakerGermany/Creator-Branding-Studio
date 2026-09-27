@@ -261,6 +261,32 @@ describe('U.0 assets current history ownership missing', () => {
 });
 
 describe('U.0 project resolution, session, nexter, quotes', () => {
+  it('selects equal-timestamp sessions deterministically by id', async () => {
+    const user = await seed('session-tie');
+    const olderId = '00000000-0000-4000-8000-000000000301';
+    const newerId = '00000000-0000-4000-8000-000000000302';
+    const timestamp = '2026-01-01T00:00:00.000Z';
+    await dsSet('nexterSessions', olderId, {
+      id: olderId,
+      userId: user.id,
+      messages: [],
+      activeProjectId: 'old-active-project',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await dsSet('nexterSessions', newerId, {
+      id: newerId,
+      userId: user.id,
+      messages: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const selected = await getOrCreateNexterSession(user.id);
+    assert.equal(selected.id, newerId);
+    assert.equal(selected.activeProjectId, undefined);
+  });
+
   it('35-56 resolve precedence, no fake memory, open/use without generation', async () => {
     const user = await seed('nex');
     await upsertDna({
@@ -322,6 +348,7 @@ describe('U.0 project resolution, session, nexter, quotes', () => {
 
     const fresh = await createNexterSession(user.id);
     assert.equal(fresh.activeProjectId, undefined);
+    assert.equal((await getOrCreateNexterSession(user.id)).id, fresh.id);
     const leak = await nexterChat(user.id, 'Welches Logo ist aktuell?');
     assert.match(leak.messages.at(-1)?.content ?? '', /Kein Projekt|nicht ausgewählt|erinnere kein/i);
 

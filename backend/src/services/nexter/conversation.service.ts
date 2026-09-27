@@ -258,6 +258,30 @@ function normalizeSession(session: NexterSession): NexterSession {
   return session;
 }
 
+function compareSessionRecency(a: NexterSession, b: NexterSession): number {
+  if (a.updatedAt !== b.updatedAt) return a.updatedAt > b.updatedAt ? -1 : 1;
+  if (a.id === b.id) return 0;
+  return a.id > b.id ? -1 : 1;
+}
+
+async function listUserSessionsByRecency(userId: string): Promise<NexterSession[]> {
+  const sessions = (await dsList(COLLECTION, {
+    userId,
+    orderBy: 'updatedAt',
+    order: 'desc',
+  })) as unknown as NexterSession[];
+  return sessions.sort(compareSessionRecency);
+}
+
+function nextSessionTimestamp(sessions: NexterSession[]): string {
+  const now = Date.now();
+  const latest = sessions.reduce((max, session) => {
+    const value = Date.parse(session.updatedAt);
+    return Number.isFinite(value) ? Math.max(max, value) : max;
+  }, 0);
+  return new Date(Math.max(now, latest + 1)).toISOString();
+}
+
 async function persistSession(session: NexterSession): Promise<void> {
   capSessionMessages(session);
   session.updatedAt = new Date().toISOString();
@@ -390,15 +414,15 @@ export async function getNexterSessionForUser(sessionId: string, userId: string)
 }
 
 export async function getOrCreateNexterSession(userId: string): Promise<NexterSession> {
-  const sessions = await dsList(COLLECTION, { userId, orderBy: 'updatedAt', order: 'desc', limit: 1 });
+  const sessions = await listUserSessionsByRecency(userId);
   const existing = sessions[0];
   if (existing) {
-    const session = existing as unknown as NexterSession;
+    const session = existing;
     capSessionMessages(session);
     return normalizeSession(session);
   }
 
-  const now = new Date().toISOString();
+  const now = nextSessionTimestamp(sessions);
   const ctx = await buildNexterContext(userId).catch(() => null);
   const ctxLine = ctx?.hasDna
     ? `DNA „${ctx.dnaName}“ ist aktiv, ${ctx.coinBalance} Coins.`
@@ -421,7 +445,8 @@ export async function getOrCreateNexterSession(userId: string): Promise<NexterSe
 }
 
 export async function createNexterSession(userId: string): Promise<NexterSession> {
-  const now = new Date().toISOString();
+  const sessions = await listUserSessionsByRecency(userId);
+  const now = nextSessionTimestamp(sessions);
   const ctx = await buildNexterContext(userId).catch(() => null);
   const ctxLine = ctx?.hasDna
     ? `DNA „${ctx.dnaName}“ ist aktiv.`
